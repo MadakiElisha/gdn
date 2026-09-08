@@ -1,0 +1,8 @@
+PX4-Autopilot/
+build/
+install/
+log/
+tools/venv/
+data/
+*.mcap
+*.db3
