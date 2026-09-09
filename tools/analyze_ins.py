@@ -2,87 +2,87 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
+from pathlib import Path
 
-# 1. Load Data
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+DATA = ROOT / 'data' / 'flight001_csv'
+
 print("Loading data...")
-imu = pd.read_csv('../data/flight001_csv/imu.csv')
-lpos = pd.read_csv('../data/flight001_csv/lpos.csv')
+imu = pd.read_csv(DATA / 'imu.csv')
+lpos = pd.read_csv(DATA / 'lpos.csv')
 
-# Align timestamps to t=0
 t0 = imu['t'].iloc[0]
-imu['t_sec'] = (imu['t'] - t0) / 1e6
-lpos['t_sec'] = (lpos['t'] - t0) / 1e6
+imu['t_sec'] = (imu['t'] - t0)/1e6
+lpos['t_sec'] = (lpos['t'] - t0)/1e6
 
-# 2. INS State Initialization
-pos = np.zeros(3)  # NED position (North, East, Down)
-vel = np.zeros(3)  # NED velocity
-q = R.from_euler('xyz', [0, 0, 0])  # Start with identity attitude
+# --- Static window: before first motion per EKF speed
+speed = np.hypot(lpos['vx'], lpos['vy'])
+t_move = float(lpos.loc[speed > 0.5, 't_sec'].iloc[0]) if (speed > 0.5).any() else 30.0
+static = imu[imu['t_sec'] < t_move - 2.0]
+print(f"Static window: 0..{t_move-2.0:.1f}s ({len(static)} samples)")
 
-pos_history = []
-t_history = []
+m = static[['ax','ay','az']].to_numpy().mean(axis=0)
+gyro_bias = static[['gx','gy','gz']].to_numpy().mean(axis=0)
 
-print("Running Strapdown INS Integration...")
-# 3. Integration Loop
-for i in range(1, len(imu)):
-    dt = imu['t_sec'].iloc[i] - imu['t_sec'].iloc[i-1]
-    if dt <= 0: continue
-    
-    gyro = imu[['gx', 'gy', 'gz']].iloc[i].values
-    accel = imu[['ax', 'ay', 'az']].iloc[i].values
-    
-    # Update attitude (Integrate gyro)
-    rot_vec = gyro * dt
-    dq = R.from_rotvec(rot_vec)
-    q = q * dq
-    
-    # Rotate body-frame accel to NED navigation frame
-    a_nav = q.apply(accel)
-    
-    # Add gravity. 
-    # The IMU measures a_meas = a_kinematic - g_body.
-    # Therefore, a_kinematic = a_meas + g_body.
-    # In NED frame, gravity points DOWN (+Z), so g_nav = [0, 0, +9.80665]
-    a_kinematic = a_nav + np.array([0, 0, 9.80665])
-    
-    # Integrate velocity
-    vel = vel + a_kinematic * dt
-    
-    # Integrate position
-    pos = pos + vel * dt
-    
-    pos_history.append(pos.copy())
-    t_history.append(imu['t_sec'].iloc[i])
+# Coarse leveling from measured gravity (FRD body, NED nav)
+roll0  = np.arctan2(-m[1], -m[2])
+pitch0 = np.arctan2( m[0], np.hypot(m[1], m[2]))
 
-pos_history = np.array(pos_history)
-t_history = np.array(t_history)
+# In-motion alignment: heading from velocity vector once rolling fast enough
+spd = speed.to_numpy()
+i_mv = int(np.argmax(spd > 5.0)) if (spd > 5.0).any() else 0
+yaw0 = float(np.arctan2(lpos['vy'].iloc[i_mv], lpos['vx'].iloc[i_mv]))
+print(f"Initial yaw (in-motion align): {np.degrees(yaw0):.1f} deg")
 
-# 4. Calculate Final Error
-final_time = t_history[-1]
-final_ins_pos = pos_history[-1]
+R0 = R.from_euler('ZYX', [yaw0, pitch0, roll0])
 
-# Find closest EKF reference at the end
-idx_end = np.abs(lpos['t_sec'] - final_time).argmin()
-final_ekf_pos = lpos[['x', 'y', 'z']].iloc[idx_end].values
+g_nav = np.array([0, 0, 9.80665])
+accel_bias = m - R0.inv().apply(-g_nav)   # static: meas = R0^T(-g) + bias
+print(f"gyro bias [deg/s]: {np.degrees(gyro_bias).round(4)}")
+print(f"accel bias [m/s^2]: {accel_bias.round(4)}")
 
-error = final_ins_pos - final_ekf_pos
-print(f"\n--- Final Drift at {final_time:.1f}s ---")
-print(f"North Error: {error[0]:.2f} m")
-print(f"East Error:  {error[1]:.2f} m")
-print(f"Down Error:  {error[2]:.2f} m")
-print(f"Total 3D Error: {np.linalg.norm(error):.2f} m")
+G = imu[['gx','gy','gz']].to_numpy(); A = imu[['ax','ay','az']].to_numpy()
+T = imu['t_sec'].to_numpy()
+REF = lpos[['x','y','z']].to_numpy(float)
+TL  = lpos['t_sec'].to_numpy()
 
-# 5. Plot and Save
-plt.figure(figsize=(12, 6))
-plt.plot(t_history, pos_history[:, 0], label='Our INS (North)', color='red')
-plt.plot(lpos['t_sec'], lpos['x'], label='EKF Truth (North)', color='blue', linestyle='--')
-plt.xlabel('Time (s)')
-plt.ylabel('North Position (m)')
-plt.title('Pure Inertial Navigation vs EKF Ground Truth')
-plt.legend()
-plt.grid()
+def integrate(calib):
+    pos = REF[0].copy(); vel = lpos[['vx','vy','vz']].iloc[0].to_numpy(float).copy()
+    q  = R0 if calib else R.identity()
+    gb = gyro_bias if calib else np.zeros(3)
+    ab = accel_bias if calib else np.zeros(3)
+    ts, ps = [], []
+    for i in range(1, len(T)):
+        dt = T[i] - T[i-1]
+        if dt <= 0: continue
+        q = q * R.from_rotvec((G[i]-gb)*dt)
+        vel = vel + (q.apply(A[i]-ab) + g_nav)*dt
+        pos = pos + vel*dt
+        ts.append(T[i]); ps.append(pos.copy())
+    return np.array(ts), np.array(ps)
+
+t_n, p_n = integrate(False)
+t_c, p_c = integrate(True)
+
+def err_at(ts, ps, t):
+    i = np.abs(ts-t).argmin(); j = np.abs(TL-t).argmin()
+    return np.linalg.norm(ps[i]-REF[j])
+
+for t in (60, 120, 300, 600):
+    print(f"t={t:4d}s  naive {err_at(t_n,p_n,t):12.1f} m   calibrated {err_at(t_c,p_c,t):12.1f} m")
+
+fig, ax = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
+ax[0].plot(TL, REF[:,0], 'b--', label='EKF truth (N)')
+ax[0].plot(t_n, p_n[:,0], 'r',  label='naive INS')
+ax[0].plot(t_c, p_c[:,0], 'g',  label='calibrated INS')
+ax[0].set_ylabel('North (m)'); ax[0].legend(); ax[0].grid()
+en = np.linalg.norm(p_n - np.array([np.interp(t_n, TL, REF[:,k]) for k in range(3)]).T, axis=1)
+ec = np.linalg.norm(p_c - np.array([np.interp(t_c, TL, REF[:,k]) for k in range(3)]).T, axis=1)
+ax[1].semilogy(t_n, en, 'r', label='naive error')
+ax[1].semilogy(t_c, ec, 'g', label='calibrated error')
+ax[1].set_xlabel('Time (s)'); ax[1].set_ylabel('3D error (m, log)')
+ax[1].legend(); ax[1].grid(which='both')
 plt.tight_layout()
-
-out_path = '../data/flight001_drift.png'
-plt.savefig(out_path, dpi=150)
-print(f"\nPlot saved to: {out_path}")
-print("Open this file in Windows to see the drift curve.")
+plt.savefig(ROOT / 'data' / 'flight001_ins_v2.png', dpi=150)
+print("\nSaved plot to data/flight001_ins_v2.png")
