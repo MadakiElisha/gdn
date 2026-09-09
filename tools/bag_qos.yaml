@@ -1,0 +1,35 @@
+/fmu/out/sensor_combined:
+  history: keep_last
+  depth: 100
+  reliability: best_effort
+  durability: volatile
+
+/fmu/out/vehicle_local_position:
+  history: keep_last
+  depth: 100
+  reliability: best_effort
+  durability: volatile
+
+/fmu/out/vehicle_global_position:
+  history: keep_last
+  depth: 100
+  reliability: best_effort
+  durability: volatile
+
+/fmu/out/vehicle_gps_position:
+  history: keep_last
+  depth: 100
+  reliability: best_effort
+  durability: volatile
+
+/fmu/out/vehicle_attitude:
+  history: keep_last
+  depth: 100
+  reliability: best_effort
+  durability: volatile
+
+/fmu/out/vehicle_status:
+  history: keep_last
+  depth: 100
+  reliability: best_effort
+  durability: volatile
