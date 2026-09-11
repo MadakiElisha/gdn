@@ -72,6 +72,15 @@ EskfNode() : Node("gdn_eskf_node") {
     sig_pub_  = create_publisher<std_msgs::msg::Float64>("/gdn/sigma", 10);
     sig_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() {
         std_msgs::msg::Float64 s; s.data = std::sqrt(P_(0,0) + P_(1,1)); sig_pub_->publish(s); });
+    dbg_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() {
+        if (!aligned_) return;
+        const Eigen::Vector3d rpy = q_.toRotationMatrix().eulerAngles(2, 1, 0) / kDeg;
+        const double st = std::sqrt(std::max({P_(6,6), P_(7,7), P_(8,8)})) / kDeg;
+        RCLCPP_INFO(get_logger(),
+            "DBG t=%.0f pos=(%.0f,%.0f,%.0f) |v|=%.1f yaw=%.1f pit=%.1f rol=%.1f ba=%.4f bg=%.4f sp=%.1f st=%.2f skip=%d rej=%d",
+            t_cur_, pos_.x(), pos_.y(), pos_.z(), vel_.norm(), rpy.x(), rpy.y(), rpy.z(),
+            ba_.norm(), bg_.norm() / kDeg, std::sqrt(P_(0,0) + P_(1,1)), st, n_skip_, n_rej_);
+    });
     RCLCPP_INFO(get_logger(), "ESKF started; collecting %d static samples (hold still)", kStaticN);
 }
 
@@ -133,7 +142,7 @@ void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
     const Eigen::Vector3d w_m(msg->gyro_rad[0], msg->gyro_rad[1], msg->gyro_rad[2]);
     if (!aligned_) { CollectStatic(a_m, w_m); return; }
 
-    const uint64_t t = msg->timestamp;
+    const uint64_t t = msg->timestamp; t_cur_ = t * 1e-6;
     if (last_t_ == 0) { last_t_ = t; return; }
     double dt = (t - last_t_) * 1e-6; last_t_ = t;
     if (dt <= 0) return;
@@ -198,7 +207,7 @@ void TrnCb(const std_msgs::msg::Float64::SharedPtr msg) {
     if (!aligned_ || !yaw_aligned_) return;
     double h0, gn, ge;
     if (!MapAltGrad(pos_.x(), pos_.y(), h0, gn, ge)) return;
-    if (std::hypot(gn, ge) < slope_min_) return;                 // observability gate
+    if (std::hypot(gn, ge) < slope_min_) { n_skip_++; return; }                 // observability gate
     Eigen::Matrix<double, 1, 15> H = Eigen::Matrix<double, 1, 15>::Zero();
     H(0,0) = gn; H(0,1) = ge;
     const double innov = msg->data - h0 - H * x_;
@@ -246,7 +255,9 @@ M15 P_, Qc_; V15 x_;
 Eigen::Vector3d pos_, vel_, ba_, bg_, sa_, sw_, sa2_, vel_lpos_;
 Eigen::Quaterniond q_;
 uint64_t last_t_ = 0; int n_st_ = 0, n_upd_ = 0, n_rej_ = 0, n_stall_ = 0;
-bool aligned_ = false, yaw_aligned_ = false, have_lpos_ = false; int n_hb_ = 0;
+bool aligned_ = false, yaw_aligned_ = false, have_lpos_ = false; int n_hb_ = 0, n_skip_ = 0;
+    double t_cur_ = 0;
+    rclcpp::TimerBase::SharedPtr dbg_timer_;
 };
 
 int main(int argc, char** argv) {

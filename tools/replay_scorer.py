@@ -10,6 +10,7 @@ class Scorer(Node):
         self.odom = None; self.t0 = None; self.ts = []; self.errs = []; self.lp = 0.0
         self.create_subscription(Odometry, '/gdn/odom', self.cb_o, 10)
         self.create_subscription(PointStamped, '/gdn/truth', self.cb_t, 10)
+        self.get_logger().info('replay scorer alive and subscribed')
     def cb_o(self, m): self.odom = m
     def cb_t(self, m):
         if self.odom is None: return

@@ -12,7 +12,7 @@ M_LAT = 111320.0; M_LON = 111320.0*np.cos(np.radians(LAT_C))
 class TrnSim(Node):
     def __init__(self):
         super().__init__('gdn_trn_sensor_sim')
-        b = (Path.home()/'gdn_workspace/data/maps/terrain.bin').read_bytes()
+        b = (Path.home()/'gdn_workspace/data/maps/terrain_db.bin').read_bytes()
         nx, ny, self.lat0, self.lon0, self.dlat, self.dlon = struct.unpack('<iidddd', b[:40])
         self.alt = np.frombuffer(b[40:], dtype='<f4').reshape(ny, nx)
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST)
