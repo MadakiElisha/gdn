@@ -1,0 +1,3 @@
+- OI-002: vertical channel unobservable (no baro state); z drifts. Add 16th state.
+- OI-003: yaw via one-time GNSS velocity transfer; replace with magnetometer.
+- OI-004: late-flight divergence on replay; verify single-player full-bag run.
