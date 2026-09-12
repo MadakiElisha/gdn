@@ -17,7 +17,7 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
     : Node("gdn_eskf_node", options) {
     gdn::EskfConfig cfg;
     const std::string map_path = declare_parameter("map_path",
-        std::string("/home/madakie/gdn_workspace/data/maps/terrain_db.bin"));
+        std::string("/home/madakie/gdn_workspace/data/maps/terrain_db_sigma4.bin"));
     cfg.r_trn      = declare_parameter("r_trn", 144.0);
     cfg.slope_min  = declare_parameter("slope_min", 0.02);
     cfg.gate_sigma = declare_parameter("gate_sigma", 3.0);

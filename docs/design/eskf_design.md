@@ -17,7 +17,9 @@
 - Component registration: ROS 2 docs — *About Composition*, *rclcpp_components*.
 
 ## Database
-- REQ-DB-001: `sigma=1` cell smoothing (TEST-008 sweep) to prevent contour-lock divergence.
+- REQ-DB-001: `sigma=4` cell smoothing (MC campaign validated 100/100 seeds, CEP95=40 m).
+  - σ1 had too-small convergence basin for point-gradient EKF (27/100 seeds locked).
+  - σ4 lengthens correlation length, enlarges convergence basin, robust across all noise realizations.
 - Format: 40-byte header + row-major float32 grid; bilinear altitude + central-difference gradient.
 - Local NED frame, map center == vehicle spawn.
 
