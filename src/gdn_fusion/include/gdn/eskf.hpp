@@ -11,11 +11,12 @@
 namespace gdn {
 
 struct EskfConfig {
-    double r_trn = 144.0;          // (12 m)^2: sensor noise + DB mismatch
+    double r_trn = 400.0;          // (20 m)^2: sensor noise + DB mismatch (robustness)
     double slope_min = 0.02;       // observability gate [m/m]
     double gate_sigma = 3.0;       // innovation gate [sigma]
     double gate_abs_m = 40.0;      // innovation gate [m]
     double clamp_dtheta_deg = 0.2; // per-update attitude injection limit
+    double clamp_dp = 5.0;         // per-update position injection limit (m)
     double clamp_dv = 0.5;         // per-update velocity injection limit (OI-006)
     double clamp_dva = 0.005;      // per-update accel-bias injection limit
     double clamp_dvg_deg = 0.05;   // per-update gyro-bias injection limit
