@@ -1,9 +1,15 @@
 # GDN — GNSS-Denied Terrain-Referenced Navigation (TRN)
 
-Error-state Kalman filter (ESKF) navigation stack for aircraft operating
-without GNSS. Fuses IMU, a terrain-elevation measurement (terrain-referenced
+Error-state Kalman filter (ESKF) navigation stack for any aerial vehicle
+operating without GNSS. Fuses IMU, a terrain-elevation measurement (terrain-referenced
 navigation, TRN) and a barometer against an onboard terrain database to
 produce a bounded 3-D position estimate in a local map frame.
+
+Vehicle-agnostic by design: the core contains no airframe model (no rotor,
+control-surface or thrust dynamics) — it is a pure state estimator, so the
+same binary runs on fixed-wing, multirotor, VTOL and hybrid platforms.
+Platform specifics enter only through sensor-noise tuning and the terrain
+database; all validation to date uses a fixed-wing PX4 SITL replay.
 
 Repository: https://github.com/MadakiElisha/gdn
 Platform: Ubuntu 24.04, ROS 2 Jazzy, rmw_zenoh, Eigen3, px4_msgs
@@ -58,7 +64,9 @@ Platform: Ubuntu 24.04, ROS 2 Jazzy, rmw_zenoh, Eigen3, px4_msgs
 
 Principle: all navigation math is ROS-free and unit-testable; ROS 2 exists only
 as a thin I/O wrapper; every claim is backed by a deterministic replay or a
-statistical campaign.
+statistical campaign. The core is vehicle-agnostic: no airframe model exists
+anywhere in include/gdn/, so fixed-wing, multirotor and VTOL platforms share
+one estimator (§1).
 
     [IMU + TRN meas + baro meas] -> eskf_node (thin wrapper)
             |                            |
