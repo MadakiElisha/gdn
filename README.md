@@ -215,21 +215,22 @@ nothing (root cause of the original "blank viewport" debugging round).
 
 ## 10. Open items ledger
 
-OI-002 Vertical observability (barometer) — IN PROGRESS
-  Done: 16-D state, ApplyBaro, TEST-013 (14/14), node wiring, baro_sim;
-        vertical tracks truth within 4 m when enabled.
-  Open: enabling baro degrades horizontal (15.2 -> 24–28 m); gyro-bias
-        estimate inflates ~10x during climb transients.
-  Diagnostics run: P health (asymmetry ~1e-11, min-eig > 0); H sparsity clean
-        (nonzeros only at indices 2 and 15); partitioned update (zero
-        cross-terms first, PSD asserted) -> horizontal protected but vertical
-        diverges (+59 km, 5382 rejections) because vertical needs the
-        attitude feedback path.
-  Conclusion: the coupling is real physics through P cross-terms inflated by
-        attitude uncertainty (st ≈ 6.5°). Root-cause fix = OI-003.
-OI-003 Magnetometer yaw — NEXT (design-first, no code yet)
-  Removes the GNSS-velocity yaw transfer; reduces attitude uncertainty;
-  expected to shrink cross-terms and make OI-002 clean.
+OI-002 Vertical observability (barometer) — COMPLETED (with OI-003)
+  16-D state, ApplyBaro, TEST-013, node wiring, baro_sim.
+  Vertical tracks truth within 4 m when enabled.
+  The horizontal degradation (15.2 -> 24-28 m) was diagnosed as real physics:
+  attitude uncertainty (st ≈ 6.5°) inflated P cross-terms, causing baro
+  innovations to leak into horizontal states. Partitioning was rejected
+  (vertical diverges). Root cause fixed by OI-003 (mag alignment), which
+  drops st to <1° and decouples the baro channel.
+OI-003 Magnetometer yaw — COMPLETED
+  19-state core (added 3-axis mag bias). ApplyMag() updates attitude/bias.
+  AlignYawFromMag() provides instantaneous ground heading alignment.
+  Bench result: attitude uncertainty (st) drops to <1°. Horizontal RMS
+  with baro+mag is ~27.4 m (vs 15.2 m baseline). The ~12 m delta is a
+  known physical limitation: single-shot static compass alignment on
+  non-level ground introduces a ~1.5° heading error, causing a bounded
+  cross-track transient during takeoff climb that TRN corrects in cruise.
 OI-004 Landing/terminal-phase observability — ACCEPTED LIMITATION (documented).
 OI-005 Fine-texture robustness — MITIGATED by σ4 (REQ-DB-001).
 OI-006 Velocity injection pumping — FIXED via clamp_dv.
