@@ -117,6 +117,7 @@ int main() {
         EskfConfig mc1;
         mc1.p0_mag_bias = 0.0;        // bias known: isolates yaw observability
         mc1.clamp_dtheta_deg = 5.0;   // unit-test convergence clamp
+        mc1.mag_ref_north = 25.0; mc1.mag_ref_east = 0.0; mc1.mag_ref_down = 45.0; // Match test sim
         Eskf m1(mc1);
         al = false;
         for (int i = 0; i < 700 && !al; ++i) al = m1.FeedStatic(a0, w0);
@@ -139,6 +140,7 @@ int main() {
         // Keep truth_bias small (norm < 5.0) to avoid triggering clamp_dvm=5.0 on the first step.
         EskfConfig mc2;
         mc2.clamp_dtheta_deg = 15.0;
+        mc2.mag_ref_north = 25.0; mc2.mag_ref_east = 0.0; mc2.mag_ref_down = 45.0; // Match test sim
         Eskf m2(mc2);
         al = false;
         for (int i = 0; i < 700 && !al; ++i) al = m2.FeedStatic(a0, w0);
