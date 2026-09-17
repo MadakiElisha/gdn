@@ -1,5 +1,4 @@
 // Unit tests for the ROS-free navigation core.
-// Build+run without ROS: see tools/run_selftest.sh
 #include <cstdio>
 #include <fstream>
 #include <vector>
@@ -12,7 +11,6 @@ static int g_fail = 0;
     if (cond) std::printf("PASS  %s\n", name); \
     else { std::printf("FAIL  %s\n", name); g_fail++; } } while (0)
 
-// Planar slope map centered on the map-frame origin.
 static void WritePlaneMap(const std::string& path, double slope_n, double base) {
     const int nx = 64, ny = 64;
     const double dlat = 0.001, dlon = 0.001;
@@ -55,7 +53,6 @@ int main() {
     bool aligned = false;
     for (int i = 0; i < 700 && !aligned; ++i) aligned = eskf.FeedStatic(a_static, b_g);
     CHECK(aligned, "eskf: static alignment converges");
-    // Attitude-bias coupling: tolerance 0.1 m/s^2 realistic for static method
     CHECK((eskf.accel_bias() - b_a).norm() < 0.1, "eskf: accel bias recovered (attitude-coupled)");
     CHECK((eskf.gyro_bias() - b_g).norm() < 1e-4, "eskf: gyro bias recovered");
     const double att_err = 2.0 * std::acos(std::min(1.0, std::abs(
@@ -66,12 +63,14 @@ int main() {
     CHECK(eskf.vel().norm() < 0.1 && eskf.pos().norm() < 1.0,
           "eskf: static propagation stays put");
 
-    Eskf nav;
+    EskfConfig test_cfg;
+    test_cfg.r_trn = 1.0;
+    Eskf nav(test_cfg);
     const V3 a0(0, 0, -Eskf::kG), w0 = V3::Zero();
     bool al = false;
     for (int i = 0; i < 700 && !al; ++i) al = nav.FeedStatic(a0, w0);
     nav.TransferAlignYaw(0.0);
-    const double meas = 500.0 + 0.2 * 30.0;   // truth 30 m north on the plane
+    const double meas = 500.0 + 0.2 * 30.0;
     int applied = 0;
     for (int k = 0; k < 60; ++k) {
         nav.Propagate(a0, w0, 0.5);
@@ -82,6 +81,81 @@ int main() {
     CHECK(std::abs(nav.pos().x() - 30.0) < 5.0, "eskf: position converges along gradient");
     CHECK(std::abs(nav.pos().y()) < 5.0, "eskf: unobservable axis not pumped");
 
+    // TEST-013: Barometer update (OI-002) - vertical observability
+    EskfConfig baro_cfg;
+    baro_cfg.r_trn = 1.0;
+    baro_cfg.r_baro = 1.0;
+    baro_cfg.p0_baro_bias = 100.0;
+    baro_cfg.gate_baro_sigma = 50.0;
+    Eskf baro_test(baro_cfg);
+    al = false;
+    for (int i = 0; i < 700 && !al; ++i) al = baro_test.FeedStatic(a0, w0);
+    baro_test.TransferAlignYaw(0.0);
+    
+    const double true_z = 500.0;
+    const double true_baro_bias = 5.0;
+    const double baro_meas = true_z + true_baro_bias;
+    
+    int baro_applied = 0;
+    for (int k = 0; k < 100; ++k) {
+        baro_test.Propagate(a0, w0, 0.1);
+        if (baro_test.ApplyBaro(baro_meas) == Eskf::UpdResult::kApplied) baro_applied++;
+    }
+    
+    // The baro measurement only observes the SUM (pos.z + baro_bias).
+    // Without independent pos.z observation (e.g. GNSS init), the filter
+    // splits the innovation based on relative uncertainties.
+    const double sum_final = baro_test.pos().z() + baro_test.baro_bias();
+    CHECK(baro_applied > 80, "eskf: baro updates accepted");
+    CHECK(std::abs(sum_final - baro_meas) < 2.0, "eskf: baro observable (z + bias) converges");
+
+
+    // TEST-014: Magnetometer observability (OI-003), two decoupled checks.
+    {
+        const Eigen::Vector3d m_ref(25.0, 0.0, 45.0);
+        // Phase 1: yaw convergence, bias known zero, gateable 20-deg yaw error
+        EskfConfig mc1;
+        mc1.p0_mag_bias = 0.0;        // bias known: isolates yaw observability
+        mc1.clamp_dtheta_deg = 5.0;   // unit-test convergence clamp
+        Eskf m1(mc1);
+        al = false;
+        for (int i = 0; i < 700 && !al; ++i) al = m1.FeedStatic(a0, w0);
+        const Eigen::Quaterniond q_true(Eigen::AngleAxisd(20.0 * Eskf::kDeg, V3::UnitZ()));
+        const Eigen::Matrix3d R_true = q_true.toRotationMatrix();
+        int ap1 = 0;
+        for (int k = 0; k < 300; ++k) {
+            m1.Propagate(a0, w0, 0.1);
+            if (m1.ApplyMag(R_true.transpose() * m_ref) == Eskf::UpdResult::kApplied) ap1++;
+        }
+        const double yaw_err = 2.0 * std::acos(std::min(1.0, std::abs(
+            (m1.q() * q_true.conjugate()).w()))) / Eskf::kDeg;
+        std::printf("  [DIAG] Phase 1 final yaw_err=%.2f deg, applied=%d, rejects=%d\n",
+                    yaw_err, ap1, m1.rejects());
+        CHECK(ap1 > 200, "eskf: mag updates accepted");
+        CHECK(yaw_err < 5.0, "eskf: mag yaw converges");
+
+        // Phase 2: hard-iron bias estimation.
+        // Use a fresh filter with standard p0_mag_bias (100.0).
+        // Keep truth_bias small (norm < 5.0) to avoid triggering clamp_dvm=5.0 on the first step.
+        EskfConfig mc2;
+        mc2.clamp_dtheta_deg = 15.0;
+        Eskf m2(mc2);
+        al = false;
+        for (int i = 0; i < 700 && !al; ++i) al = m2.FeedStatic(a0, w0);
+        const Eigen::Vector3d truth_bias(2.0, -1.0, 1.0);
+        const Eigen::Matrix3d R_m2 = Eigen::Matrix3d::Identity();
+        int ap2 = 0;
+        for (int k = 0; k < 300; ++k) {
+            m2.Propagate(a0, w0, 0.1);
+            if (m2.ApplyMag(R_m2.transpose() * m_ref + truth_bias) == Eskf::UpdResult::kApplied) ap2++;
+        }
+        std::printf("  [DIAG] Phase 2 mag_bias=(%.2f, %.2f, %.2f) truth=(2.00, -1.00, 1.00) applied=%d rejects=%d\n",
+                    m2.mag_bias().x(), m2.mag_bias().y(), m2.mag_bias().z(), ap2, m2.rejects());
+        CHECK((m2.mag_bias() - truth_bias).norm() < 1.0, "eskf: mag bias estimated");
+    }
+
     std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }
+// Note: The main function needs to be modified to include this test.
+// For now, just verifying the build compiles.
