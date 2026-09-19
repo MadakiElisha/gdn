@@ -57,7 +57,7 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
                                     / gdn::Eskf::kDeg;
         RCLCPP_INFO(get_logger(),
             "DBG t=%.0f pos=(%.0f,%.0f,%.0f) zt=%.0f |v|=%.1f yaw=%.1f pit=%.1f rol=%.1f "
-            "ba=%.4f bg=%.4f bb=%.1f mb=(%.1f,%.1f,%.1f) sp=%.1f spz=%.1f st=%.2f pa=%.1e pe=%.1e pbz=%.1e rej=%d",
+            "ba=%.4f bg=%.4f bb=%.1f mb=(%.1f,%.1f,%.1f) sp=%.1f spz=%.1f st=%.2f pa=%.1e pe=%.1e pbz=%.1e rej=%d zu=%d",
             t_cur_, eskf_->pos().x(), eskf_->pos().y(), eskf_->pos().z(), z_truth_,
             eskf_->vel().norm(),
             rpy.x(), rpy.y(), rpy.z(),
@@ -67,7 +67,7 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
             eskf_->mag_bias().x(), eskf_->mag_bias().y(), eskf_->mag_bias().z(),
             eskf_->sigma_pos(), eskf_->sigma_pos_z(), eskf_->sigma_att_deg(),
             eskf_->p_asym(), eskf_->p_mineig(), eskf_->p_bgz(),
-            eskf_->rejects());
+            eskf_->rejects(), eskf_->zupt());
     });
     RCLCPP_INFO(get_logger(), "ESKF v3 started; collecting static samples (hold still)");
 }
@@ -91,6 +91,19 @@ void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
     if (dt > 0.1) { n_stall_++; if (n_stall_ % 10 == 1)
         RCLCPP_WARN(get_logger(), "IMU gap absorbed %.3f s (count %d)", dt, n_stall_); }
     eskf_->Propagate(a_m, w_m, dt);
+
+        // ZUPT: Pin horizontal states while provably stationary on the ground
+        if (!airborne_latch_ && have_lpos_) {
+            if (vel_lpos_.norm() > 2.0) {
+                airborne_latch_ = true;
+                RCLCPP_INFO(get_logger(), "Airborne latch set (vel=%.1f m/s) - ZUPT disabled", vel_lpos_.norm());
+            } else {
+                zupt_count_++;
+                if (zupt_count_ % 10 == 0) { // ~10 Hz ZUPT
+                    eskf_->ApplyZupt();
+                }
+            }
+        }
 
     const double spd = vel_lpos_.head<2>().norm();
     if (!eskf_->yaw_aligned() && have_lpos_ && spd > 3.0 &&
@@ -186,6 +199,8 @@ double t_cur_ = 0.0;
 int n_stall_ = 0;
 bool have_lpos_ = false;
 bool z_initialized_ = false;
+    bool airborne_latch_ = false;
+    int zupt_count_ = 0;
 
 };
 

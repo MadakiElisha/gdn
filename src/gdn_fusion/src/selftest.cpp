@@ -156,7 +156,31 @@ int main() {
         CHECK((m2.mag_bias() - truth_bias).norm() < 1.0, "eskf: mag bias estimated");
     }
 
-    std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
+        // TEST-015: ZUPT pins horizontal states while static
+    {
+        EskfConfig zc;
+        zc.mag_ref_north = 25.0; zc.mag_ref_east = 0.0; zc.mag_ref_down = 45.0;
+        Eskf zt(zc);
+        bool al = false;
+        for (int i = 0; i < 700 && !al; ++i) al = zt.FeedStatic(a0, w0);
+        CHECK(al, "eskf: TEST-015 static alignment");
+        const Eigen::Vector3d a_bias = a0 + Eigen::Vector3d(0.05, 0.0, 0.0);
+        int zap = 0;
+        for (int k = 0; k < 300; ++k) {
+            zt.Propagate(a_bias, w0, 0.1);
+            if (k % 10 == 9 && zt.ApplyZupt() == Eskf::UpdResult::kApplied) zap++;
+        }
+        CHECK(zap > 20, "eskf: zupt updates applied");
+        CHECK(zt.vel().norm() < 0.2, "eskf: zupt pins velocity");
+        CHECK(zt.pos().head<2>().norm() < 1.0, "eskf: zupt pins horizontal position");
+        Eskf zn(zc);
+        al = false;
+        for (int i = 0; i < 700 && !al; ++i) al = zn.FeedStatic(a0, w0);
+        for (int k = 0; k < 300; ++k) zn.Propagate(a_bias, w0, 0.1);
+        CHECK(zn.pos().head<2>().norm() > 5.0, "eskf: control drifts without zupt");
+    }
+
+std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }
 // Note: The main function needs to be modified to include this test.

@@ -156,6 +156,53 @@ public:
         return UpdResult::kApplied;
     }
 
+    UpdResult ApplyZupt() {
+        if (!aligned_) return UpdResult::kSlopeGate;
+        
+        // H observes velocity error (indices 3,4,5)
+        Eigen::Matrix<double, 3, 19> H = Eigen::Matrix<double, 3, 19>::Zero();
+        H.block<3,3>(0, 3) = Eigen::Matrix3d::Identity();
+        
+        // Innovation: we want nominal velocity to be 0
+        Eigen::Vector3d y = -vel_;
+        
+        const double r_zupt = 0.05 * 0.05; // 0.05 m/s noise
+        Eigen::Matrix3d R = r_zupt * Eigen::Matrix3d::Identity();
+        Eigen::Matrix3d S = (H * P_ * H.transpose()) + R;
+        
+        // Very loose gate to prevent lockout if drift already happened
+        double d2 = y.transpose() * S.inverse() * y;
+        if (d2 > 100.0) { n_rej_++; return UpdResult::kInnovGate; }
+        
+        Eigen::Matrix3d S_inv = S.inverse();
+        const Eigen::Matrix<double, 19, 3> K = P_ * H.transpose() * S_inv;
+        V19 dx = K * y;
+        
+        dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
+        dx.segment<3>(6)  = Clamp(dx.segment<3>(6),  cfg_.clamp_dtheta_deg * kDeg);
+        dx.segment<3>(9)  = Clamp(dx.segment<3>(9),  cfg_.clamp_dva);
+        dx.segment<3>(12) = Clamp(dx.segment<3>(12), cfg_.clamp_dvg_deg * kDeg);
+        
+        x_ += dx;
+        const M19 IKH = M19::Identity() - K * H;
+        P_ = Repair(IKH * P_ * IKH.transpose() + K * R * K.transpose());
+        
+        pos_ += x_.segment<3>(0); vel_ += x_.segment<3>(3);
+        const double da = x_.segment<3>(6).norm();
+        if (da > 1e-9)
+            q_ = (q_ * Eigen::Quaterniond(Eigen::AngleAxisd(da, x_.segment<3>(6).normalized()))).normalized();
+        ba_ += x_.segment<3>(9); bg_ += x_.segment<3>(12);
+        baro_bias_ += x_(15);
+        mag_bias_ += x_.segment<3>(16);
+        
+        M19 J = M19::Identity();
+        J.block<3,3>(6,6) = Eigen::Matrix3d::Identity() - Skew(x_.segment<3>(6));
+        P_ = Repair(J * P_ * J.transpose());
+        x_.setZero();
+        n_zupt_++;
+        return UpdResult::kApplied;
+    }
+
     UpdResult ApplyBaro(double z_meas) {
         if (!aligned_) return UpdResult::kSlopeGate;
         const double z_hat = pos_.z() + baro_bias_;
@@ -303,6 +350,7 @@ public:
     }
 
     int updates() const { return n_upd_; }
+    int zupt() const { return n_zupt_; }
     int rejects() const { return n_rej_; }
 
 private:
@@ -338,6 +386,7 @@ private:
     Eigen::Quaterniond q_;
     V19 x_; M19 P_, Qc_;
     int n_ = 0, n_upd_ = 0, n_rej_ = 0;
+    int n_zupt_ = 0;
     bool aligned_ = false, yaw_aligned_ = false;
 };
 
