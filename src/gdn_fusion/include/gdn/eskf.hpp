@@ -132,7 +132,7 @@ public:
         if (innov_out) *innov_out = innov;
         if (s_out) *s_out = S;
         if (S <= 0 || std::abs(innov) / std::sqrt(S) > cfg_.gate_sigma ||
-            std::abs(innov) > cfg_.gate_abs_m) { n_rej_++; return UpdResult::kInnovGate; }
+            std::abs(innov) > cfg_.gate_abs_m) { n_rej_++; n_rej_trn_++; return UpdResult::kInnovGate; }
         const V19 K = (P_ * H.transpose()) / S;
         V19 dx = K * innov;
         dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
@@ -213,7 +213,7 @@ public:
         const double S = (H * P_ * H.transpose())(0, 0) + cfg_.r_baro;
         if (S <= 1e-12) return UpdResult::kInnovGate;
         if (std::abs(innov) / std::sqrt(S) > cfg_.gate_baro_sigma) {
-            n_rej_++; return UpdResult::kInnovGate;
+            n_rej_++; n_rej_baro_++; return UpdResult::kInnovGate;
         }
         const V19 K = (P_ * H.transpose()) / S;
         V19 dx = K * innov;
@@ -246,6 +246,7 @@ public:
         const Eigen::Vector3d m_ref(cfg_.mag_ref_north, cfg_.mag_ref_east, cfg_.mag_ref_down);
         const Eigen::Vector3d m_hat = R.transpose() * m_ref + mag_bias_;
         const Eigen::Vector3d y = z_meas - m_hat;
+        mag_innov_rms_ = 0.98 * mag_innov_rms_ + 0.02 * y.norm();
         
         Eigen::Matrix<double, 3, 19> H = Eigen::Matrix<double, 3, 19>::Zero();
         H.block<3,3>(0, 6) = Skew(m_hat);
@@ -260,7 +261,7 @@ public:
         const double d2 = y.transpose() * S_inv * y;
         // Explicit NaN guard: NaN > gate is false in C++, which would bypass the gate!
         if (std::isnan(d2) || d2 > cfg_.gate_mag_sigma * cfg_.gate_mag_sigma) {
-            n_rej_++; return UpdResult::kInnovGate;
+            n_rej_++; n_rej_mag_++; return UpdResult::kInnovGate;
         }
         
         const Eigen::Matrix<double, 19, 3> K = P_ * H.transpose() * S_inv;
@@ -351,6 +352,10 @@ public:
 
     int updates() const { return n_upd_; }
     int zupt() const { return n_zupt_; }
+    int rej_trn() const { return n_rej_trn_; }
+    int rej_baro() const { return n_rej_baro_; }
+    int rej_mag() const { return n_rej_mag_; }
+    double mag_innov_rms() const { return mag_innov_rms_; }
     int rejects() const { return n_rej_; }
 
 private:
@@ -387,6 +392,8 @@ private:
     V19 x_; M19 P_, Qc_;
     int n_ = 0, n_upd_ = 0, n_rej_ = 0;
     int n_zupt_ = 0;
+    int n_rej_trn_ = 0, n_rej_baro_ = 0, n_rej_mag_ = 0;
+    double mag_innov_rms_ = 0.0;
     bool aligned_ = false, yaw_aligned_ = false;
 };
 

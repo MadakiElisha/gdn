@@ -57,7 +57,7 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
                                     / gdn::Eskf::kDeg;
         RCLCPP_INFO(get_logger(),
             "DBG t=%.0f pos=(%.0f,%.0f,%.0f) zt=%.0f |v|=%.1f yaw=%.1f pit=%.1f rol=%.1f "
-            "ba=%.4f bg=%.4f bb=%.1f mb=(%.1f,%.1f,%.1f) sp=%.1f spz=%.1f st=%.2f pa=%.1e pe=%.1e pbz=%.1e rej=%d zu=%d",
+            "ba=%.4f bg=%.4f bb=%.1f mb=(%.1f,%.1f,%.1f) sp=%.1f spz=%.1f st=%.2f pa=%.1e pe=%.1e pbz=%.1e rej=%d(m%d b%d t%d) zu=%d mi=%.2f mhz=%d dp=%d",
             t_cur_, eskf_->pos().x(), eskf_->pos().y(), eskf_->pos().z(), z_truth_,
             eskf_->vel().norm(),
             rpy.x(), rpy.y(), rpy.z(),
@@ -67,7 +67,9 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
             eskf_->mag_bias().x(), eskf_->mag_bias().y(), eskf_->mag_bias().z(),
             eskf_->sigma_pos(), eskf_->sigma_pos_z(), eskf_->sigma_att_deg(),
             eskf_->p_asym(), eskf_->p_mineig(), eskf_->p_bgz(),
-            eskf_->rejects(), eskf_->zupt());
+            eskf_->rejects(), eskf_->rej_trn(), eskf_->rej_baro(), eskf_->rej_mag(),
+            eskf_->zupt(), eskf_->mag_innov_rms(), mag_cb_, n_drop_);
+        mag_cb_ = 0;
     });
     RCLCPP_INFO(get_logger(), "ESKF v3 started; collecting static samples (hold still)");
 }
@@ -87,7 +89,7 @@ void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
     const uint64_t t = msg->timestamp; t_cur_ = t * 1e-6;
     if (last_t_ == 0) { last_t_ = t; return; }
     double dt = (t - last_t_) * 1e-6; last_t_ = t;
-    if (dt <= 0) return;
+    if (dt <= 0.0 || dt > 0.25) { n_drop_++; return; }  // wrap/stall: skip, never fabricate
     if (dt > 0.1) { n_stall_++; if (n_stall_ % 10 == 1)
         RCLCPP_WARN(get_logger(), "IMU gap absorbed %.3f s (count %d)", dt, n_stall_); }
     eskf_->Propagate(a_m, w_m, dt);
@@ -147,7 +149,7 @@ void AttCb(const px4_msgs::msg::VehicleAttitude::SharedPtr msg) {
 void MagCb(const geometry_msgs::msg::Vector3::SharedPtr msg) {
     if (!eskf_->aligned()) return;
     const Eigen::Vector3d z_meas(msg->x, msg->y, msg->z);
-    last_mag_meas_ = z_meas;
+    last_mag_meas_ = z_meas; mag_cb_++;
     if (!eskf_->yaw_aligned()) {
         eskf_->AlignYawFromMag(z_meas);
         RCLCPP_INFO(get_logger(), "OI-003: Instantaneous Mag Yaw Aligned at t=%.1f", t_cur_);
@@ -197,6 +199,8 @@ double z_truth_ = 0.0;
 uint64_t last_t_ = 0;
 double t_cur_ = 0.0;
 int n_stall_ = 0;
+    int n_drop_ = 0;
+    int mag_cb_ = 0;
 bool have_lpos_ = false;
 bool z_initialized_ = false;
     bool airborne_latch_ = false;
