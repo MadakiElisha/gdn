@@ -137,11 +137,15 @@ int main(int argc, char** argv) {
                 double innov = 0, S = 0;
                 const int kc = eskf.updates() + eskf.rejects();   // bench-equivalent k
                 const auto res = eskf.ApplyTrn(meas, mq, &innov, &S);
-                if (diag_mode && kc < 12)
-                    std::printf("UPD k=%d meas=%.2f h0=%.2f innov=%.2f S=%.1f acc=%d pb=(%.1f,%.1f)\n",
-                        kc, meas, mq.h, innov, S,
-                        res == gdn::Eskf::UpdResult::kApplied ? 1 : 0,
-                        eskf.pos().x(), eskf.pos().y());
+            if (diag_mode && kc < 12) {
+                const Eigen::Vector3d fwd_n = eskf.q() * Eigen::Vector3d::UnitX();
+                const double yaw_est = std::atan2(fwd_n.y(), fwd_n.x()) / gdn::Eskf::kDeg;
+                const double yaw_truth = std::atan2(lvy[j], lvx[j]) / gdn::Eskf::kDeg;
+                std::printf("UPD k=%d meas=%.2f h0=%.2f innov=%.2f S=%.1f acc=%d pb=(%.1f,%.1f) yawE=%.1f yawT=%.1f\n",
+                    kc, meas, mq.h, innov, S,
+                    res == gdn::Eskf::UpdResult::kApplied ? 1 : 0,
+                    eskf.pos().x(), eskf.pos().y(), yaw_est, yaw_truth);
+            }
             }
             const double e = std::hypot(eskf.pos().x() - lx[j], eskf.pos().y() - ly[j]);
             if (diag_mode && t >= 25.0 && std::fmod(t, 1.0) < 0.5)

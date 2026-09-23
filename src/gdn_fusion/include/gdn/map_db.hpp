@@ -13,9 +13,9 @@ struct MapQuery { double h = 0.0, dn = 0.0, de = 0.0; bool ok = false; };
 
 class MapDb {
 public:
-    static constexpr double kLatC = 47.3977, kLonC = 8.5456;
+    static constexpr double kLatC = 45.96319444444445, kLonC = 7.6440277777777785;
     static constexpr double kMPerDegLat = 111320.0;
-    static constexpr double kMPerDegLon = 111320.0 * 0.676876;  // cos(kLatC)
+    static constexpr double kMPerDegLon = 111320.0 * 0.695120;  // cos(kLatC)  // cos(kLatC)
 
     bool Load(const std::string& path) {
         std::ifstream f(path, std::ios::binary);
