@@ -4,8 +4,8 @@
 cd ~/gdn_workspace || exit 1
 source env.sh >/dev/null 2>&1 || true
 source install/setup.bash >/dev/null 2>&1
-pkill -f eskf_node; pkill -f trn_sensor_sim; pkill -f replay_scorer
-pkill -f baro_sim; pkill -f "ros2 bag"; sleep 2
+pkill -9 -f eskf_node; pkill -9 -f trn_sensor_sim; pkill -9 -f replay_scorer
+pkill -9 -f baro_sim; pkill -9 -f "ros2 bag"; sleep 2
 
 ros2 run gdn_fusion eskf_node > /tmp/bench_node.log 2>&1 & NPID=$!
 python3 tools/trn_sensor_sim.py > /tmp/bench_sim.log 2>&1 & SPID=$!
@@ -27,8 +27,8 @@ ros2 bag play data/flight001
 
 kill -INT $CPID 2>/dev/null; sleep 2
 kill $NPID $SPID $BPID $MPID 2>/dev/null
-pkill -f "ros2 bag" 2>/dev/null
-pkill -f baro_sim.py 2>/dev/null
+pkill -9 -f "ros2 bag" 2>/dev/null
+pkill -9 -f baro_sim.py 2>/dev/null
 
 echo ""
 echo "=== Scorer summary ==="

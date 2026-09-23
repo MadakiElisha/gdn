@@ -29,20 +29,23 @@ public:
         nx_ = nx; ny_ = ny;
         alt_.resize(static_cast<size_t>(nx_) * ny_);
         f.read(reinterpret_cast<char*>(alt_.data()), 4LL * nx_ * ny_);
+        lat_c_ = lat0_ + 0.5 * ny_ * dlat_;
+        lon_c_ = lon0_ + 0.5 * nx_ * dlon_;
+        m_per_deg_lon_ = 111320.0 * std::cos(lat_c_ * 3.141592653589793 / 180.0);
         return f.good();
     }
 
     // Bilinear altitude [m] + central-difference gradient [m/m] at NED meters.
     MapQuery Query(double north_m, double east_m) const {
         MapQuery q;
-        const double fi = (kLatC + north_m / kMPerDegLat - lat0_) / dlat_;
-        const double fj = (kLonC + east_m / kMPerDegLon - lon0_) / dlon_;
+        const double fi = (lat_c_ + north_m / kMPerDegLat - lat0_) / dlat_;
+        const double fj = (lon_c_ + east_m / kMPerDegLon - lon0_) / dlon_;
         if (fi < 1.0 || fi > ny_ - 2.001 || fj < 1.0 || fj > nx_ - 2.001) return q;
         const int i = static_cast<int>(fi), j = static_cast<int>(fj);
         const double ti = fi - i, tj = fj - j;
         q.h  = (1-ti)*((1-tj)*A(i,j)   + tj*A(i,j+1)) + ti*((1-tj)*A(i+1,j)   + tj*A(i+1,j+1));
-        q.dn = (A(i+1,j) - A(i-1,j)) / (2.0 * dlat_ * kMPerDegLat);
-        q.de = (A(i,j+1) - A(i,j-1)) / (2.0 * dlon_ * kMPerDegLon);
+        q.dn = (A(i+1,j) - A(i-1,j)) / (2.0 * dlat_ * 111320.0);
+        q.de = (A(i,j+1) - A(i,j-1)) / (2.0 * dlon_ * m_per_deg_lon_);
         q.ok = true;
         return q;
     }
@@ -57,6 +60,7 @@ private:
     double A(int i, int j) const { return alt_[static_cast<size_t>(i) * nx_ + j]; }
     std::vector<float> alt_;
     int nx_ = 0, ny_ = 0;
+    double lat_c_, lon_c_, m_per_deg_lon_;
     double lat0_ = 0, lon0_ = 0, dlat_ = 1, dlon_ = 1;
 };
 
