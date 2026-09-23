@@ -90,10 +90,12 @@ int main(int argc, char** argv) {
         std::mt19937_64 rng(0x47444eULL + static_cast<uint64_t>(seed));
         std::normal_distribution<double> d_n5(0, 5), d_n2(0, 2),
                                          d_ba(0, 0.05), d_bg(0, 0.02 * gdn::Eskf::kDeg);
-        const bool diag_mode = (nseeds == 1);   // 1-seed = zero-bias diagnostic
-        const Eigen::Vector3d ba_off = diag_mode ? Eigen::Vector3d::Zero()
+        const int focus = argc > 4 ? std::atoi(argv[4]) : -1;
+        const bool diag_mode = (nseeds == 1) || (seed == focus);
+        const bool zero_bias = (nseeds == 1);   // 1-seed = zero-bias diagnostic
+        const Eigen::Vector3d ba_off = zero_bias ? Eigen::Vector3d::Zero()
                                : Eigen::Vector3d(d_ba(rng), d_ba(rng), d_ba(rng));
-        const Eigen::Vector3d bg_off = diag_mode ? Eigen::Vector3d::Zero()
+        const Eigen::Vector3d bg_off = zero_bias ? Eigen::Vector3d::Zero()
                                : Eigen::Vector3d(d_bg(rng), d_bg(rng), d_bg(rng));
 
         gdn::Eskf eskf;                      // default config == bench config
@@ -137,7 +139,7 @@ int main(int argc, char** argv) {
                 double innov = 0, S = 0;
                 const int kc = eskf.updates() + eskf.rejects();   // bench-equivalent k
                 const auto res = eskf.ApplyTrn(meas, mq, &innov, &S);
-            if (diag_mode && kc < 12) {
+            if (diag_mode && (kc < 12 || focus >= 0)) {
                 const Eigen::Vector3d fwd_n = eskf.q() * Eigen::Vector3d::UnitX();
                 const double yaw_est = std::atan2(fwd_n.y(), fwd_n.x()) / gdn::Eskf::kDeg;
                 const double yaw_truth = std::atan2(lvy[j], lvx[j]) / gdn::Eskf::kDeg;
