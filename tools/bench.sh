@@ -1,33 +1,46 @@
 #!/usr/bin/env bash
-# Replay bench: eskf_node + trn_sensor_sim + [baro_sim] + replay_scorer over flight001.
-# BENCH_NO_BARO=1 disables the baro sim (A/B isolation of OI-002 coupling).
-cd ~/gdn_workspace || exit 1
-source env.sh >/dev/null 2>&1 || true
-source install/setup.bash >/dev/null 2>&1
-pkill -9 -f eskf_node; pkill -9 -f trn_sensor_sim; pkill -9 -f replay_scorer
-pkill -9 -f baro_sim; pkill -9 -f "ros2 bag"; sleep 2
+# Replay bench: eskf_node + trn_sensor_sim + mag_sim + [baro_sim] + replay_scorer
+# over a recorded PX4 bag, then print horizontal RMS/MAX in the 60-300 s window.
+#
+# Env knobs:
+#   BENCH_NO_BARO=1   disable the baro sim (A/B isolation of OI-002 coupling)
+#   GDN_BAG=path      bag to replay        (default data/flight001)
+#   GDN_MAP=path      terrain DB for node + sim (default data/maps/terrain_db_sigma4.bin)
+#   GDN_LOG_DIR=dir   where logs go        (default /tmp/gdn_bench)
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT" || exit 1
+# shellcheck disable=SC1091
+source "$ROOT/env.sh" >/dev/null 2>&1 || true
+BAG="${GDN_BAG:-data/flight001}"
+export GDN_MAP="${GDN_MAP:-$ROOT/data/maps/terrain_db_sigma4.bin}"
+LOG="${GDN_LOG_DIR:-/tmp/gdn_bench}"; mkdir -p "$LOG"
+[ -d "$BAG" ] || { echo "bag not found: $BAG  (run tools/fetch_data.sh)"; exit 1; }
+[ -f "$GDN_MAP" ] || { echo "map not found: $GDN_MAP  (run tools/make_data.sh)"; exit 1; }
+command -v ros2 >/dev/null || { echo "ros2 not on PATH - source env.sh"; exit 1; }
 
-ros2 run gdn_fusion eskf_node > /tmp/bench_node.log 2>&1 & NPID=$!
-python3 tools/trn_sensor_sim.py > /tmp/bench_sim.log 2>&1 & SPID=$!
+pkill -9 -f eskf_node; pkill -9 -f trn_sensor_sim; pkill -9 -f replay_scorer
+pkill -9 -f baro_sim; pkill -9 -f mag_sim; pkill -9 -f "ros2 bag play"; sleep 2
+
+ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/node.log" 2>&1 & NPID=$!
+python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 & SPID=$!
 BPID=
 if [ "${BENCH_NO_BARO:-0}" != "1" ]; then
-  python3 tools/baro_sim.py > /tmp/bench_baro.log 2>&1 & BPID=$!
+  python3 tools/baro_sim.py > "$LOG/baro.log" 2>&1 & BPID=$!
 fi
-MPID=
-python3 tools/mag_sim.py > /tmp/bench_mag.log 2>&1 & MPID=$!
-python3 -u tools/replay_scorer.py > /tmp/bench_scorer.log 2>&1 & CPID=$!
+python3 tools/mag_sim.py > "$LOG/mag.log" 2>&1 & MPID=$!
+python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & CPID=$!
 
-for i in $(seq 1 30); do
-  [ "$(ros2 node list 2>/dev/null | grep -c '/gdn_')" -ge 3 ] && break
+for _ in $(seq 1 30); do
+  [ "$(ros2 node list 2>/dev/null | grep -c '/gdn_')" -ge 4 ] && break
   sleep 1
 done
 ros2 node list
 
-ros2 bag play data/flight001
+ros2 bag play "$BAG"
 
 kill -INT $CPID 2>/dev/null; sleep 2
 kill $NPID $SPID $BPID $MPID 2>/dev/null
-pkill -9 -f "ros2 bag" 2>/dev/null
+pkill -9 -f "ros2 bag play" 2>/dev/null
 pkill -9 -f baro_sim.py 2>/dev/null
 
 echo ""
@@ -35,6 +48,7 @@ echo "=== Scorer summary ==="
 awk '/horiz err/ {for(i=1;i<=NF;i++){if($i=="t=")t=$(i+1); if($i=="err")e=$(i+1)}
      if(t>=60&&t<=300){s+=e*e;n++; if(e>m)m=e}}
      END{if(n>0) printf "RMS 60-300s: %.1f m  MAX: %.1f m  (n=%d)\n", sqrt(s/n), m, n;
-          else print "no scorer samples"}' /tmp/bench_scorer.log 2>/dev/null \
+          else print "no scorer samples"}' "$LOG/scorer.log" 2>/dev/null \
   || echo "(scorer log not available)"
-echo "=== logs: /tmp/bench_node.log /tmp/bench_sim.log /tmp/bench_baro.log /tmp/bench_scorer.log ==="
+grep -h "RMS 60-300s" "$LOG/scorer.log" 2>/dev/null
+echo "=== logs: $LOG/{node,sim,baro,mag,scorer}.log ==="

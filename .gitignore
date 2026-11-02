@@ -1,8 +1,21 @@
-PX4-Autopilot/
+# colcon
 build/
 install/
 log/
+# local PX4 checkout (see README: optional SITL)
+PX4-Autopilot/
 tools/venv/
-data/
+__pycache__/
+*.pyc
+
+# data/: everything is generated or downloaded, EXCEPT the small canonical
+# maps and the checksum manifest, which are tracked so a fresh clone runs.
+data/*
+!data/maps/
+data/maps/*
+!data/maps/terrain_db_sigma4.bin
+!data/maps/zermatt.bin
+!data/maps/zermatt.tif
+!data/SHA256SUMS
 *.mcap
 *.db3

@@ -7,12 +7,13 @@
 #include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include "gdn/map_db.hpp"
+#include "gdn/paths.hpp"
 
 class MapVizNode : public rclcpp::Node {
 public:
     MapVizNode() : Node("gdn_map_viz") {
-        const std::string map_path = declare_parameter("map_path",
-            std::string("/home/madakie/gdn_workspace/data/maps/terrain_db_sigma4.bin"));
+        const std::string map_path = gdn::DataPath(declare_parameter("map_path",
+            std::string(gdn::kDefaultMap)));
         if (!map_.Load(map_path)) {
             RCLCPP_ERROR(get_logger(), "Failed to load map: %s", map_path.c_str());
             throw std::runtime_error("map load failed");

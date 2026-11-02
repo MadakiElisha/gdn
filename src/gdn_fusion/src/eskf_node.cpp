@@ -12,24 +12,31 @@
 #include <string>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/paths.hpp"
 
 class EskfNode : public rclcpp::Node {
 public:
 EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
     : Node("gdn_eskf_node", options) {
     gdn::EskfConfig cfg;
-    const std::string map_path = declare_parameter("map_path",
-        std::string("/home/madakie/gdn_workspace/data/maps/terrain_db_sigma4.bin"));
-    cfg.r_trn      = declare_parameter("r_trn", 144.0);
-    cfg.slope_min  = declare_parameter("slope_min", 0.02);
-    cfg.gate_sigma = declare_parameter("gate_sigma", 3.0);
-    cfg.gate_abs_m = declare_parameter("gate_abs_m", 40.0);
-    cfg.clamp_dv   = declare_parameter("clamp_dv", 0.5);   // OI-006
+    // Relative map paths resolve against $GDN_ROOT (exported by env.sh).
+    const std::string map_path = gdn::DataPath(declare_parameter("map_path",
+        std::string(gdn::kDefaultMap)));
+    // Defaults come from EskfConfig so the node and the ROS-free core
+    // (selftest / mc_campaign) can never silently diverge.
+    cfg.r_trn      = declare_parameter("r_trn", cfg.r_trn);
+    cfg.slope_min  = declare_parameter("slope_min", cfg.slope_min);
+    cfg.gate_sigma = declare_parameter("gate_sigma", cfg.gate_sigma);
+    cfg.gate_abs_m = declare_parameter("gate_abs_m", cfg.gate_abs_m);
+    cfg.clamp_dv   = declare_parameter("clamp_dv", cfg.clamp_dv);   // OI-006
     if (!map_.Load(map_path)) {
-        RCLCPP_ERROR(get_logger(), "map load failed: %s", map_path.c_str());
+        RCLCPP_FATAL(get_logger(),
+            "map load failed: %s\n  -> run `source env.sh` from the repo root, or pass "
+            "--ros-args -p map_path:=/abs/path/to/map.bin", map_path.c_str());
         throw std::runtime_error("map load failed");
     }
-    RCLCPP_INFO(get_logger(), "DEM loaded %dx%d (REQ-DB-001)", map_.rows(), map_.cols());
+    RCLCPP_INFO(get_logger(), "DEM loaded %dx%d from %s (origin %.6f, %.6f), r_trn=%.0f",
+                map_.rows(), map_.cols(), map_path.c_str(), map_.lat_c(), map_.lon_c(), cfg.r_trn);
     eskf_ = std::make_unique<gdn::Eskf>(cfg);
 
     rclcpp::SensorDataQoS qos;
@@ -212,10 +219,13 @@ bool z_initialized_ = false;
 #include <rclcpp_components/register_node_macro.hpp>
 RCLCPP_COMPONENTS_REGISTER_NODE(EskfNode)
 
-// Standalone executable entry point
+// Standalone executable entry point (only compiled into the eskf_node
+// executable, not into the component library).
+#ifdef GDN_STANDALONE_MAIN
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     rclcpp::spin(std::make_shared<EskfNode>());
     rclcpp::shutdown();
     return 0;
 }
+#endif

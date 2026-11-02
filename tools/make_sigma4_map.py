@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Regenerate terrain_db_sigma4.bin (REQ-DB-001) from terrain_db.bin (sigma1).
 sigma_add = sqrt(4^2 - 1^2) so total smoothing == sigma4 cells."""
+from gdn_paths import ROOT  # repo root (GDN_ROOT or this clone)
 import numpy as np
 from pathlib import Path
-src = Path.home()/'gdn_workspace/data/maps/terrain_db.bin'
-dst = Path.home()/'gdn_workspace/data/maps/terrain_db_sigma4.bin'
+src = ROOT/'data/maps/terrain_db.bin'
+dst = ROOT/'data/maps/terrain_db_sigma4.bin'
 with open(src,'rb') as f:
     nx, ny = np.frombuffer(f.read(8), dtype=np.int32)
     lat0, lon0, dlat, dlon = np.frombuffer(f.read(32), dtype=np.float64)

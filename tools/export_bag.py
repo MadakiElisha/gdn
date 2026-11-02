@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Export selected PX4 bag topics to CSV for offline analysis. Run with ROS env sourced."""
+from gdn_paths import ROOT  # repo root (GDN_ROOT or this clone)
 import csv, os, sys
 from rclpy.serialization import deserialize_message
 from rosbag2_py import SequentialReader, StorageOptions, ConverterOptions
 from px4_msgs.msg import SensorCombined, VehicleLocalPosition, VehicleGlobalPosition, SensorGps
 
-bag = sys.argv[1] if len(sys.argv) > 1 else 'data/flight001'
+bag = sys.argv[1] if len(sys.argv) > 1 else str(ROOT/'data/flight001')
 out = sys.argv[2] if len(sys.argv) > 2 else bag.rstrip('/') + '_csv'
 os.makedirs(out, exist_ok=True)
 

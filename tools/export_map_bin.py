@@ -1,7 +1,8 @@
+from gdn_paths import ROOT  # repo root (GDN_ROOT or this clone)
 import h5py, numpy as np, struct
 from pathlib import Path
-src = Path.home()/'gdn_workspace/data/maps/terrain.h5'
-dst = Path.home()/'gdn_workspace/data/maps/terrain.bin'
+src = ROOT/'data/maps/terrain.h5'
+dst = ROOT/'data/maps/terrain.bin'
 with h5py.File(src,'r') as f:
     lats, lons, alt = f['lats'][:], f['lons'][:], f['alt'][:]
 hdr = struct.pack('<iidddd', alt.shape[1], alt.shape[0],

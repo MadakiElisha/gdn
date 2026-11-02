@@ -3,7 +3,7 @@
   <name>gdn_sensors</name>
   <version>0.1.0</version>
   <description>GDN sensor abstraction layer</description>
-  <maintainer email="madakie@fpvlab.local">madakie</maintainer>
+  <maintainer email="stefanelisha@gmail.com">Madaki Elisha</maintainer>
   <license>MIT</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>rclcpp</depend>

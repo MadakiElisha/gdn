@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')  # headless-safe
 import numpy as np, h5py, matplotlib.pyplot as plt
 from scipy.ndimage import zoom
 from scipy.signal import fftconvolve
@@ -40,7 +42,8 @@ rms2 = np.sqrt(ssd[jy, jx]/p.size)
 print(f"True-match SSD ~ {ssd[iy,ix]:.1f} | 2nd-best RMS mismatch: {rms2:.1f} m")
 print("PASS: terrain unique" if rms2 > 25 else "FAIL: terrain too repetitive")
 
-out_dir = Path(__file__).resolve().parent.parent / 'data' / 'maps'
+from gdn_paths import ROOT  # honours GDN_ROOT (make_data.sh --verify-maps uses a scratch root)
+out_dir = ROOT / 'data' / 'maps'
 out_dir.mkdir(parents=True, exist_ok=True)
 with h5py.File(out_dir/'terrain.h5', 'w') as f:
     f.create_dataset('lats', data=lats); f.create_dataset('lons', data=lons)
