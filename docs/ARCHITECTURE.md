@@ -1,0 +1,178 @@
+# GDN architecture and filter reference
+
+This is the technical reference for the estimator. For setup and running, see the
+[README](../README.md).
+
+## Design principles
+
+- **All navigation math is ROS-free** (`src/gdn_fusion/include/gdn/`, pure C++17 + Eigen)
+  and is compiled unchanged into the unit tests (`gdn_selftest`), the Monte Carlo
+  driver (`mc_campaign`) and the ROS 2 node.
+- **ROS 2 is a thin I/O wrapper** (`src/gdn_fusion/src/eskf_node.cpp`): topics,
+  parameters, telemetry.
+- **Every claim is backed by a deterministic replay or a statistical campaign**, with
+  pre-registered metrics and decision rules.
+- **Vehicle-agnostic core**: the core contains no airframe model, so fixed-wing,
+  multirotor and VTOL share one estimator. Platform specifics enter through sensor
+  noise tuning and the terrain database. All validation to date is fixed-wing-like.
+
+```
+[IMU + TRN meas + baro + mag] -> eskf_node (thin wrapper)
+          |                          |
+          v                          v
+     gdn::Eskf (core)  <-------  gdn::MapDb (terrain)
+          |
+          v
+   /gdn/odom, /gdn/sigma  ->  replay_scorer / RViz / downstream
+```
+
+## Node topic contract
+
+| Dir | Topic | Type | Purpose |
+|---|---|---|---|
+| sub | `/fmu/out/sensor_combined` | `px4_msgs/SensorCombined` | IMU (accel + gyro), drives propagation |
+| sub | `/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` | **Truth/GNSS-derived**: ground ZUPT, airborne latch, initial altitude (see Known gaps) |
+| sub | `/fmu/out/vehicle_attitude` | `px4_msgs/VehicleAttitude` | truth yaw, logging only |
+| sub | `/gdn/mag_meas` | `geometry_msgs/Vector3` | magnetometer, uT, body FRD |
+| sub | `/gdn/trn_meas` | `std_msgs/Float64` | terrain elevation under the vehicle, m |
+| sub | `/gdn/baro_meas` | `std_msgs/Float64` | barometric altitude, NED z, m |
+| pub | `/gdn/odom` | `nav_msgs/Odometry` | fused state, frame `map` |
+| pub | `/gdn/sigma` | `std_msgs/Float64` | horizontal position 1-sigma, m (1 Hz) |
+
+Node parameters: `map_path` (relative paths resolve against `$GDN_ROOT`), `r_trn`,
+`slope_min`, `gate_sigma`, `gate_abs_m`, `clamp_dv`. Defaults come from `EskfConfig`, so
+the node, selftest and Monte Carlo always run the same configuration.
+
+## Filter formulation
+
+Reference: Sola, *Quaternion kinematics for the error-state Kalman filter*,
+arXiv:1711.02508. Gating and Joseph-form update follow Bar-Shalom, Li and Kirubarajan
+(2001).
+
+**Nominal state:** position p, velocity v, attitude q (body to local NED), accel bias,
+gyro bias, baro bias, 3-axis mag bias.
+
+**Error state (19-D):**
+
+| Index | 0-2 | 3-5 | 6-8 | 9-11 | 12-14 | 15 | 16-18 |
+|---|---|---|---|---|---|---|---|
+| State | δp | δv | δθ | δb_a | δb_g | δb_baro | δb_mag |
+
+**Propagation:** strapdown, sub-stepped at 10 ms or less. dt is clamped to 1 s in the
+core; the node drops IMU gaps above 0.25 s. Covariance: P ← ΦPΦᵀ + Qc·h, then PSD repair.
+
+**Updates, in the order they become available:**
+
+1. **Static coarse alignment** (`FeedStatic`): motion-gated averaging of still IMU
+   samples. Roll/pitch come from gravity, gyro bias from the rate mean, accel bias from
+   the gravity residual. Then `ResetCovariance`.
+2. **ZUPT** (`ApplyZupt`, node only): zero-velocity pinning on the ground until the
+   airborne latch trips.
+3. **Yaw alignment**: `AlignYawFromMag` (node) does a one-shot heading from the
+   magnetometer. `TransferAlignYaw` (heading from GNSS velocity) is still used by
+   `mc_campaign`.
+4. **Magnetometer** (`ApplyMag`): 3-axis field against a fixed reference vector.
+   Updates attitude and mag bias.
+5. **TRN scalar elevation** (`ApplyTrn`): H = [∂h/∂n, ∂h/∂e, 0 …] from the map gradient.
+   The update is gated by slope observability (`slope_min`) and innovation size
+   (`gate_sigma`, `gate_abs_m`), with per-state injection clamps, Joseph form and a
+   quaternion error reset.
+6. **Barometer** (`ApplyBaro`): H has 1 at δp_z and δb_baro, so it observes the sum
+   z + bias.
+
+**Configuration** (`EskfConfig` defaults):
+
+| Group | Values |
+|---|---|
+| TRN | `r_trn`=400 (σ=20 m), `slope_min`=0.02, `gate_sigma`=3, `gate_abs_m`=40 |
+| Clamps | `clamp_dtheta_deg`=180 (relaxed for mag alignment), `clamp_dv`=0.5, `clamp_dva`=5e-3, `clamp_dvg_deg`=0.05, `clamp_dvm`=5 |
+| Baro | `r_baro`=4, `q_baro_bias`=1e-3, `p0_baro_bias`=25, `gate_baro_sigma`=5 |
+| Mag | `r_mag`=4, `q_mag_bias`=1e-5, `p0_mag_bias`=100, `gate_mag_sigma`=5; reference field N/E/D = 21.5/1.3/42.3 uT (WMM, Zurich) |
+
+**Numerical hygiene:** every covariance write passes `Repair()`: an LLT check, and on
+failure an eigenvalue clamp to at least 1e-9.
+
+## Terrain database
+
+Binary format, little-endian:
+
+```
+int32 nx, int32 ny, float64 lat0, lon0, dlat, dlon, float32 alt[ny*nx]  (row-major, row = latitude index)
+```
+
+- **Local NED origin** = grid centre: `lat0 + ny·dlat/2`, `lon0 + nx·dlon/2`. The east
+  scale uses cos(centre latitude). `MapDb` (C++) and `tools/gdn_paths.load_map` (Python)
+  implement the same geometry, and the TRN simulator uses the latter.
+- **Query:** bilinear altitude plus a central-difference gradient. Out-of-bounds returns
+  `ok=false`, and the filter rejects the update.
+- **Load:** rejects files whose size doesn't match the header.
+- **REQ-DB-001** (σ4 Gaussian-smoothed synthetic map): contour aliasing on fine texture
+  defeats scalar TRN gating. σ4 keeps the relief while bounding gradient error.
+
+| Map | Source | Recipe |
+|---|---|---|
+| `terrain_db_sigma4.bin` | synthetic fractal, Zurich-centred | `generate_terrain.py` (seed 42) → `export_map_db.py` → `make_sigma4_map.py` |
+| `zermatt.bin` | SRTM 1″ crop, Alps | `zermatt.tif` → `make_zermatt_map.py` |
+
+`tools/make_data.sh --verify-maps` rebuilds both and checks them byte-for-byte.
+
+## Sensors and simulation
+
+- **Truth source:** `data/flight001`, a PX4 SITL rosbag2 MCAP with `sensor_combined`,
+  `vehicle_attitude`, `vehicle_global_position`, `vehicle_gps_position`,
+  `vehicle_local_position` and `vehicle_status`. It has no barometer topic, and
+  `SensorCombined` has no baro field.
+- **`trn_sensor_sim.py`**: publishes `h_map(truth x, y)` + noise on a 0.5 s grid, plus
+  `/gdn/truth` for the scorer.
+- **`baro_sim.py`**: `z_true + 5 m bias + N(0, 1.5 m)` at 10 Hz.
+- **`mag_sim.py`**: `Rᵀ·m_ref + hard-iron (2, -1, 1) uT + N(0, 2 uT)` at 20 Hz.
+- **`make_zermatt_bag.py`**: the synthetic Zermatt flight as a PX4-style bag, for bench
+  smoke tests.
+
+All simulators use fixed seeds for replay parity.
+
+## Validation ledger
+
+- **Selftest** (24 checks; `tools/run_selftest.sh` runs them at -O2 and -O3,
+  `colcon test` runs them once):
+  - Map DB: load, planar gradient/altitude exact, out-of-bounds rejected, east scale
+    uses the map's latitude, truncated file rejected.
+  - Static alignment: converges; accel, gyro and attitude recovered; static propagation
+    stays put.
+  - TRN: accepted on slope, converges along the gradient, unobservable axis not pumped.
+  - Baro: updates accepted, observable sum converges.
+  - Mag: updates accepted, yaw converges, bias estimated.
+  - TEST-015 static alignment.
+  - ZUPT: pins velocity and position; the control run drifts.
+- **TEST-011:** the dual-build gate caught uninitialised static accumulators that -O2
+  masked and -O3 exposed.
+- **TEST-012:** Monte Carlo campaign, the standing robustness gate.
+
+**Results as of the `fix/new-pc-setup` branch** (fresh clone, Ubuntu 24.04 + ROS 2 Jazzy):
+
+| Check | Result |
+|---|---|
+| Zermatt MC, 24 seeds | CEP50 14.2 m, median per-seed RMS 16.8 m, 19/24 seeds under 100 m (chaotic tail = OI-009 false-contour lock) |
+| Zermatt ROS bench (synthetic bag, baro off) | 13.1 / 20.1 m RMS in two runs (max 17.8 / 30.5 m); ROS timing makes runs non-identical, n=6 |
+| flight001 bench + MC | **needs re-baselining**: three fixes on this branch change it (TRN sim origin, east scale, node r_trn) |
+
+Historical flight001 numbers, measured before those fixes: bench 15.7 m RMS (σ4,
+r_trn=400, early v3), later about 25–30 m; MC 100/100 seeds, CEP50 14.9 m, CEP95 40.3 m.
+
+## Known gaps (honest status)
+
+These are the main things standing between this and a fielded GNSS-denied stack. See
+the production roadmap discussion and `docs/open_items.md`.
+
+- **The TRN measurement is idealised.** The simulator outputs terrain height directly,
+  so altitude error never enters it. A real sensor gives baro altitude minus measured
+  AGL, so an altitude bias of tens of metres causes divergence.
+- **The filter starts at the true position** (P₀ ≈ 10 m σ) and has no acquisition mode.
+  Start errors above about 60 m fail.
+- **The Monte Carlo uses the same map for world and database.** Realistic DEM error
+  is not modelled.
+- **Truth leaks in the node:** GNSS-derived `vehicle_local_position` drives ZUPT, the
+  airborne latch and the initial altitude.
+- **No integrity monitoring:** a lost filter can report a small sigma.
+- **Consistency:** `ApplyTrn` zeroes some state corrections but still contracts their
+  covariance; the clamps do the same.

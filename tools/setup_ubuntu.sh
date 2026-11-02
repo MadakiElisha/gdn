@@ -67,6 +67,9 @@ tools/run_selftest.sh
 set +u; source "$ROOT/env.sh"; set -u
 colcon test --packages-select gdn_fusion --event-handlers console_direct- >/dev/null
 colcon test-result --verbose
+python3 tools/make_zermatt_bag.py      # synthetic PX4 bag for the bench smoke test
 
 log "Done. In every new terminal:  cd $ROOT && source env.sh"
-echo "Next: tools/fetch_data.sh (recorded flight for the replay bench), see README 'Run'."
+echo "Smoke-test the full ROS bench (about 3 min):"
+echo "  BENCH_NO_BARO=1 GDN_BAG=data/flight_zermatt GDN_MAP=data/maps/zermatt.bin tools/bench.sh"
+echo "Recorded PX4 flight for the main bench: tools/fetch_data.sh (see README)."
