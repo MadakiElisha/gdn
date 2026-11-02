@@ -15,6 +15,7 @@
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/paths.hpp"
 
 namespace {
 struct Table {
@@ -65,14 +66,15 @@ double Percentile(std::vector<double> v, double p) {
 
 int main(int argc, char** argv) {
     const int nseeds = argc > 1 ? std::atoi(argv[1]) : 100;
-    const std::string csv_dir = argc > 2 ? argv[2]
-        : "/home/madakie/gdn_workspace/data/flight001_csv";
-    const std::string map_path = argc > 3 ? argv[3]
-        : "/home/madakie/gdn_workspace/data/maps/terrain_db_sigma4.bin";
+    // Usage: mc_campaign [nseeds] [csv_dir] [map.bin] [focus_seed]
+    // Relative paths resolve against $GDN_ROOT (exported by env.sh).
+    const std::string csv_dir = gdn::DataPath(argc > 2 ? argv[2] : "data/flight001_csv");
+    const std::string map_path = gdn::DataPath(argc > 3 ? argv[3] : gdn::kDefaultMap);
 
     Table imu, lpos;
     if (!imu.Load(csv_dir + "/imu.csv") || !lpos.Load(csv_dir + "/lpos.csv")) {
-        std::printf("ERROR: cannot load CSVs from %s\n", csv_dir.c_str()); return 1;
+        std::printf("ERROR: cannot load imu.csv/lpos.csv from %s\n"
+                    "  (flight001: tools/fetch_data.sh; zermatt: tools/make_data.sh)\n", csv_dir.c_str()); return 1;
     }
     gdn::MapDb world;
     if (!world.Load(map_path)) { std::printf("ERROR: cannot load %s\n", map_path.c_str()); return 1; }

@@ -1,35 +1,40 @@
 #!/usr/bin/env bash
-# Bench with visualization
-cd ~/gdn_workspace || exit 1
-source env.sh >/dev/null
-source install/setup.bash >/dev/null
-pkill -f eskf_node; pkill -f trn_sensor_sim; pkill -f replay_scorer; pkill -f map_viz; pkill -f "ros2 bag"; sleep 2
+# Replay bench + RViz (terrain mesh + estimated path). Same env knobs as bench.sh.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT" || exit 1
+# shellcheck disable=SC1091
+source "$ROOT/env.sh" >/dev/null 2>&1 || true
+BAG="${GDN_BAG:-data/flight001}"
+export GDN_MAP="${GDN_MAP:-$ROOT/data/maps/terrain_db_sigma4.bin}"
+LOG="${GDN_LOG_DIR:-/tmp/gdn_bench}"; mkdir -p "$LOG"
+[ -d "$BAG" ] || { echo "bag not found: $BAG  (run tools/fetch_data.sh)"; exit 1; }
+command -v rviz2 >/dev/null || { echo "rviz2 missing: sudo apt install ros-jazzy-rviz2"; exit 1; }
 
-ros2 run gdn_fusion eskf_node > /tmp/bench_node.log 2>&1 & NPID=$!
-python3 tools/trn_sensor_sim.py > /tmp/bench_sim.log 2>&1 & SPID=$!
-python3 -u tools/replay_scorer.py > /tmp/bench_scorer.log 2>&1 & CPID=$!
-ros2 run gdn_fusion map_viz_node > /tmp/bench_viz.log 2>&1 & VPID=$!
+pkill -f eskf_node; pkill -f trn_sensor_sim; pkill -f replay_scorer; pkill -f map_viz
+pkill -f mag_sim; pkill -f "ros2 bag play"; sleep 2
 
-for i in $(seq 1 30); do
-  [ "$(ros2 node list 2>/dev/null | grep -c '/gdn_')" -eq 4 ] && break
+ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/node.log" 2>&1 & NPID=$!
+python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 & SPID=$!
+python3 tools/mag_sim.py > "$LOG/mag.log" 2>&1 & MPID=$!
+python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & CPID=$!
+ros2 run gdn_fusion map_viz_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/viz.log" 2>&1 & VPID=$!
+
+for _ in $(seq 1 30); do
+  [ "$(ros2 node list 2>/dev/null | grep -c '/gdn_')" -ge 5 ] && break
   sleep 1
 done
 
 echo "Nodes running, starting RViz..."
-rviz2 -d ~/gdn_workspace/tools/gdn.rviz &
-RVIZ_PID=$!
+rviz2 -d "$ROOT/tools/gdn.rviz" & RVIZ_PID=$!
 
-ros2 bag play data/flight001
+ros2 bag play "$BAG"
 
 kill $RVIZ_PID 2>/dev/null
 kill -INT $CPID 2>/dev/null; sleep 2
-kill $NPID $SPID $VPID 2>/dev/null
-pkill -f "ros2 bag" 2>/dev/null
+kill $NPID $SPID $VPID $MPID 2>/dev/null
+pkill -f "ros2 bag play" 2>/dev/null
 
 echo ""
 echo "=== Scorer summary ==="
-awk '/horiz err/ {for(i=1;i<=NF;i++){if($i=="t=")t=$(i+1); if($i=="err")e=$(i+1)}
-     if(t>=60&&t<=300){s+=e*e;n++; if(e>m)m=e}} 
-     END{if(n>0) printf "RMS 60-300s: %.1f m  MAX: %.1f m  (n=%d)\\n", sqrt(s/n), m, n}' \
-    /tmp/bench_scorer.log 2>/dev/null || echo "(scorer log not available)"
-echo "=== logs: /tmp/bench_*.log ==="
+grep -h "RMS 60-300s" "$LOG/scorer.log" 2>/dev/null || echo "(no summary; see $LOG/scorer.log)"
+echo "=== logs: $LOG/*.log ==="

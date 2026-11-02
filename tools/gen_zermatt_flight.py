@@ -1,7 +1,9 @@
+from gdn_paths import ROOT  # repo root (GDN_ROOT or this clone)
 import numpy as np, struct, os
-os.makedirs('data/flight_zermatt_csv', exist_ok=True)
+OUT = ROOT/'data/flight_zermatt_csv'
+os.makedirs(OUT, exist_ok=True)
 
-with open('data/maps/zermatt.bin', 'rb') as f:
+with open(ROOT/'data/maps/zermatt.bin', 'rb') as f:
     nx, ny = struct.unpack('<ii', f.read(8))
     lat0, lon0, dlat, dlon = struct.unpack('<dddd', f.read(32))
     alt = np.frombuffer(f.read(4*nx*ny), dtype='<f4').reshape(ny, nx)
@@ -91,11 +93,11 @@ for k in range(1, tl.size):
     xl[k] = xl[k-1] + spd_l[k] * np.cos(psi_l[k]) * 0.1
     yl[k] = yl[k-1] + spd_l[k] * np.sin(psi_l[k]) * 0.1
 
-with open('data/flight_zermatt_csv/imu.csv', 'w') as f:
+with open(OUT/'imu.csv', 'w') as f:
     f.write("t,ax,ay,az,gx,gy,gz\n")
     for i in range(ti.size):
         f.write(f"{ti[i]*1e6:.0f},{ax_i[i]:.6f},{ay_i[i]:.6f},{az[i]:.6f},{gx[i]:.6f},{gy[i]:.6f},{gz_i[i]:.6f}\n")
-with open('data/flight_zermatt_csv/lpos.csv', 'w') as f:
+with open(OUT/'lpos.csv', 'w') as f:
     f.write("t,x,y,vx,vy\n")
     for i in range(tl.size):
         f.write(f"{tl[i]*1e6:.0f},{xl[i]:.6f},{yl[i]:.6f},{spd_l[i]*np.cos(psi_l[i]):.6f},{spd_l[i]*np.sin(psi_l[i]):.6f}\n")

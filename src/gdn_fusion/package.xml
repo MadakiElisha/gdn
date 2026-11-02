@@ -2,21 +2,31 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>gdn_fusion</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="stefanelisha@gmail.com">madakie</maintainer>
+  <version>0.3.0</version>
+  <description>GDN: GNSS-denied terrain-referenced navigation (ESKF core, ROS 2 node, tools)</description>
+  <maintainer email="stefanelisha@gmail.com">Madaki Elisha</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
   <depend>px4_msgs</depend>
-  <depend>tf2</depend>
   <depend>nav_msgs</depend>
   <depend>eigen</depend>
   <depend>std_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+  <!-- Python tools (tools/*.py): sensor sims, scorer, map + data generation -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ros2bag</exec_depend>
+  <exec_depend>rosbag2_storage_mcap</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-matplotlib</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

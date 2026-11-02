@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # Re-export IMU + local-position CSVs from a rosbag so MC campaign == bench trajectory.
+from gdn_paths import ROOT  # repo root (GDN_ROOT or this clone)
 import sys, os, csv, yaml
 import rosbag2_py
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 
-BAG = sys.argv[1] if len(sys.argv) > 1 else '/home/madakie/gdn_workspace/data/flight001'
-OUT = sys.argv[2] if len(sys.argv) > 2 else '/home/madakie/gdn_workspace/data/flight001_csv'
+BAG = sys.argv[1] if len(sys.argv) > 1 else str(ROOT/'data/flight001')
+OUT = sys.argv[2] if len(sys.argv) > 2 else str(ROOT/'data/flight001_csv')
 
 def detect_storage(bag):
     meta = os.path.join(bag, 'metadata.yaml')

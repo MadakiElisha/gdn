@@ -1,6 +1,8 @@
 // Unit tests for the ROS-free navigation core.
+#include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <iterator>
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
@@ -11,10 +13,14 @@ static int g_fail = 0;
     if (cond) std::printf("PASS  %s\n", name); \
     else { std::printf("FAIL  %s\n", name); g_fail++; } } while (0)
 
-static void WritePlaneMap(const std::string& path, double slope_n, double base) {
+// Planar test map centred on (lat_c, lon_c): h = base + slope_n*N + slope_e*E.
+static void WritePlaneMap(const std::string& path, double slope_n, double base,
+                          double slope_e = 0.0, double lat_c = 45.9632,
+                          double lon_c = 7.6440) {
     const int nx = 64, ny = 64;
     const double dlat = 0.001, dlon = 0.001;
-    const double lat0 = MapDb::kLatC - 0.032, lon0 = MapDb::kLonC - 0.032;
+    const double lat0 = lat_c - 0.032, lon0 = lon_c - 0.032;   // grid centre == (lat_c, lon_c)
+    const double m_lon = MapDb::kMPerDegLat * std::cos(lat_c * M_PI / 180.0);
     std::ofstream f(path, std::ios::binary);
     const int32_t a = nx, b = ny;
     f.write(reinterpret_cast<const char*>(&a), 4);
@@ -26,8 +32,9 @@ static void WritePlaneMap(const std::string& path, double slope_n, double base) 
     std::vector<float> alt(static_cast<size_t>(nx) * ny);
     for (int i = 0; i < ny; ++i)
         for (int j = 0; j < nx; ++j) {
-            const double n = (lat0 + i * dlat - MapDb::kLatC) * MapDb::kMPerDegLat;
-            alt[static_cast<size_t>(i) * nx + j] = static_cast<float>(base + slope_n * n);
+            const double n = (lat0 + i * dlat - lat_c) * MapDb::kMPerDegLat;
+            const double e = (lon0 + j * dlon - lon_c) * m_lon;
+            alt[static_cast<size_t>(i) * nx + j] = static_cast<float>(base + slope_n * n + slope_e * e);
         }
     f.write(reinterpret_cast<const char*>(alt.data()), 4LL * nx * ny);
 }
@@ -44,6 +51,23 @@ int main() {
           "map_db: planar gradient exact");
     CHECK(std::abs(q0.h - 500.0) < 1e-3, "map_db: planar altitude exact");
     CHECK(!map.Query(1e6, 0.0).ok, "map_db: out-of-bounds rejected");
+
+    // East scaling must use cos(latitude of THIS map), not a hard-coded site.
+    {
+        const std::string mp_e = "/tmp/gdn_selftest_map_east.bin";
+        WritePlaneMap(mp_e, 0.0, 300.0, 0.1, 60.0, 10.0);   // 60 N: cos differs a lot from 46 N
+        MapDb me;
+        const bool ok = me.Load(mp_e);
+        const MapQuery qe = me.Query(0.0, 1000.0);
+        CHECK(ok && qe.ok && std::abs(qe.h - 400.0) < 0.05 && std::abs(qe.de - 0.1) < 1e-3,
+              "map_db: east axis scaled by map latitude");
+        // A truncated file must be rejected, not read as garbage.
+        std::ifstream src(mp_e, std::ios::binary);
+        std::vector<char> bytes((std::istreambuf_iterator<char>(src)), {});
+        std::ofstream(mp_e, std::ios::binary).write(bytes.data(), static_cast<std::streamsize>(bytes.size() - 100));
+        MapDb mt;
+        CHECK(!mt.Load(mp_e), "map_db: truncated file rejected");
+    }
 
     const V3 b_a(0.05, -0.03, 0.08), b_g(0.0004, -0.0002, 0.0003);
     const Eigen::Quaterniond q_true(

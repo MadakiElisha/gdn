@@ -1,285 +1,239 @@
-# GDN — GNSS-Denied Terrain-Referenced Navigation (TRN)
+# GDN: GNSS-Denied Navigation
 
-Error-state Kalman filter (ESKF) navigation stack for any aerial vehicle
-operating without GNSS. Fuses IMU, a terrain-elevation measurement (terrain-referenced
-navigation, TRN) and a barometer against an onboard terrain database to
-produce a bounded 3-D position estimate in a local map frame.
+GDN is a terrain-referenced navigation (TRN) stack for aerial vehicles flying without
+GNSS. An error-state Kalman filter (ESKF) fuses an IMU, terrain-elevation
+measurements, a barometer and a magnetometer against an onboard terrain database.
+The output is a bounded position estimate in a local map frame.
 
-Vehicle-agnostic by design: the core contains no airframe model (no rotor,
-control-surface or thrust dynamics) — it is a pure state estimator, so the
-same binary runs on fixed-wing, multirotor, VTOL and hybrid platforms.
-Platform specifics enter only through sensor-noise tuning and the terrain
-database; all validation to date uses a fixed-wing PX4 SITL replay.
+- **Core:** ROS-free C++17 + Eigen, 19-state ESKF, unit-tested at -O2 and -O3.
+- **Integration:** a thin ROS 2 Jazzy node consuming PX4 uORB topics through `px4_msgs`.
+- **Validation:** deterministic replay bench, Monte Carlo campaign, and real SRTM terrain (Zermatt).
+- **Vehicle-agnostic:** the estimator contains no airframe model. Validation to date is fixed-wing-like.
 
-Repository: https://github.com/MadakiElisha/gdn
-Platform: Ubuntu 24.04, ROS 2 Jazzy, rmw_zenoh, Eigen3, px4_msgs
+> **Status: research prototype.** It navigates well in simulation under idealised
+> conditions: known start position, perfect map, idealised TRN measurement. It is not
+> yet a fielded GNSS-denied system. See [Known gaps](docs/ARCHITECTURE.md#known-gaps-honest-status).
 
 ---
 
-## 1. Project status (snapshot)
+## Quick start: new PC
 
-| Item | Value | Evidence |
+Requires **Ubuntu 24.04** (ROS 2 Jazzy ships binaries only for 24.04), about 10 GB of
+free disk, and sudo. The repo can live in any folder.
+
+```bash
+git clone --recurse-submodules https://github.com/MadakiElisha/gdn.git ~/gdn_workspace
+cd ~/gdn_workspace
+tools/setup_ubuntu.sh            # add --headless on a machine without a display
+source env.sh                    # do this in every new terminal
+```
+
+`setup_ubuntu.sh` is safe to re-run. It:
+
+1. Adds the ROS 2 apt repository.
+2. Installs ROS 2 Jazzy, the build tools, Eigen and the Python dependencies.
+3. Runs `rosdep`.
+4. Fetches the `px4_msgs` submodule.
+5. Builds the workspace. The first `px4_msgs` build takes about 5 minutes.
+6. Generates the derived data.
+7. Runs the tests and creates a small synthetic bag for a smoke test.
+
+### Check the install
+
+| Command | Expected |
+|---|---|
+| `tools/run_selftest.sh` | `ALL TESTS PASSED` for both `-O2` and `-O3` (24 checks each) |
+| `colcon test --packages-select gdn_fusion && colcon test-result` | `1 test, 0 errors, 0 failures` |
+| `tools/make_data.sh --verify-maps` | all checksums `OK`; both maps `identical` |
+| `tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin` | CEP50 ≈ 14 m, about 19/24 seeds passing |
+| `BENCH_NO_BARO=1 GDN_BAG=data/flight_zermatt GDN_MAP=data/maps/zermatt.bin tools/bench.sh` | `RMS 60-300s` about 13–20 m (takes about 3 min; varies run to run because of ROS timing and n=6 samples) |
+
+These were verified from a fresh clone on the `fix/new-pc-setup` branch.
+
+### Get the recorded PX4 flight (main bench)
+
+`flight001` is a ~100 MB PX4 SITL recording. It is the one dataset that can't be
+regenerated from the repo, so it ships as a GitHub release asset:
+
+```bash
+tools/fetch_data.sh          # downloads + verifies data/flight001 and data/flight001_csv
+tools/bench.sh               # replay bench on the sigma4 map
+tools/mc_run.sh 100          # Monte Carlo on flight001
+```
+
+If the release isn't published yet, copy it from the old machine:
+
+```bash
+rsync -av OLD_PC:gdn_workspace/data/{flight001,flight001_csv} data/
+```
+
+**Owner, one time:** on the machine that has the recording, run
+`tools/pack_data.sh --publish`. It needs the GitHub CLI (`gh auth login`).
+
+---
+
+## Manual setup (what the script does)
+
+<details>
+<summary>Step-by-step, if you'd rather run each command yourself</summary>
+
+```bash
+# 1. ROS 2 Jazzy apt repository (official method)
+sudo apt update && sudo apt install -y software-properties-common curl
+sudo add-apt-repository -y universe
+export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}')
+curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.noble_all.deb"
+sudo dpkg -i /tmp/ros2-apt-source.deb
+
+# 2. ROS + build + Python deps
+sudo apt update
+sudo apt install -y ros-jazzy-desktop ros-dev-tools ros-jazzy-rosbag2-storage-mcap \
+  ros-jazzy-rclcpp-components build-essential cmake git libeigen3-dev pkg-config \
+  python3-numpy python3-scipy python3-matplotlib python3-h5py python3-yaml \
+  python3-pil python3-rasterio
+
+# 3. rosdep
+sudo rosdep init          # only once per machine; "already initialized" is fine
+rosdep update
+source /opt/ros/jazzy/setup.bash
+rosdep install --from-paths src --ignore-src -y --rosdistro jazzy
+
+# 4. submodules (if you cloned without --recurse-submodules)
+git submodule update --init --recursive
+
+# 5. build
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+source env.sh
+
+# 6. data + tests
+tools/make_data.sh
+tools/run_selftest.sh
+python3 tools/make_zermatt_bag.py
+```
+</details>
+
+Python tools use the system Python, because `rclpy` comes from apt. Don't run them
+inside a virtualenv unless it was created with `--system-site-packages`.
+
+---
+
+## Running
+
+Run `source env.sh` first in every terminal.
+
+| Task | Command |
+|---|---|
+| Unit tests (no ROS needed) | `tools/run_selftest.sh` |
+| Monte Carlo, flight001 | `tools/mc_run.sh 100` |
+| Monte Carlo, Zermatt | `tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin` |
+| Replay bench, flight001 | `tools/bench.sh` (`BENCH_NO_BARO=1` for the baro-off A/B run) |
+| Replay bench, any bag/map | `GDN_BAG=... GDN_MAP=... tools/bench.sh` |
+| Bench + RViz | `tools/bench_viz.sh` (needs `ros-jazzy-desktop`) |
+| Node only | `ros2 run gdn_fusion eskf_node --ros-args -p map_path:=data/maps/zermatt.bin` |
+
+Bench logs go to `/tmp/gdn_bench/` (change with `GDN_LOG_DIR`).
+
+### Live PX4 SITL (optional, not yet re-verified on the new setup)
+
+1. Use **PX4 v1.15.x**. It must match the `px4_msgs` submodule (`release/1.15`).
+   Mismatched message definitions fail silently: topics appear but nothing decodes.
+2. Install the Micro XRCE-DDS Agent and run `MicroXRCEAgent udp4 -p 8888`.
+3. Start PX4 SITL (`make px4_sitl gz_...`).
+4. Run `eskf_node` together with `trn_sensor_sim.py`, `mag_sim.py` and `baro_sim.py`.
+   PX4 does not publish the GDN measurement topics; the simulators synthesise them from
+   PX4 truth.
+
+---
+
+## Data
+
+| Path | How you get it | Tracked in git? |
 |---|---|---|
-| Horizontal accuracy (bench 60–300 s) | 15.7 m RMS (σ4 map, r_trn=400) | tools/bench.sh + replay_scorer |
-| Horizontal accuracy (replay A, baro off) | 15.2 m RMS, MAX 20.5 m | BENCH_NO_BARO=1 tools/bench.sh |
-| Robustness (Monte Carlo) | 100/100 seeds; CEP50 14.9 m; CEP95 40.3 m; worst 31.1 m | tools/mc_run.sh (TEST-012) |
-| Unit tests | 14/14, dual-build (-O2 and -O3) | tools/run_selftest.sh |
-| Vertical channel (baro, WIP) | 4 m error vs truth when enabled | bench DBG `zt=` field |
-| Open coupling | baro-on horizontal 24–28 m; root cause = attitude uncertainty | OI-002/OI-003 ledger (§10) |
-| Last pushed commit | 949927d (visualization layer) | git log |
-| Uncommitted WIP | OI-002: 16-D core, baro_sim, bench A/B, TEST-013 | working tree |
+| `data/maps/terrain_db_sigma4.bin` | synthetic, seed 42 (`make_data.sh --verify-maps` rebuilds it) | yes (640 KB) |
+| `data/maps/zermatt.bin`, `zermatt.tif` | SRTM crop + its source GeoTIFF | yes (165 KB) |
+| `data/flight_zermatt_csv/` | `tools/make_data.sh` | no (generated) |
+| `data/flight_zermatt/` (bag) | `python3 tools/make_zermatt_bag.py` | no (generated) |
+| `data/flight001/`, `data/flight001_csv/` | `tools/fetch_data.sh` (GitHub release) | no (~100 MB) |
 
-## 2. Repository layout
-
-    gdn_workspace/
-    ├── src/gdn_fusion/
-    │   ├── include/gdn/
-    │   │   ├── map_db.hpp          # terrain DB: binary grid, bilinear query + gradient
-    │   │   └── eskf.hpp            # ROS-free ESKF core (15/16-state)
-    │   ├── src/
-    │   │   ├── eskf_node.cpp       # thin ROS 2 wrapper (composition + standalone)
-    │   │   ├── map_viz_node.cpp    # RViz terrain mesh + path publisher
-    │   │   ├── selftest.cpp        # 14 unit tests (no ROS)
-    │   │   └── mc_campaign.cpp     # Monte Carlo robustness campaign (no ROS)
-    │   ├── CMakeLists.txt
-    │   └── package.xml
-    ├── tools/
-    │   ├── bench.sh                # deterministic replay bench (A/B baro switch)
-    │   ├── bench_viz.sh            # bench + RViz overlay
-    │   ├── mc_run.sh               # N-seed Monte Carlo runner
-    │   ├── run_selftest.sh         # dual-optimization selftest gate
-    │   ├── trn_sensor_sim.py       # simulated terrain-elevation sensor from truth
-    │   ├── baro_sim.py             # simulated barometer (z_true + bias + noise)
-    │   ├── replay_scorer.py        # horizontal error scorer vs truth
-    │   ├── export_flight_csv.py    # bag truth -> CSV
-    │   ├── make_sigma4_map.py      # σ4-smoothed terrain DB generator
-    │   └── gdn.rviz                # RViz config (mesh + cloud + path)
-    ├── data/
-    │   ├── flight001/              # PX4 SITL replay bag (truth + IMU)
-    │   └── maps/terrain_db_sigma4.bin
-    ├── docs/                       # design notes, test reports
-    └── env.sh                      # RMW/zenoh environment
-
-## 3. Architecture
-
-Principle: all navigation math is ROS-free and unit-testable; ROS 2 exists only
-as a thin I/O wrapper; every claim is backed by a deterministic replay or a
-statistical campaign. The core is vehicle-agnostic: no airframe model exists
-anywhere in include/gdn/, so fixed-wing, multirotor and VTOL platforms share
-one estimator (§1).
-
-    [IMU + TRN meas + baro meas] -> eskf_node (thin wrapper)
-            |                            |
-            v                            v
-       gdn::Eskf (core)  <--------  gdn::MapDb (terrain)
-            |
-            v
-     /gdn/odom, /gdn/sigma  ->  scorer / RViz / downstream
-
-Layers:
-1. Core (include/gdn/): pure C++17 + Eigen, no ROS headers; compiled unchanged
-   into selftest, mc_campaign and the node.
-2. Node (src/eskf_node.cpp): topic bridging, parameters, DBG telemetry.
-3. Simulation (tools/*.py): sensors synthesized from bag truth with realistic
-   bias/noise so the filter is validated against honest measurements.
-4. Validation (bench / MC / selftest): pre-registered metrics and decision rules.
-
-Node topic contract:
-| Dir | Topic | Type | Purpose |
-|---|---|---|---|
-| sub | /fmu/out/sensor_combined | px4_msgs/SensorCombined | IMU (accel + gyro) |
-| sub | /fmu/out/vehicle_local_position | px4_msgs/VehicleLocalPosition | velocity for yaw transfer; truth-z init (OI-002) |
-| sub | /gdn/trn_meas | std_msgs/Float64 | terrain-elevation measurement |
-| sub | /gdn/baro_meas | std_msgs/Float64 | barometer altitude (NED, simulated) |
-| pub | /gdn/odom | nav_msgs/Odometry | fused state (map frame) |
-| pub | /gdn/sigma | std_msgs/Float64 | horizontal position sigma |
-
-## 4. Filter formulation
-
-Reference: Sola, "Quaternion kinematics for the error-state Kalman filter",
-arXiv:1711.02508; gating and Joseph-form update per Bar-Shalom et al. (2001).
-
-Nominal state: position p, velocity v, attitude q (body->map), accel bias ba,
-gyro bias bg, plus baro bias bb in the 16-D WIP.
-
-Error state (15-D base; index map):
-    0-2 δp   3-5 δv   6-8 δθ   9-11 δba   12-14 δbg   15 δbb (OI-002 WIP)
-
-Propagation: strapdown, sub-stepped at <=10 ms, stall-tolerant (dt clamped to
-1 s with warnings); covariance growth P <- ΦPΦᵀ + Qc·h with PSD repair.
-
-Updates (in order of availability):
-1. Static coarse alignment (FeedStatic): motion-gated averaging of still IMU
-   samples; roll/pitch from gravity, gyro bias from rate mean, accel bias from
-   gravity residual; then ResetCovariance.
-2. Yaw transfer (TransferAlignYaw): one-shot re-initialization from GNSS
-   velocity heading once speed > 3 m/s (OI-003 removes this dependency).
-3. TRN scalar elevation (ApplyTrn): H = [∂h/n, ∂h/e, 0 ...] from the map
-   gradient; slope observability gate (slope_min), innovation gate
-   (gate_sigma, gate_abs_m), per-state injection clamps, Joseph-form update,
-   quaternion error-state reset (J matrix).
-4. Barometer (ApplyBaro, WIP): H has 1 at δp_z (index 2) and δb_baro (15);
-   observes the SUM z + bias (observability caveat in §10, OI-002).
-
-Config knobs (EskfConfig / node params): r_trn=400 (σ=20 m), slope_min=0.02,
-gate_sigma=3, gate_abs_m=40, clamp_dtheta_deg=0.2, clamp_dp=5, clamp_dv=0.5,
-clamp_dva=5e-3, clamp_dvg_deg=0.05; baro: r_baro=4, q_baro_bias=1e-3,
-p0_baro_bias=25, gate_baro_sigma=5.
-
-Numerical hygiene: every covariance write passes Repair() (LLT check; on
-failure, eigenvalue clamp to >=1e-9). Congruence transforms (ΦPΦᵀ, JPJᵀ)
-preserve PSD by construction.
-
-## 5. Terrain database
-
-Binary format (little-endian):
-    int32 nx, int32 ny, float64 lat0, lon0, dlat, dlon,
-    then float32 alt[ny*nx] (row-major, row = latitude index).
-Query: bilinear interpolation with analytic gradient of the bilinear patch
-(selftest asserts planar maps give exact gradient and altitude).
-Out-of-bounds queries return ok=false and are rejected by the filter.
-
-REQ-DB-001: σ4 Gaussian-smoothed terrain (tools/make_sigma4_map.py).
-Rationale: contour aliasing on fine texture defeats scalar TRN gating; σ4
-keeps real relief while bounding gradient error. The MC campaign validates
-100/100 seeds at r_trn=400 on σ4.
-
-## 6. Sensors and simulation
-
-Truth source: data/flight001 (PX4 SITL bag). Topics: sensor_combined,
-vehicle_attitude, vehicle_global_position, vehicle_gps_position,
-vehicle_local_position, vehicle_status.
-NOTE: the bag contains NO barometer topic and px4_msgs/SensorCombined has NO
-baro field — hence tools/baro_sim.py.
-
-trn_sensor_sim.py: publishes /gdn/trn_meas = h_map(truth x,y) + noise.
-baro_sim.py: publishes /gdn/baro_meas = z_true + 5 m bias + N(0, 1.5 m),
-decimated to 10 Hz. Both deterministic (fixed seeds) for replay parity.
-
-## 7. Build and run
-
-Prereqs: Ubuntu 24.04, ROS 2 Jazzy, rmw_zenoh (env.sh), Eigen3, px4_msgs,
-colcon, Python 3 with rclpy.
-
-    cd ~/gdn_workspace
-    source env.sh
-    colcon build --packages-select gdn_fusion --cmake-args -DCMAKE_BUILD_TYPE=Release
-    source install/setup.bash
-
-Unit tests (dual-optimization gate):
-    tools/run_selftest.sh            # builds -O2 and -O3, runs both binaries
-
-Deterministic replay bench:
-    tools/bench.sh                   # baro ON
-    BENCH_NO_BARO=1 tools/bench.sh   # baro OFF (A/B isolation)
-    # prints: RMS 60-300s / MAX / n from the scorer log
-
-Visual bench:
-    tools/bench_viz.sh               # + RViz (terrain mesh + path)
-
-Monte Carlo:
-    tools/mc_run.sh 100              # 100 seeds, CEP50/CEP95/worst
-
-## 8. Validation ledger
-
-Selftest (14): map load / planar gradient exact / planar altitude exact /
-out-of-bounds rejected / static alignment converges / accel bias recovered /
-gyro bias recovered / attitude recovered / static propagation stays put /
-TRN accepted on observable slope / position converges along gradient /
-unobservable axis not pumped / baro updates accepted / baro observable sum
-converges.
-TEST-011 precedent: the dual-build gate caught uninitialized static
-accumulators (sa_/sw_/sa2_) that -O2 masked and -O3 exposed.
-TEST-012: MC campaign (100 seeds) as the standing robustness gate.
-TEST-013: baro update math (observable sum), added with OI-002.
-
-Bench history (horizontal RMS 60–300 s):
-    σ1 map, r_trn=144 : ~30 m (aliasing-limited)
-    σ4 map, r_trn=400 : 15.7 m    <- committed baseline
-    σ4, baro off (A)  : 15.2 m
-    σ4, baro on  (B)  : 24.6–27.6 m   <- open coupling (OI-002/OI-003)
-    σ4, partitioned   : 19.6 m horizontal BUT vertical diverges (+59 km) -> rejected
-
-MC (σ4, r_trn=400): 100/100 seeds pass; CEP50 14.9 m; CEP95 40.3 m; worst 31.1 m.
-
-## 9. Visualization
-
-tools/bench_viz.sh launches map_viz_node + RViz (tools/gdn.rviz):
-- TerrainMesh: Marker TRIANGLE_LIST (solid relief), republished at 0.5 Hz.
-- TerrainCloud: optional height-colored PointCloud2 (off by default).
-- GDN Path: nav_msgs Path projected at nominal AGL (terrain rel height + 80 m)
-  because the vertical channel was unobservable pre-baro (OI-002).
-Gotcha (Jazzy): the Marker display's topic property key is `Topic:`; a config
-using `Marker Topic:` is silently ignored and the display subscribes to
-nothing (root cause of the original "blank viewport" debugging round).
-
-## 10. Open items ledger
-
-OI-002 Vertical observability (barometer) — COMPLETED (with OI-003)
-  16-D state, ApplyBaro, TEST-013, node wiring, baro_sim.
-  Vertical tracks truth within 4 m when enabled.
-  The horizontal degradation (15.2 -> 24-28 m) was diagnosed as real physics:
-  attitude uncertainty (st ≈ 6.5°) inflated P cross-terms, causing baro
-  innovations to leak into horizontal states. Partitioning was rejected
-  (vertical diverges). Root cause fixed by OI-003 (mag alignment), which
-  drops st to <1° and decouples the baro channel.
-OI-003 Magnetometer yaw — COMPLETED
-  19-state core (added 3-axis mag bias). ApplyMag() updates attitude/bias.
-  AlignYawFromMag() provides instantaneous ground heading alignment.
-  Bench result: attitude uncertainty (st) drops to <1°. Horizontal RMS
-  with baro+mag is ~27.4 m (vs 15.2 m baseline). The ~12 m delta is a
-  known physical limitation: single-shot static compass alignment on
-  non-level ground introduces a ~1.5° heading error, causing a bounded
-  cross-track transient during takeoff climb that TRN corrects in cruise.
-OI-004 Landing/terminal-phase observability — ACCEPTED LIMITATION (documented).
-OI-005 Fine-texture robustness — MITIGATED by σ4 (REQ-DB-001).
-OI-006 Velocity injection pumping — FIXED via clamp_dv.
-
-## 11. Field manual (hard-won gotchas)
-
-- bash: never `set -u` around `source install/setup.bash`; ROS scripts
-  reference unset vars and, with stderr redirected, the shell dies silently.
-- RViz Jazzy: Marker topic key is `Topic:` (see §9).
-- px4_msgs: SensorCombined has no barometer field; check `ros2 bag info`
-  before assuming a sensor exists in a bag.
-- EKF math facts verified the hard way:
-  * ΦPΦᵀ and JPJᵀ are congruence transforms: PSD in => PSD out.
-  * Zeroing off-diagonal blocks of a PSD matrix preserves PSD.
-  * Shrinking a diagonal block while leaving its cross-terms untouched
-    violates the Schur complement and produces runaway indefiniteness (this
-    was a bug in an early "partitioned update" draft, not physics).
-  * A scalar barometer observes only (z + bias); test the observable sum,
-    not the individual states, unless an independent altitude anchor exists.
-- Terminal/paste hygiene: after any multi-line heredoc, verify on disk
-  (wc -l, bash -n, python3 -m py_compile, tail) before trusting a run;
-  garbled echo output has twice masked truncated files.
-- Bench scorer cadence is n=12 samples in the 60–300 s window; treat deltas
-  below ~3 m with caution; use A/B pairs and pre-registered decision rules.
-
-## 12. Milestones
-
-    56dcbde  v3 architecture: ROS-free core, thin node, selftest, MC infra
-    18383e4  REQ-DB-001 σ4 terrain + TEST-012 report
-    eec623e  r_trn=400 lock + make_sigma4_map.py reproducibility
-    949927d  visualization layer (terrain mesh + path, bench_viz)
-    (WIP)    OI-002 baro state: 16-D core, TEST-013, baro_sim, bench A/B
-
-## 13. Roadmap
-
-1. OI-003 magnetometer yaw: design doc -> core impl -> selftest -> bench/MC.
-2. Re-run OI-002 experiments with tight attitude; choose full vs partitioned
-   baro update on measured merit; then commit OI-002.
-3. Live SITL confirmation flight (QGC) with the validated stack.
-4. Optional: Gazebo heightmap world for an end-to-end demo.
-5. OI-004 revisit only if a mission profile demands terminal-phase TRN.
-
-## 14. References
-
-- Sola, J. "Quaternion kinematics for the error-state Kalman filter", 2017.
-- Bar-Shalom, Li, Kirubarajan. "Estimation with Applications to Tracking and
-  Navigation", 2001 (gating, Joseph form).
-- PX4 ROS 2 interface docs; RViz2 user guide (Jazzy).
+`data/SHA256SUMS` pins every tracked or deterministic file. `make_data.sh` checks it.
 
 ---
-Discipline: hypothesis -> one decisive experiment -> pre-registered decision
-rule -> commit. No blind patches; read the file before editing it.
+
+## Repository layout
+
+```
+.
+├── env.sh                      # source in every terminal (sets GDN_ROOT, ROS, RMW)
+├── src/
+│   ├── gdn_fusion/             # main package
+│   │   ├── include/gdn/        # ROS-free core: eskf.hpp, map_db.hpp, paths.hpp
+│   │   └── src/                # eskf_node, map_viz_node, selftest, mc_campaign
+│   ├── gdn_sensors/            # sensor_monitor (IMU/LPOS rate check)
+│   └── px4_msgs/               # git submodule, PX4 release/1.15
+├── tools/
+│   ├── setup_ubuntu.sh         # one-shot new-machine setup
+│   ├── make_data.sh            # derived data + checksum/map verification
+│   ├── fetch_data.sh / pack_data.sh   # flight001 release download / publish
+│   ├── run_selftest.sh  mc_run.sh  bench.sh  bench_viz.sh
+│   ├── trn_sensor_sim.py  baro_sim.py  mag_sim.py  replay_scorer.py
+│   ├── make_zermatt_bag.py  gen_zermatt_flight.py
+│   ├── generate_terrain.py  export_map_db.py  make_sigma4_map.py  make_zermatt_map.py
+│   ├── fetch_terrain.py  make_world_final.py      # SRTM -> map/Gazebo world pipeline
+│   ├── gdn_paths.py            # shared repo-root + map helpers
+│   └── (analysis scripts: analyze_ins, eskf_trn, eskf_mismatch, trn_match, py_trace, ...)
+├── data/                       # see Data
+└── docs/
+    ├── ARCHITECTURE.md         # filter math, topics, parameters, validation, known gaps
+    ├── design/eskf_design.md
+    ├── open_items.md
+    └── test_reports/           # TEST-002 ... TEST-012
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `cd: ~/gdn_workspace: No such file or directory` | Old scripts. Pull this branch; nothing depends on the clone location any more. |
+| `map load failed: .../data/maps/...` | `source env.sh` wasn't run (`GDN_ROOT` unset), or pass `-p map_path:=/abs/path`. |
+| `px4_msgs` not found / empty `src/px4_msgs` | Cloned without submodules: `git submodule update --init --recursive`. |
+| `Eigen/Dense: No such file` | `sudo apt install libeigen3-dev`, or set `EIGEN_INC`. |
+| `ros2 bag play`: storage plugin `mcap` missing | `sudo apt install ros-jazzy-rosbag2-storage-mcap` |
+| Bench prints `no scorer samples` | A node failed to start; check `/tmp/gdn_bench/node.log`. |
+| `pip install` refused ("externally managed") | Use the apt `python3-*` packages from the setup script. |
+| Shell dies silently after `source install/setup.bash` | Don't use `set -u` around ROS setup scripts; they reference unset variables. |
+| RViz shows nothing | In Jazzy, the Marker display key is `Topic:`. `Marker Topic:` is silently ignored. |
+| Nodes from another project show up | `env.sh` sets `ROS_DOMAIN_ID=42`; change it if needed. |
+| Want Zenoh instead of Fast DDS | `export GDN_RMW=rmw_zenoh_cpp` before `source env.sh` (needs `ros-jazzy-rmw-zenoh-cpp`). |
+
+### Field notes (hard-won)
+
+- **Check before assuming a sensor exists in a bag:** run `ros2 bag info`.
+  `SensorCombined` has no barometer field.
+- **Covariance PSD facts:**
+  - ΦPΦᵀ and JPJᵀ are congruence transforms, so PSD in means PSD out.
+  - Shrinking a diagonal block while keeping its cross-terms breaks PSD.
+- **A scalar baro observes only z + bias.** Test the observable sum, not the individual
+  states.
+- **Bench scorer resolution:** n is about 12 samples in the 60–300 s window, so treat
+  deltas under about 3 m with caution. Use A/B pairs with pre-registered decision rules.
+
+---
+
+## Contributing discipline
+
+Hypothesis → one decisive experiment → pre-registered decision rule → commit. Every
+change keeps `tools/run_selftest.sh` and `colcon test` green. Changes to the core also
+re-run the Monte Carlo campaign and the bench.
+
+## References
+
+- J. Solà, *Quaternion kinematics for the error-state Kalman filter*, arXiv:1711.02508, 2017.
+- Bar-Shalom, Li, Kirubarajan, *Estimation with Applications to Tracking and Navigation*, Wiley, 2001.
+- L. D. Hostetler, SITAN recursive terrain-aided navigation (IEEE, 1978–85).
+- PX4 ROS 2 user guide; ROS 2 Jazzy installation docs.
+
+## License
+
+MIT (see `src/gdn_fusion/LICENSE`).

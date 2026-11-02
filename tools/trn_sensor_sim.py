@@ -1,30 +1,37 @@
-import rclpy, numpy as np, struct
+"""Simulated terrain-elevation (TRN) sensor driven by bag truth.
+
+Map: $GDN_MAP, else data/maps/terrain_db_sigma4.bin. The local-NED origin and
+metres-per-degree come from the map header (grid centre), exactly as
+gdn::MapDb::Load() does, so simulator and filter always agree on geometry.
+"""
+import os
+import rclpy, numpy as np
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from px4_msgs.msg import VehicleLocalPosition
 from std_msgs.msg import Float64
 from geometry_msgs.msg import PointStamped
-from pathlib import Path
-
-LAT_C, LON_C = 47.3977, 8.5456
-M_LAT = 111320.0; M_LON = 111320.0*np.cos(np.radians(LAT_C))
+from gdn_paths import load_map
 
 class TrnSim(Node):
     def __init__(self):
         super().__init__('gdn_trn_sensor_sim')
-        b = (Path.home()/'gdn_workspace/data/maps/terrain_db_sigma4.bin').read_bytes()
-        nx, ny, self.lat0, self.lon0, self.dlat, self.dlon = struct.unpack('<iidddd', b[:40])
-        self.alt = np.frombuffer(b[40:], dtype='<f4').reshape(ny, nx)
+        map_path = os.environ.get('GDN_MAP')  # None -> default sigma4 map
+        self.alt, h = load_map(map_path)
+        self.lat0, self.lon0, self.dlat, self.dlon = h['lat0'], h['lon0'], h['dlat'], h['dlon']
+        self.lat_c, self.lon_c = h['lat_c'], h['lon_c']
+        self.m_lat, self.m_lon = h['m_per_deg_lat'], h['m_per_deg_lon']
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST)
         self.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position', self.cb, qos)
         self.pub_m = self.create_publisher(Float64, '/gdn/trn_meas', 10)
         self.pub_t = self.create_publisher(PointStamped, '/gdn/truth', 10)
         self.last_k = -1; self.rng = np.random.default_rng(7)
-        self.get_logger().info('TRN sensor-sim ready (0.5 s timestamp grid)')
+        self.get_logger().info(f'TRN sensor-sim ready (0.5 s grid), map origin '
+                               f'({self.lat_c:.6f}, {self.lon_c:.6f})')
 
     def alt_at(self, x, y):
-        fi = (LAT_C + x/M_LAT - self.lat0)/self.dlat
-        fj = (LON_C + y/M_LON - self.lon0)/self.dlon
+        fi = (self.lat_c + x/self.m_lat - self.lat0)/self.dlat
+        fj = (self.lon_c + y/self.m_lon - self.lon0)/self.dlon
         fi = min(max(fi, 0.0), self.alt.shape[0]-1.001)
         fj = min(max(fj, 0.0), self.alt.shape[1]-1.001)
         i0, j0 = int(fi), int(fj); ti, tj = fi-i0, fj-j0

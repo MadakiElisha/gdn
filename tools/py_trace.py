@@ -1,3 +1,4 @@
+from gdn_paths import ROOT  # repo root (GDN_ROOT or this clone)
 import numpy as np, pandas as pd, math
 from scipy.spatial.transform import Rotation as R
 from pathlib import Path
@@ -8,7 +9,7 @@ def skew(v): return np.array([[0,-v[2],v[1]],[v[2],0,-v[0]],[-v[1],v[0],0]])
 def clamp(v,l):
     n=np.linalg.norm(v); return v*(l/n) if n>l else v
 
-D=Path.home()/'gdn_workspace/data/flight001_csv'
+D=ROOT/'data/flight001_csv'
 LAT_C,LON_C=47.3977,8.5456; M_LAT=111320.0; M_LON=111320.0*np.cos(np.radians(LAT_C))
 imu=pd.read_csv(D/'imu.csv'); lpos=pd.read_csv(D/'lpos.csv')
 t0=imu['t'].iloc[0]; T=(imu['t'].to_numpy()-t0)/1e6
