@@ -50,7 +50,15 @@ rosdep update --rosdistro jazzy
 set +u; source /opt/ros/jazzy/setup.bash; set -u
 rosdep install --from-paths "$ROOT/src" --ignore-src -y --rosdistro jazzy
 
-log "4/7 git submodules (px4_msgs)"
+log "4/7 git checks and submodules (px4_msgs)"
+# A workspace copied from another machine (USB drive, archive, WSL) often comes
+# back with every file marked executable. Git then reports every file as
+# modified and refuses to pull. If the only differences are file modes,
+# ignore them for this clone.
+if ! git -C "$ROOT" diff --quiet 2>/dev/null && git -C "$ROOT" -c core.fileMode=false diff --quiet 2>/dev/null; then
+  echo "only file-permission differences found; setting core.fileMode=false for this clone"
+  git -C "$ROOT" config core.fileMode false
+fi
 git -C "$ROOT" submodule update --init --recursive
 
 log "5/7 colcon build (px4_msgs takes several minutes the first time)"
@@ -64,7 +72,9 @@ if [ -f install/px4_msgs/share/px4_msgs/package.xml ] && [ ! -L install/px4_msgs
   BUILD_MODE=()
 fi
 set +u
-colcon build "${BUILD_MODE[@]}" --cmake-args -DCMAKE_BUILD_TYPE=Release
+# --base-paths src: only build our packages, even if PX4-Autopilot or other
+# ROS packages sit somewhere else inside the workspace folder.
+colcon build --base-paths src "${BUILD_MODE[@]}" --cmake-args -DCMAKE_BUILD_TYPE=Release
 set -u
 
 log "6/7 derived data"
@@ -73,7 +83,7 @@ tools/make_data.sh
 log "7/7 tests"
 tools/run_selftest.sh
 set +u; source "$ROOT/env.sh"; set -u
-colcon test --packages-select gdn_fusion --event-handlers console_direct- >/dev/null
+colcon test --base-paths src --packages-select gdn_fusion --event-handlers console_direct- >/dev/null
 colcon test-result --verbose
 python3 tools/make_zermatt_bag.py      # synthetic PX4 bag for the bench smoke test
 

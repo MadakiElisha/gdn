@@ -21,8 +21,8 @@ Accepted as a limitation for now. It should be revisited once the odometry layer
 ### OI-007: Gazebo heightmap visuals broken under WSL2 (deferred)
 The SRTM-to-Gazebo pipeline (`tools/make_world_final.py`, `tools/make_terrain_mesh.py`)
 produces valid worlds. Under WSL2 software GL, though, the Ogre1/Ogre2 heightmap visual
-doesn't render. Collision works. Deferred until SITL work on a native Linux machine
-(ROADMAP R5.3).
+doesn't render. Collision works. Deferred until the simulation environment is built on a native Linux machine with a
+GPU (ROADMAP R2.2).
 
 ### OI-009: false-contour lock on Zermatt (open)
 In the Zermatt Monte Carlo, about 5 of 24 seeds lock onto a parallel contour and stay
