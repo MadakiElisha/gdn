@@ -101,11 +101,13 @@ None of these can be properly measured yet. Here's what we have:
 - **Windows too short.** The current MC and bench score a 60 to 300 s window. The
   Zermatt synthetic flight is only 177 s long. Measuring 5 and 10 minutes without
   GNSS needs longer flights with GNSS cut mid-flight (R1.7).
-- **Fixed-wing, rugged terrain, TRN only, idealised measurement.** CEP50 is about
-  14 m, but CEP95 is over 1 km on Zermatt because of false-contour locks (OI-009).
-  That fails REQ-NAV-003 until acquisition (R4.1) is in.
-- **Vertical.** A 15 m baro bias makes the filter diverge today, which fails
-  REQ-NAV-010. R1.1 fixes this.
+- **Fixed-wing, rugged terrain, TRN only, real altimeter model.** On Zermatt, CEP50
+  is about 18 m, but CEP95 is over 900 m because of false-contour locks (OI-009, 7 of
+  24 seeds). That fails REQ-NAV-003 until acquisition (R4.1) is in.
+- **Vertical.** With the real altimeter model (R1.1, TEST-017), altitude p95 on the
+  recorded flight is 2.9 m with no baro drift and 4.1 m with 5 m of drift, both inside
+  REQ-NAV-010. With 15 m of drift over 5 minutes it's 9.9 m, which fails, though the
+  filter no longer diverges (97 of 100 seeds stay under 100 m RMS).
 - **Integrity.** Not implemented, so REQ-INT is failed by definition (R4.4).
 - **Multirotor and quadplane.** Not testable until the closed-loop SITL (Phase 2) and
   the odometry layer (Phase 3).

@@ -66,11 +66,26 @@ jobs:
       - name: Data checksums and map rebuild
         run: tools/make_data.sh --verify-maps
 
-      - name: Monte Carlo, Zermatt, 24 seeds
+      - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin | tee mc.txt
           python3 tools/ci_check_mc.py mc.txt --max-cep50 20 --min-passing 17
+
+      - name: Monte Carlo, Zermatt, 24 seeds (AGL model, R1.1)
+        run: |
+          source env.sh
+          tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl | tee mc_zermatt_agl.txt
+          python3 tools/ci_check_mc.py mc_zermatt_agl.txt --max-cep50 25 --min-passing 15
+
+      - name: Fetch flight001 (release data-v1)
+        run: tools/fetch_data.sh
+
+      - name: Monte Carlo, flight001, 100 seeds (AGL model, 5 m baro drift)
+        run: |
+          source env.sh
+          tools/mc_run.sh 100 data/flight001_csv data/maps/terrain_db_sigma4.bin --model=agl --baro-drift=5 | tee mc_flight001_agl.txt
+          python3 tools/ci_check_mc.py mc_flight001_agl.txt --max-cep50 32 --max-cep95 80 --min-passing 97
 
       - name: Keep MC report
         if: always()
@@ -78,6 +93,6 @@ jobs:
         with:
           name: mc-report
           path: |
-            mc.txt
+            mc*.txt
             /tmp/mc_per_seed.csv
           if-no-files-found: ignore

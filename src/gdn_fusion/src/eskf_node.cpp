@@ -29,6 +29,13 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
     cfg.gate_sigma = declare_parameter("gate_sigma", cfg.gate_sigma);
     cfg.gate_abs_m = declare_parameter("gate_abs_m", cfg.gate_abs_m);
     cfg.clamp_dv   = declare_parameter("clamp_dv", cfg.clamp_dv);   // OI-006
+    cfg.r_agl      = declare_parameter("r_agl", cfg.r_agl);
+    // "agl": real altimeter model, /gdn/agl_meas + baro (R1.1, default).
+    // "ideal": legacy oracle, /gdn/trn_meas is terrain height directly.
+    trn_model_ = declare_parameter("trn_model", std::string("agl"));
+    datum_sigma_ = declare_parameter("datum_sigma_m", 5.0);
+    if (trn_model_ != "agl" && trn_model_ != "ideal")
+        throw std::runtime_error("trn_model must be 'agl' or 'ideal'");
     if (!map_.Load(map_path)) {
         RCLCPP_FATAL(get_logger(),
             "map load failed: %s\n  -> run `source env.sh` from the repo root, or pass "
@@ -52,6 +59,8 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
         "/gdn/mag_meas", qos, std::bind(&EskfNode::MagCb, this, std::placeholders::_1));
     trn_sub_  = create_subscription<std_msgs::msg::Float64>(
         "/gdn/trn_meas", 10, std::bind(&EskfNode::TrnCb, this, std::placeholders::_1));
+    agl_sub_  = create_subscription<std_msgs::msg::Float64>(
+        "/gdn/agl_meas", 10, std::bind(&EskfNode::AglCb, this, std::placeholders::_1));
     baro_sub_ = create_subscription<std_msgs::msg::Float64>(
         "/gdn/baro_meas", qos, std::bind(&EskfNode::BaroCb, this, std::placeholders::_1));
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/gdn/odom", 10);
@@ -64,7 +73,7 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
                                     / gdn::Eskf::kDeg;
         RCLCPP_INFO(get_logger(),
             "DBG t=%.0f pos=(%.0f,%.0f,%.0f) zt=%.0f |v|=%.1f yaw=%.1f pit=%.1f rol=%.1f "
-            "ba=%.4f bg=%.4f bb=%.1f mb=(%.1f,%.1f,%.1f) sp=%.1f spz=%.1f st=%.2f pa=%.1e pe=%.1e pbz=%.1e rej=%d(m%d b%d t%d) zu=%d mi=%.2f mhz=%d dp=%d",
+            "ba=%.4f bg=%.4f bb=%.1f mb=(%.1f,%.1f,%.1f) sp=%.1f spz=%.1f st=%.2f pa=%.1e pe=%.1e pbz=%.1e rej=%d(m%d b%d t%d a%d) alt=%.1f zu=%d mi=%.2f mhz=%d dp=%d",
             t_cur_, eskf_->pos().x(), eskf_->pos().y(), eskf_->pos().z(), z_truth_,
             eskf_->vel().norm(),
             rpy.x(), rpy.y(), rpy.z(),
@@ -74,7 +83,7 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
             eskf_->mag_bias().x(), eskf_->mag_bias().y(), eskf_->mag_bias().z(),
             eskf_->sigma_pos(), eskf_->sigma_pos_z(), eskf_->sigma_att_deg(),
             eskf_->p_asym(), eskf_->p_mineig(), eskf_->p_bgz(),
-            eskf_->rejects(), eskf_->rej_trn(), eskf_->rej_baro(), eskf_->rej_mag(),
+            eskf_->rejects(), eskf_->rej_mag(), eskf_->rej_baro(), eskf_->rej_trn(), eskf_->rej_agl(), eskf_->altitude_amsl(),
             eskf_->zupt(), eskf_->mag_innov_rms(), mag_cb_, n_drop_);
         mag_cb_ = 0;
     });
@@ -140,8 +149,9 @@ void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
 void LposCb(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg) {
     vel_lpos_ = Eigen::Vector3d(msg->vx, msg->vy, msg->vz); have_lpos_ = true;
     if (msg->z_valid) { z_truth_ = msg->z; x_truth_ = msg->x; y_truth_ = msg->y; }
-    // OI-002: Initialize vertical position from LPOS (truth/GNSS proxy)
-    if (!z_initialized_ && msg->z_valid && eskf_->aligned()) {
+    // OI-002 (legacy "ideal" mode only): initial z from LPOS, which is GNSS-derived.
+    // In "agl" mode the altitude datum comes from the map and the first AGL reading.
+    if (trn_model_ == "ideal" && !z_initialized_ && msg->z_valid && eskf_->aligned()) {
         eskf_->SetInitialZ(msg->z);
         z_initialized_ = true;
         RCLCPP_INFO(get_logger(), "OI-002: Initial Z set to %.2f m (NED)", msg->z);
@@ -166,6 +176,7 @@ void MagCb(const geometry_msgs::msg::Vector3::SharedPtr msg) {
 }
 
 void TrnCb(const std_msgs::msg::Float64::SharedPtr msg) {
+    if (trn_model_ != "ideal") return;
     const gdn::MapQuery mq = map_.Query(eskf_->pos().x(), eskf_->pos().y());
     const int k = eskf_->updates() + eskf_->rejects();
     const double pbx = eskf_->pos().x(), pby = eskf_->pos().y();
@@ -178,8 +189,42 @@ void TrnCb(const std_msgs::msg::Float64::SharedPtr msg) {
             res == gdn::Eskf::UpdResult::kApplied ? 1 : 0, pbx, pby);
 }
 
+// R1.1: height above ground (tilt-corrected, metres). The first reading after yaw
+// alignment fixes the altitude datum: AMSL height of p_z = 0 = map height under the
+// estimate + AGL + current p_z. The baro bias is calibrated at the same moment.
+void AglCb(const std_msgs::msg::Float64::SharedPtr msg) {
+    if (trn_model_ != "agl" || !eskf_->aligned() || !eskf_->yaw_aligned()) return;
+    const gdn::MapQuery mq = map_.Query(eskf_->pos().x(), eskf_->pos().y());
+    if (!mq.ok) return;
+    if (!eskf_->datum_set()) {
+        eskf_->SetAltitudeDatum(mq.h + msg->data + eskf_->pos().z(), datum_sigma_);
+        if (have_baro_) eskf_->InitBaroBias(last_baro_, 1.5);
+        z_initialized_ = true;
+        RCLCPP_INFO(get_logger(), "R1.1: altitude datum %.1f m AMSL (map %.1f + AGL %.1f), baro bias %.2f m",
+                    eskf_->altitude_datum(), mq.h, msg->data, eskf_->baro_bias());
+        return;
+    }
+    // AGL alone is one equation in altitude and position: without a barometer the
+    // filter can't tell "higher" from "over lower ground" (TEST-017, 67 m RMS).
+    const rclcpp::Time now_t = now();
+    if ((!have_baro_ || (now_t - last_baro_time_).seconds() > 2.0) &&
+        (now_t - last_no_baro_warn_).seconds() > 10.0) {
+        RCLCPP_WARN(get_logger(), "AGL updates running without a barometer: altitude and "
+                    "position are not separable; expect large horizontal error");
+        last_no_baro_warn_ = now_t;
+    }
+    double innov = 0.0, S = 0.0;
+    const int k = eskf_->agl_updates() + eskf_->rej_agl();
+    const auto res = eskf_->ApplyAgl(msg->data, mq, &innov, &S);
+    if (k < 20)
+        RCLCPP_INFO(get_logger(), "AGL k=%d agl=%.2f innov=%.2f S=%.1f acc=%d alt=%.1f bb=%.2f",
+                    k, msg->data, innov, S, res == gdn::Eskf::UpdResult::kApplied ? 1 : 0,
+                    eskf_->altitude_amsl(), eskf_->baro_bias());
+}
+
 void BaroCb(const std_msgs::msg::Float64::SharedPtr msg) {
-    // OI-002: baro measurement is z_meas = z_true + bias + noise (NED)
+    // baro measurement: z_meas = z_true + bias + noise (NED)
+    last_baro_ = msg->data; have_baro_ = true; last_baro_time_ = now();
     if (z_initialized_ && eskf_->aligned()) {
         eskf_->ApplyBaro(msg->data);
     }
@@ -187,6 +232,7 @@ void BaroCb(const std_msgs::msg::Float64::SharedPtr msg) {
 
 rclcpp::Subscription<px4_msgs::msg::SensorCombined>::SharedPtr imu_sub_;
 rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr baro_sub_;
+rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr agl_sub_;
 rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr lpos_sub_;
 rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr trn_sub_;
 rclcpp::Subscription<px4_msgs::msg::VehicleAttitude>::SharedPtr att_sub_;
@@ -210,6 +256,12 @@ int n_stall_ = 0;
     int mag_cb_ = 0;
 bool have_lpos_ = false;
 bool z_initialized_ = false;
+std::string trn_model_ = "agl";
+double datum_sigma_ = 5.0;
+double last_baro_ = 0.0;
+bool have_baro_ = false;
+rclcpp::Time last_baro_time_{0, 0, RCL_ROS_TIME};
+rclcpp::Time last_no_baro_warn_{0, 0, RCL_ROS_TIME};
     bool airborne_latch_ = false;
     int zupt_count_ = 0;
 

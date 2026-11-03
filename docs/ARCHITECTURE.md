@@ -31,10 +31,11 @@ This is the technical reference for the estimator. For the project overview see 
 | Dir | Topic | Type | Purpose |
 |---|---|---|---|
 | sub | `/fmu/out/sensor_combined` | `px4_msgs/SensorCombined` | IMU (accel + gyro), drives propagation |
-| sub | `/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` | **Truth/GNSS-derived**: ground ZUPT, airborne latch, initial altitude (see Known gaps) |
+| sub | `/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` | **Truth/GNSS-derived**: ground ZUPT and airborne latch; initial altitude only in `trn_model:=ideal` (see Known gaps) |
 | sub | `/fmu/out/vehicle_attitude` | `px4_msgs/VehicleAttitude` | truth yaw, logging only |
 | sub | `/gdn/mag_meas` | `geometry_msgs/Vector3` | magnetometer, uT, body FRD |
-| sub | `/gdn/trn_meas` | `std_msgs/Float64` | terrain elevation under the vehicle, m |
+| sub | `/gdn/agl_meas` | `std_msgs/Float64` | height above ground, tilt-corrected, m (`trn_model:=agl`, default) |
+| sub | `/gdn/trn_meas` | `std_msgs/Float64` | terrain elevation under the vehicle, m (`trn_model:=ideal`, legacy) |
 | sub | `/gdn/baro_meas` | `std_msgs/Float64` | barometric altitude, NED z, m |
 | pub | `/gdn/odom` | `nav_msgs/Odometry` | fused state, frame `map` |
 | pub | `/gdn/sigma` | `std_msgs/Float64` | horizontal position 1-sigma, m (1 Hz) |
@@ -77,7 +78,14 @@ core; the node drops IMU gaps above 0.25 s. Covariance: P ← ΦPΦᵀ + Qc·h, 
    The update is gated by slope observability (`slope_min`) and innovation size
    (`gate_sigma`, `gate_abs_m`), with per-state injection clamps, Joseph form and a
    quaternion error reset.
-6. **Barometer** (`ApplyBaro`): H has 1 at δp_z and δb_baro, so it observes the sum
+6. **Height above ground** (`ApplyAgl`, R1.1): agl = (h0 - p_z) - h_map(n, e), so
+   H = [-∂h/∂n, -∂h/∂e, -1, 0 ...]. h0 is the altitude datum (AMSL height of p_z = 0),
+   set once from the map height under the vehicle plus the first AGL reading
+   (`SetAltitudeDatum`). The baro bias is calibrated at the same moment
+   (`InitBaroBias`), with a covariance consistent with b = baro - z. There's no slope
+   gate: on flat ground it still observes altitude. The mag-bias rows of the gain
+   are zeroed before the update, so the covariance matches what was applied.
+7. **Barometer** (`ApplyBaro`): H has 1 at δp_z and δb_baro, so it observes the sum
    z + bias.
 
 **Configuration** (`EskfConfig` defaults):
@@ -85,8 +93,9 @@ core; the node drops IMU gaps above 0.25 s. Covariance: P ← ΦPΦᵀ + Qc·h, 
 | Group | Values |
 |---|---|
 | TRN | `r_trn`=400 (σ=20 m), `slope_min`=0.02, `gate_sigma`=3, `gate_abs_m`=40 |
+| AGL | `r_agl`=100 (σ=10 m, sensor plus map error), `gate_agl_sigma`=3, `gate_agl_abs_m`=40; node `datum_sigma_m`=5 |
 | Clamps | `clamp_dtheta_deg`=180 (relaxed for mag alignment), `clamp_dv`=0.5, `clamp_dva`=5e-3, `clamp_dvg_deg`=0.05, `clamp_dvm`=5 |
-| Baro | `r_baro`=4, `q_baro_bias`=1e-3, `p0_baro_bias`=25, `gate_baro_sigma`=5 |
+| Baro | `r_baro`=4, `q_baro_bias`=0.05 (was 1e-3; see TEST-017), `p0_baro_bias`=25, `gate_baro_sigma`=5 |
 | Mag | `r_mag`=4, `q_mag_bias`=1e-5, `p0_mag_bias`=100, `gate_mag_sigma`=5; reference field N/E/D = 21.5/1.3/42.3 uT (WMM, Zurich) |
 
 **Numerical hygiene:** every covariance write passes `Repair()`: an LLT check, and on
@@ -133,7 +142,7 @@ All simulators use fixed seeds for replay parity.
 
 ## Validation ledger
 
-- **Selftest** (24 checks; `tools/run_selftest.sh` runs them at -O2 and -O3,
+- **Selftest** (31 checks; `tools/run_selftest.sh` runs them at -O2 and -O3,
   `colcon test` runs them once):
   - Map DB: load, planar gradient/altitude exact, out-of-bounds rejected, east scale
     uses the map's latitude, truncated file rejected.
@@ -141,6 +150,9 @@ All simulators use fixed seeds for replay parity.
     stays put.
   - TRN: accepted on slope, converges along the gradient, unobservable axis not pumped.
   - Baro: updates accepted, observable sum converges.
+  - AGL (R1.1): refused without a datum, accepted, holds altitude against a 15 m baro
+    bias, estimates the bias, calibration sets a consistent covariance, moves position
+    along the gradient.
   - Mag: updates accepted, yaw converges, bias estimated.
   - TEST-015 static alignment.
   - ZUPT: pins velocity and position; the control run drifts.
@@ -153,8 +165,10 @@ All simulators use fixed seeds for replay parity.
 | Check | Result |
 |---|---|
 | Zermatt MC, 24 seeds | CEP50 14.2 m, median per-seed RMS 16.8 m, 19/24 seeds under 100 m (chaotic tail = OI-009 false-contour lock) |
+| flight001 MC, real altimeter model (TEST-017) | CEP50 26.4 m, CEP95 60.1 m, 100/100; with 15 m baro drift 50.8 m, 97/100 |
+| flight001 bench, real altimeter model, baro on | 21.3 m RMS, 35.6 m max |
 | Zermatt ROS bench (synthetic bag, baro off) | 13.1 / 20.1 m RMS in two runs (max 17.8 / 30.5 m); ROS timing makes runs non-identical, n=6 |
-| flight001 bench + MC | **needs re-baselining**: three fixes on this branch change it (TRN sim origin, east scale, node r_trn) |
+| flight001, old oracle model, after PR #1 (TEST-016) | MC CEP50 13.4 m, CEP95 37.0 m, 100/100; bench 31.5 m RMS with baro, 22.5 m without |
 
 Historical flight001 numbers, measured before those fixes: bench 15.7 m RMS (σ4,
 r_trn=400, early v3), later about 25 to 30 m; MC 100/100 seeds, CEP50 14.9 m, CEP95 40.3 m.
@@ -164,9 +178,10 @@ r_trn=400, early v3), later about 25 to 30 m; MC 100/100 seeds, CEP50 14.9 m, CE
 These are the main things standing between this and a fielded GNSS-denied stack. See
 [ROADMAP.md](../ROADMAP.md) (Phase 1 covers most of these) and `docs/open_items.md`.
 
-- **The TRN measurement is idealised.** The simulator outputs terrain height directly,
-  so altitude error never enters it. A real sensor gives baro altitude minus measured
-  AGL, so an altitude bias of tens of metres causes divergence.
+- **Altitude limits terrain matching.** R1.1 replaced the idealised TRN measurement
+  with the real AGL model. Altitude error now couples into horizontal error on gentle
+  slopes (TEST-017), and baro drift faster than the bias random walk still costs
+  accuracy.
 - **The filter starts at the true position** (initial position sigma of about 10 m) and has no acquisition mode.
   Start errors above about 60 m fail.
 - **The Monte Carlo uses the same map for world and database.** Realistic DEM error

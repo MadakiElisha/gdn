@@ -15,6 +15,11 @@ struct EskfConfig {
     double slope_min = 0.02;
     double gate_sigma = 3.0;
     double gate_abs_m = 40.0;
+    // Altimeter / height-above-ground (R1.1). r_agl lumps sensor noise and onboard-map
+    // error. 100 m^2 (10 m sigma) came out best in the flight001 MC sweep (TEST-017).
+    double r_agl = 100.0;
+    double gate_agl_sigma = 3.0;
+    double gate_agl_abs_m = 40.0;
     double clamp_dtheta_deg = 180.0;  // Relaxed to allow coarse mag yaw alignment without covariance collapse  // relaxed: 0.2 deg broke mag convergence
     double clamp_dp = 5.0;
     double clamp_dv = 0.5;
@@ -27,7 +32,10 @@ struct EskfConfig {
     double max_grav_dev = 0.5;
     double max_accel_var = 1.0;
     // Barometer (OI-002)
-    double q_baro_bias = 0.001;
+    // Baro-bias random walk, m^2/s. 0.05 lets the bias move about 4 m in 5 minutes
+    // (1 sigma), enough to follow a pressure change. 0.001 couldn't track drift and
+    // leaked it into position (TEST-017 sweep).
+    double q_baro_bias = 0.05;
     double p0_baro_bias = 25.0;
     double r_baro = 4.0;
     double gate_baro_sigma = 5.0;
@@ -153,6 +161,83 @@ public:
         P_ = Repair(J * P_ * J.transpose());
         x_.setZero();
         n_upd_++;
+        return UpdResult::kApplied;
+    }
+
+    // Altitude datum: AMSL height of the local origin (p_z = 0). Set it once, for
+    // example at start-up from the map height under the vehicle plus the first AGL
+    // reading. Altitude AMSL is then h0 - p_z (NED, z down).
+    // sigma_z: how well the datum is known (AGL noise plus map error at the start
+    // point). The altitude state is re-referenced to the new datum, so its variance
+    // becomes sigma_z^2, uncorrelated with the rest (keeps P positive semi-definite).
+    void SetAltitudeDatum(double h0_amsl, double sigma_z = -1.0) {
+        h0_ = h0_amsl; datum_set_ = true;
+        if (sigma_z > 0) {
+            P_.row(2).setZero(); P_.col(2).setZero();
+            P_(2, 2) = sigma_z * sigma_z;
+        }
+    }
+    bool datum_set() const { return datum_set_; }
+    // Take the baro bias from a baro reading at a moment when p_z is known (normally
+    // on the ground, right after SetAltitudeDatum). Covariance is left alone.
+    // With sigma_baro > 0, the covariance follows the same definition: b = z_baro - z,
+    // so b's covariance with every state is minus z's, plus the baro noise on b
+    // itself. That's an exact linear transform, so P stays positive semi-definite.
+    void InitBaroBias(double z_baro, double sigma_baro = -1.0) {
+        baro_bias_ = z_baro - pos_.z();
+        if (sigma_baro > 0) {
+            const double pzz = P_(2, 2);
+            P_.row(15) = -P_.row(2);
+            P_.col(15) = -P_.col(2);
+            P_(15, 15) = pzz + sigma_baro * sigma_baro;
+            P_(15, 2) = P_(2, 15) = -pzz;
+        }
+    }
+    double altitude_datum() const { return h0_; }
+    double altitude_amsl() const { return h0_ - pos_.z(); }
+
+    // Height above ground along the local vertical (tilt already removed), metres.
+    // Model: agl = (h0 - p_z) - h_map(p_n, p_e) + noise.
+    // This is what a real rangefinder or radar altimeter gives. Unlike ApplyTrn, the
+    // vehicle's altitude is part of the prediction, so altitude error and baro bias
+    // are estimated together with position instead of leaking into it. No slope gate:
+    // on flat ground the update still observes altitude, it just carries no
+    // horizontal information (H has no north/east part there).
+    UpdResult ApplyAgl(double agl, const MapQuery& mq,
+                       double* innov_out = nullptr, double* s_out = nullptr) {
+        if (!aligned_ || !yaw_aligned_ || !datum_set_ || !mq.ok) return UpdResult::kSlopeGate;
+        H19 H = H19::Zero();
+        H(0, 0) = -mq.dn; H(0, 1) = -mq.de; H(0, 2) = -1.0;
+        const double innov = agl - (h0_ - pos_.z() - mq.h);
+        const double S = (H * P_ * H.transpose())(0, 0) + cfg_.r_agl;
+        if (innov_out) *innov_out = innov;
+        if (s_out) *s_out = S;
+        if (S <= 0 || std::abs(innov) / std::sqrt(S) > cfg_.gate_agl_sigma ||
+            std::abs(innov) > cfg_.gate_agl_abs_m) { n_rej_++; n_rej_agl_++; return UpdResult::kInnovGate; }
+        V19 K = (P_ * H.transpose()) / S;
+        // States this update must not touch get a zero gain row. The Joseph form below
+        // is valid for any gain, so the covariance stays consistent with what was
+        // actually applied (unlike zeroing dx after the fact).
+        K.segment<3>(16).setZero();                  // mag bias
+        V19 dx = K * innov;
+        dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
+        dx.segment<3>(6)  = Clamp(dx.segment<3>(6),  cfg_.clamp_dtheta_deg * kDeg);
+        dx.segment<3>(9)  = Clamp(dx.segment<3>(9),  cfg_.clamp_dva);
+        dx.segment<3>(12) = Clamp(dx.segment<3>(12), cfg_.clamp_dvg_deg * kDeg);
+        x_ += dx;
+        const M19 IKH = M19::Identity() - K * H;
+        P_ = Repair(IKH * P_ * IKH.transpose() + cfg_.r_agl * K * K.transpose());
+        pos_ += x_.segment<3>(0); vel_ += x_.segment<3>(3);
+        const double da = x_.segment<3>(6).norm();
+        if (da > 1e-9)
+            q_ = (q_ * Eigen::Quaterniond(Eigen::AngleAxisd(da, x_.segment<3>(6).normalized()))).normalized();
+        ba_ += x_.segment<3>(9); bg_ += x_.segment<3>(12);
+        baro_bias_ += x_(15);
+        M19 J = M19::Identity();
+        J.block<3,3>(6,6) = Eigen::Matrix3d::Identity() - Skew(x_.segment<3>(6));
+        P_ = Repair(J * P_ * J.transpose());
+        x_.setZero();
+        n_upd_++; n_agl_++;
         return UpdResult::kApplied;
     }
 
@@ -353,6 +438,8 @@ public:
     int updates() const { return n_upd_; }
     int zupt() const { return n_zupt_; }
     int rej_trn() const { return n_rej_trn_; }
+    int rej_agl() const { return n_rej_agl_; }
+    int agl_updates() const { return n_agl_; }
     int rej_baro() const { return n_rej_baro_; }
     int rej_mag() const { return n_rej_mag_; }
     double mag_innov_rms() const { return mag_innov_rms_; }
@@ -393,6 +480,9 @@ private:
     int n_ = 0, n_upd_ = 0, n_rej_ = 0;
     int n_zupt_ = 0;
     int n_rej_trn_ = 0, n_rej_baro_ = 0, n_rej_mag_ = 0;
+    int n_rej_agl_ = 0, n_agl_ = 0;
+    double h0_ = 0.0;
+    bool datum_set_ = false;
     double mag_innov_rms_ = 0.0;
     bool aligned_ = false, yaw_aligned_ = false;
 };

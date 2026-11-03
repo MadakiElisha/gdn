@@ -56,14 +56,13 @@ assumptions, and it has not flown on real hardware yet.
 | Part | State | Notes |
 |---|---|---|
 | ESKF core (19 states) | Working in sim | Position, velocity, attitude, accel/gyro bias, baro bias, mag bias. ROS-free C++17. |
-| TRN scalar elevation update | Working in sim | Uses the terrain-map gradient. The measurement model is still idealised (see limitations). |
+| TRN with a real altimeter model | Working in sim | Height above ground from a rangefinder or radar, plus baro with a bias state (R1.1, TEST-017). The old idealised model is kept as `trn_model:=ideal` for comparison. |
 | Barometer, magnetometer, ZUPT | Working in sim | Mag gives heading at start-up; ZUPT pins the filter on the ground. |
 | Terrain database tools | Working | Synthetic terrain and real SRTM (Zermatt). The maps rebuild byte for byte. |
 | ROS 2 node (PX4 topics) | Working on replay | Jazzy, `px4_msgs` 1.15, deterministic replay bench. |
-| Unit tests and Monte Carlo | Working | 24 checks at `-O2` and `-O3`; seeded MC campaigns. |
+| Unit tests and Monte Carlo | Working | 31 checks at `-O2` and `-O3`; seeded MC campaigns. |
 | Gazebo world from a real DEM | Partly working | World generation works; terrain visuals are broken under WSL2 software rendering (OI-007). |
 | Closed-loop SITL with GDN in the loop | Planned (Phase 2) | PX4 + Gazebo Harmonic, simulated Mid-360S, TFmini-S and OAK-D Lite, scenario runner with automatic scoring. |
-| Real altimeter (AGL) measurement model | Next | Baro altitude minus measured height above ground, with an altitude-bias state. |
 | LIO odometry (Mid-360S) | Planned | FAST-LIO2 or Point-LIO feeding GDN as a velocity / delta-pose measurement. |
 | Stereo VIO (OAK-D Lite) | Planned | Global-shutter stereo pair plus IMU, through the same odometry interface as LIO. |
 | TRN acquisition from a large position error | Planned | Point-mass or particle filter that hands over to the ESKF. |
@@ -120,9 +119,10 @@ The node (`eskf_node`) talks to the rest of the system over these topics today.
 | Direction | Topic | Type | What it carries |
 |---|---|---|---|
 | in | `/fmu/out/sensor_combined` | `px4_msgs/SensorCombined` | IMU, drives propagation |
-| in | `/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` | GNSS-derived; currently used for ZUPT, take-off detection and initial altitude (to be removed, R1.2) |
+| in | `/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` | GNSS-derived; still used for ZUPT and take-off detection (to be removed, R1.2) |
 | in | `/fmu/out/vehicle_attitude` | `px4_msgs/VehicleAttitude` | truth heading, logging only |
-| in | `/gdn/trn_meas` | `std_msgs/Float64` | terrain height under the vehicle, m |
+| in | `/gdn/agl_meas` | `std_msgs/Float64` | height above ground, tilt-corrected, m (default `trn_model:=agl`) |
+| in | `/gdn/trn_meas` | `std_msgs/Float64` | terrain height directly, m (legacy `trn_model:=ideal` only) |
 | in | `/gdn/baro_meas` | `std_msgs/Float64` | baro altitude (NED z), m |
 | in | `/gdn/mag_meas` | `geometry_msgs/Vector3` | magnetometer, uT, body frame |
 | out | `/gdn/odom` | `nav_msgs/Odometry` | fused position, velocity, attitude |
@@ -229,6 +229,8 @@ numbers its phases separately.
 | ZUPT on the ground | Pins position and velocity before take-off. | TEST-015 (selftest) |
 | Real terrain | The filter navigates SRTM relief around Zermatt (CEP50 about 14 m). | OI-005, commits 85e2d52 and 742b5ca |
 | Setup rework | A fresh clone builds anywhere. Three bench bugs found and fixed along the way. | PR #1 |
+| Re-baseline after the fixes | flight001 MC: CEP50 13.4 m, 100/100. Bench: 31.5 m RMS with baro, 22.5 m without. | TEST-016 |
+| Real altimeter model | The oracle hid how much altitude error costs. The real model (AGL plus a baro bias state) is honest and beats the naive approach under every baro drift tested. | TEST-017 |
 
 ## Requirements
 
@@ -335,6 +337,7 @@ Source `env.sh` first in every terminal.
 | Unit tests (no ROS needed) | `tools/run_selftest.sh` |
 | Monte Carlo on the PX4 replay flight | `tools/mc_run.sh 100` |
 | Monte Carlo on Zermatt | `tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin` |
+| Monte Carlo with options | add `--model=agl\|naive\|ideal`, `--baro-drift=15`, `--window=60,600`, `--q-baro=`, `--r-agl=` |
 | Replay bench on the PX4 flight | `tools/bench.sh` (add `BENCH_NO_BARO=1` for the baro-off run) |
 | Replay bench on any bag and map | `GDN_BAG=... GDN_MAP=... tools/bench.sh` |
 | Bench with RViz | `tools/bench_viz.sh` |
@@ -364,10 +367,13 @@ check that the simulated sensors aren't flattering us.
 
 | Test | Result | Conditions |
 |---|---|---|
-| Unit tests | 24 / 24 at `-O2` and `-O3` | Map maths, alignment, TRN, baro, mag, ZUPT |
+| Unit tests | 31 / 31 at `-O2` and `-O3` | Map maths, alignment, TRN, AGL, baro, mag, ZUPT |
 | Monte Carlo, Zermatt SRTM | CEP50 14.2 m, 19 of 24 seeds under 100 m | Synthetic flight, known start, map used as truth |
 | ROS replay bench, Zermatt | 13 to 20 m RMS | Synthetic PX4-style bag, baro off |
-| Monte Carlo and bench, PX4 replay flight | Needs re-baselining | Three bench fixes in Nov 2026 changed the setup. The older figures were 15.7 m RMS on the bench and CEP50 14.9 m in MC |
+| Monte Carlo, PX4 replay flight, real altimeter model | CEP50 26.4 m, CEP95 60.1 m, 100 of 100 seeds; altitude p95 2.9 m | 100 seeds, no baro drift (TEST-017) |
+| Same, with 15 m baro drift over 5 min | CEP50 50.8 m, 97 of 100 seeds; altitude p95 9.9 m | TEST-017 |
+| ROS replay bench, PX4 replay flight | 21.3 m RMS (max 35.6 m) with baro; 31.5 m with the old oracle | TEST-016, TEST-017 |
+| Old oracle model, for reference | MC CEP50 13.4 m, 100/100 | TEST-016; optimistic, because altitude was assumed perfect |
 
 The Zermatt failures are false-contour locks (OI-009).
 
@@ -376,10 +382,11 @@ The Zermatt failures are false-contour locks (OI-009).
 These are the honest gaps between this and something you could fly. They're the top of
 the roadmap.
 
-- **The TRN measurement is idealised.** The simulator hands the filter terrain height
-  directly, so altitude error never reaches it. A real system measures baro altitude
-  minus height above ground. When we injected a 15 m altitude bias, every seed
-  diverged.
+- **Terrain matching is limited by altitude accuracy.** With the real altimeter
+  model (R1.1), each metre of altitude error looks like several metres of horizontal
+  error on gentle slopes. On the recorded flight, CEP50 is 26 m, against 13 m for the
+  old oracle that hid this. A 15 m baro drift over 5 minutes now degrades rather than
+  diverges (97 of 100 seeds under 100 m), but it still costs accuracy.
 - **The filter starts where the vehicle really is.** There's no acquisition mode, and
   start errors above about 60 m fail.
 - **The Monte Carlo uses one map as both world and onboard database,** so map error
