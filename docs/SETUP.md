@@ -39,13 +39,31 @@ like this. It keeps your existing build, so `px4_msgs` doesn't rebuild from scra
 
 ```bash
 cd ~/gdn_workspace
-git status                        # should show no modified tracked files
+git status                        # should show no modified tracked files (see below if it does)
 git pull --ff-only origin main
-colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release    # same mode as before, no --symlink-install
+colcon build --base-paths src --cmake-args -DCMAKE_BUILD_TYPE=Release   # same mode as before
 source env.sh
 tools/make_data.sh                # checks the maps already in data/ against SHA256SUMS
 tools/run_selftest.sh
 ```
+
+**If you copied the workspace rather than cloning it**, `git status` may list every
+file as modified, and `git pull` refuses with "Your local changes would be
+overwritten". Usually only the file permissions changed in the copy (everything
+became executable). Check, and if so tell git to ignore permissions for this clone:
+
+```bash
+git -c core.fileMode=false status --short    # nothing listed = only permissions differ
+git config core.fileMode false
+```
+
+If files are still listed after that, they really are different. Look at
+`git diff` before doing anything else.
+
+**Always build with `--base-paths src`.** Without it, colcon scans the whole workspace
+folder. If a PX4-Autopilot checkout lives inside it, colcon tries to build PX4 as a
+ROS package and fails (`kconfiglib is not installed`). Better still, keep
+PX4-Autopilot outside the workspace, for example in `~/PX4-Autopilot`.
 
 The map files already in your `data/maps/` are identical to the ones now tracked in
 git, so the pull replaces them without conflict. Data that git doesn't track, such as
@@ -58,7 +76,7 @@ symlink mode, wipe the build first and rebuild everything:
 
 ```bash
 rm -rf build install log
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --base-paths src --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 `tools/setup_ubuntu.sh` detects an existing non-symlink build and keeps that mode.
@@ -91,8 +109,8 @@ rosdep install --from-paths src --ignore-src -y --rosdistro jazzy
 # 4. Submodules, if you cloned without --recurse-submodules
 git submodule update --init --recursive
 
-# 5. Build
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+# 5. Build (only the packages under src/)
+colcon build --base-paths src --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source env.sh
 
 # 6. Data and tests
@@ -109,7 +127,7 @@ them in a virtualenv unless it was created with `--system-site-packages`.
 | Command | What you should see |
 |---|---|
 | `tools/run_selftest.sh` | `ALL TESTS PASSED` twice, for `-O2` and `-O3` (24 checks each) |
-| `colcon test --packages-select gdn_fusion && colcon test-result` | `1 test, 0 errors, 0 failures` |
+| `colcon test --base-paths src --packages-select gdn_fusion && colcon test-result` | `1 test, 0 errors, 0 failures` |
 | `tools/make_data.sh --verify-maps` | every checksum `OK`, both maps `identical` |
 | `tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin` | CEP50 around 14 m, roughly 19 of 24 seeds passing |
 | `BENCH_NO_BARO=1 GDN_BAG=data/flight_zermatt GDN_MAP=data/maps/zermatt.bin tools/bench.sh` | `RMS 60-300s` somewhere around 13 to 20 m, about 3 minutes |
@@ -167,6 +185,8 @@ This path hasn't been re-checked since the setup rework.
 | `map load failed: .../data/maps/...` | `env.sh` wasn't sourced, so `GDN_ROOT` is unset. Or pass `--ros-args -p map_path:=/abs/path`. |
 | `px4_msgs` missing or `src/px4_msgs` empty | Cloned without submodules: `git submodule update --init --recursive`. |
 | `git pull` says untracked files "would be overwritten" | You have your own copy of a file that's now in git. Move yours aside (`mv tools/x.py ~/x.py.mine`), pull, then compare. |
+| `git pull`: "Your local changes would be overwritten" for many files | The workspace was copied and file permissions changed. See "If you copied the workspace" above (`git config core.fileMode false`). |
+| colcon shows `Starting >>> px4`, then `kconfiglib is not installed` | colcon found PX4-Autopilot inside the workspace. Build with `--base-paths src`, or move PX4-Autopilot out. Then `rm -rf build/px4 install/px4`. |
 | colcon fails with "existing path cannot be removed" | You switched to `--symlink-install` over an old build: `rm -rf build install log`, then rebuild. |
 | `Eigen/Dense: No such file` | `sudo apt install libeigen3-dev`, or set `EIGEN_INC`. |
 | `ros2 bag play` says the mcap plugin is missing | `sudo apt install ros-jazzy-rosbag2-storage-mcap` |

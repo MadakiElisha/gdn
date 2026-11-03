@@ -6,5 +6,5 @@
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export GDN_ROOT="${GDN_ROOT:-$ROOT}"
 BIN="$ROOT/install/gdn_fusion/lib/gdn_fusion/mc_campaign"
-[ -x "$BIN" ] || { echo "build first: colcon build --symlink-install"; exit 1; }
+[ -x "$BIN" ] || { echo "build first: colcon build --base-paths src --cmake-args -DCMAKE_BUILD_TYPE=Release"; exit 1; }
 "$BIN" "${1:-100}" "${2:-data/flight001_csv}" "${3:-data/maps/terrain_db_sigma4.bin}" | tee "${TMPDIR:-/tmp}/mc_report.txt"
