@@ -40,9 +40,19 @@ This is the technical reference for the estimator. For the project overview see 
 | pub | `/gdn/odom` | `nav_msgs/Odometry` | fused state, frame `map` |
 | pub | `/gdn/sigma` | `std_msgs/Float64` | horizontal position 1-sigma, m (1 Hz) |
 
-Node parameters: `map_path` (relative paths resolve against `$GDN_ROOT`), `r_trn`,
-`slope_min`, `gate_sigma`, `gate_abs_m`, `clamp_dv`. Defaults come from `EskfConfig`, so
+Node parameters: `map_path` (relative paths resolve against `$GDN_ROOT`), `trn_model`
+(`agl` or `ideal`), `r_trn`, `slope_min`, `gate_sigma`, `gate_abs_m`, `clamp_dv`, and
+`mag_ref_north`, `mag_ref_east`, `mag_ref_down` (the local field in uT; the defaults
+are the bench's, SITL passes the Gazebo world's). Defaults come from `EskfConfig`, so
 the node, selftest and Monte Carlo always run the same configuration.
+
+`map_viz_node` draws the map as a terrain mesh in the RViz `map` frame (ENU, x east,
+y north, z = 0 at the map centre), using the map's own metres per degree. Its
+`path_mode` parameter chooses how GDN's path is drawn: `altitude` (GDN's own height,
+moved by `datum_offset_m`) or `terrain` (the map height plus `terrain_clearance_m`).
+
+In closed-loop SITL (`docs/SIMULATION.md`), `tools/sim_adapter.py` publishes the same
+`/gdn/*` measurement topics from Gazebo's sensors, so the node runs unchanged.
 
 ## Filter formulation
 

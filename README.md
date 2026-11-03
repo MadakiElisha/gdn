@@ -59,10 +59,10 @@ assumptions, and it has not flown on real hardware yet.
 | TRN with a real altimeter model | Working in sim | Height above ground from a rangefinder or radar, plus baro with a bias state (R1.1, TEST-017). The old idealised model is kept as `trn_model:=ideal` for comparison. |
 | Barometer, magnetometer, ZUPT | Working in sim | Mag gives heading at start-up; ZUPT pins the filter on the ground. |
 | Terrain database tools | Working | Synthetic terrain and real SRTM (Zermatt). The maps rebuild byte for byte. |
-| ROS 2 node (PX4 topics) | Working on replay | Jazzy, `px4_msgs` 1.15, deterministic replay bench. |
+| ROS 2 node (PX4 topics) | Working on replay | Jazzy, `px4_msgs` 1.16, deterministic replay bench. |
 | Unit tests and Monte Carlo | Working | 31 checks at `-O2` and `-O3`; seeded MC campaigns. |
-| Gazebo world from a real DEM | Partly working | World generation works; terrain visuals are broken under WSL2 software rendering (OI-007). |
-| Closed-loop SITL with GDN in the loop | Planned (Phase 2) | PX4 + Gazebo Harmonic, simulated Mid-360S, TFmini-S and OAK-D Lite, scenario runner with automatic scoring. |
+| Gazebo world from a real DEM | Working (Zermatt) | `tools/make_sim_world.py` builds the world from the onboard map; a physics drop test checks it against the map. No photo texture yet. |
+| Closed-loop SITL with GDN in the loop | First version (Stage A/B) | PX4 v1.16 flies an x500 over Zermatt in Gazebo Harmonic, GDN runs in shadow mode with a simulated radar altimeter, RViz shows GDN against truth. See `docs/SIMULATION.md`. Still to come: simulated Mid-360S, TFmini-S and OAK-D Lite, PX4 flying on GDN, scenario runner. |
 | LIO odometry (Mid-360S) | Planned | FAST-LIO2 or Point-LIO feeding GDN as a velocity / delta-pose measurement. |
 | Stereo VIO (OAK-D Lite) | Planned | Global-shutter stereo pair plus IMU, through the same odometry interface as LIO. |
 | TRN acquisition from a large position error | Planned | Point-mass or particle filter that hands over to the ESKF. |
@@ -199,7 +199,7 @@ messages should work.
 | Rangefinder | Benewake TFmini-S | Height above ground from 0.1 to 12 m (about 7 m on dark surfaces), for landing and low hover |
 | Stereo camera | Luxonis OAK-D Lite | Global-shutter OV7251 stereo pair (7.5 cm baseline), 13 MP IMX214 colour camera, BMI270 IMU, onboard processor (4 TOPS); used for VIO and later geo-registration |
 | Companion | Jetson Orin Nano (JetPack 7.2+) or Raspberry Pi 5 + Hailo HAT | Runs GDN, LIO and VIO. The Orin has more headroom; the Hailo NPU only helps neural-network parts |
-| Autopilot | PX4 v1.15 today, moving to v1.16 (R2.1) | uXRCE-DDS link, matching the `px4_msgs` submodule. v1.16 is the first release with official Ubuntu 24.04 and Gazebo Harmonic support |
+| Autopilot | PX4 v1.16 (R2.1) | uXRCE-DDS link, matching the `px4_msgs` submodule. v1.16 is the first release with official Ubuntu 24.04 and Gazebo Harmonic support |
 
 Between them, the lidar and rangefinder cover heights up to about 30 m above ground.
 That suits a low-flying multirotor first. Quadplane cruise and fixed-wing need a
@@ -264,7 +264,7 @@ still stand.
 │   │   ├── include/gdn/      ROS-free core: eskf.hpp, map_db.hpp, paths.hpp
 │   │   └── src/              eskf_node, map_viz_node, selftest, mc_campaign
 │   ├── gdn_sensors/          sensor_monitor: prints IMU and local-position rates
-│   └── px4_msgs/             git submodule, PX4 release/1.15
+│   └── px4_msgs/             git submodule, PX4 release/1.16
 ├── tools/                    scripts, simulators and analysis (see Tools)
 ├── data/                     maps in git; flights generated or downloaded (see Data)
 └── docs/
@@ -296,8 +296,9 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
 | Terrain maps | `generate_terrain.py` then `export_map_db.py` then `make_sigma4_map.py` (synthetic map); `fetch_terrain.py` and `make_zermatt_map.py` (SRTM); `export_map_bin.py`, `terrain_map.py` (older helpers) |
 | Synthetic flights | `gen_zermatt_flight.py` (IMU and truth CSVs over Zermatt), `make_zermatt_bag.py` (the same as a PX4-style bag) |
-| Gazebo worlds | `make_world_final.py` (heightmap world), `make_terrain_mesh.py` (mesh visual) |
-| Bag handling | `export_bag.py`, `export_flight_csv.py` (bag to CSV), `bag_qos.yaml` (QoS overrides for recording PX4 topics) |
+| Closed-loop SITL | `setup_sim.sh` (PX4 v1.16, Gazebo, bridge, agent), `make_sim_world.py` (world from the map), `check_sim_world.py` (physics drop test), `sim_run.sh` (whole loop), `sim_adapter.py` (Gazebo sensors to GDN inputs), `sim_fly.py` (offboard route, GPS cut) |
+| Older Gazebo world tools | `make_world_final.py` (heightmap world), `make_terrain_mesh.py` (mesh visual) |
+| Bag handling | `migrate_bag_px4_msgs.py` and `migrate_flight001.sh` (convert a px4_msgs 1.15 bag to 1.16), `export_bag.py`, `export_flight_csv.py` (bag to CSV), `bag_qos.yaml` (QoS overrides for recording PX4 topics) |
 | Python prototypes and analysis | `analyze_ins.py` (INS drift, TEST-002/003), `trn_match.py` (batch TERCOM, TEST-005), `eskf_trn.py` and `eskf_mismatch.py` (Python ESKF, TEST-006/008), `py_trace.py` (step-by-step comparison with the C++ core) |
 | Shared helpers | `gdn_paths.py` (repo root and map reader for the Python tools), `gdn.rviz` (RViz layout) |
 
@@ -354,7 +355,7 @@ layered, and each layer catches different problems:
 | Unit tests | Core maths only | Equation and bookkeeping bugs | Working |
 | Monte Carlo | Core on IMU and truth CSVs with seeded errors | Statistical robustness, filter consistency | Working |
 | Replay bench | ROS node on recorded bags | ROS wiring, timing, message handling | Working |
-| Closed-loop SITL | PX4 + Gazebo + simulated sensors + GDN, with the autopilot flying | Whole-system behaviour on all three airframes | Planned (Phase 2) |
+| Closed-loop SITL | PX4 + Gazebo + simulated sensors + GDN, with the autopilot flying | Whole-system behaviour on all three airframes | First version, multirotor only (`docs/SIMULATION.md`) |
 | Processor-in-the-loop | The same SITL, with GDN on the Orin or Pi 5 | Compute budget, latency, network timing | Planned (Phase 5) |
 
 Scenarios (vehicle, terrain, height, when and how GNSS is lost, start error, wind,
