@@ -1,7 +1,69 @@
-- OI-002: vertical channel unobservable (no baro state); z drifts. Add 16th state.
-- OI-003: yaw via one-time GNSS velocity transfer; replace with magnetometer.
-- OI-004: late-flight divergence on replay; verify single-player full-bag run.
-- OI-005: bench world == DB == sigma1; fine-texture world robustness untested (TEST-007 family).
-- OI-006 (RESOLVED v3: clamp_dv=0.5 m/s; DBG pitch smooth through mission): attitude/velocity oscillation under scalar TRN updates (DBG t~352+);
-  suspect unclamped dv injection; position channel unaffected through mission.
-  First experiment: clamp dv to 0.5 m/s per update; re-run bench.sh.
+# Open items ledger
+
+One entry per issue, numbered OI-xxx in the order they were raised. Keep closed items
+here with their resolution, so the history stays readable. New work items belong in
+[ROADMAP.md](../ROADMAP.md); this ledger is for problems and questions found along the
+way.
+
+Status values: **open**, **deferred**, **accepted** (known limitation, not being
+fixed now), **closed**.
+
+## Open and deferred
+
+### OI-004: late-flight and landing-phase error growth (accepted)
+On the flight001 replay, error grows late in the flight and passes 1 km after about
+t = 950 s. The terrain near the landing area has a poor TRN signature, and the
+vehicle is low and slow. It was first suspected to come from overlapping bag
+playbacks (TEST-009). TEST-012 later attributed it to the landing terrain.
+Accepted as a limitation for now. It should be revisited once the odometry layer
+(ROADMAP Phase 3) gives velocity aiding during approach.
+
+### OI-007: Gazebo heightmap visuals broken under WSL2 (deferred)
+The SRTM-to-Gazebo pipeline (`tools/make_world_final.py`, `tools/make_terrain_mesh.py`)
+produces valid worlds. Under WSL2 software GL, though, the Ogre1/Ogre2 heightmap visual
+doesn't render. Collision works. Deferred until SITL work on a native Linux machine
+(ROADMAP R5.3).
+
+### OI-009: false-contour lock on Zermatt (open)
+In the Zermatt Monte Carlo, about 5 of 24 seeds lock onto a parallel contour and stay
+there, with errors in the kilometres. A point-gradient filter can't tell similar
+contours apart once the error is larger than the terrain's correlation length.
+Remedy: a multi-hypothesis or batch acquisition stage before the ESKF (ROADMAP R4.1).
+
+## Closed
+
+### OI-002: vertical channel unobservable (closed)
+With scalar TRN only, z drifted. Added a baro bias state (16th state), then folded it
+into the 19-state core. Note that a scalar baro observes only z plus bias. Vertical now
+tracks truth within about 4 m on the bench. Test: TEST-013 (selftest).
+
+### OI-003: heading from GNSS velocity (closed)
+Heading used to come from a one-time GNSS velocity transfer. It's replaced by
+magnetometer alignment at start-up plus 3-axis mag-bias states. Test: TEST-014
+(selftest). The Monte Carlo driver still uses velocity transfer, and the node no longer
+does.
+
+### OI-005: fine-texture and real-terrain robustness (closed)
+The bench world, the database and the smoothing were all identical, so the filter had
+never been tested on real relief. Closed by the Zermatt SRTM campaign (commits 85e2d52
+and 742b5ca): CEP50 about 14 m on a synthetic flight.
+
+### OI-006: attitude and velocity oscillation under TRN updates (closed)
+Pitch oscillated from about t = 352 s on the bench, while position was unaffected. The
+cause was unclamped velocity injection. Fixed with `clamp_dv = 0.5 m/s` per update
+(v3).
+
+### OI-010: stale nodes between bench runs (closed)
+`ros2 node list` showed nodes from earlier runs. This was partly stale ros2 daemon
+state and partly processes that survived. `bench.sh` now force-kills with `pkill -9`
+before starting.
+
+### OI-011: Zermatt map mirrored north to south (closed)
+A hand-patched `zermatt.bin` had its rows flipped while `lat0` still pointed at the
+north edge, so earlier Zermatt numbers were on mirrored relief. The map is now
+regenerated from the GeoTIFF by `tools/make_zermatt_map.py`. It's tracked in git with a
+checksum, and `tools/make_data.sh --verify-maps` rebuilds it byte for byte.
+
+## Not recorded
+
+There is no record of an OI-008. If you remember what it was, add it here.
