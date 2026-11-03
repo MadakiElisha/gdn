@@ -29,14 +29,16 @@ publish the same ROS 2 messages.
 | IMU | Yesense / WHEELTEC H30WP | 9-axis MEMS (gyro, accel, mag), up to 400 Hz, UART/RS485. Vendor ROS 2 SDK targets Humble, so it needs a Jazzy build. |
 | Lidar | Livox Mid-360S | 360 by 59 degree FOV, about 40 m on dark surfaces, built-in IMU, Ethernet with PTP time sync. |
 | Rangefinder | Benewake TFmini-S | 0.1 to 12 m (about 7 m on dark surfaces), UART/I2C. PX4 has a driver. |
-| Companion | Jetson Orin Nano (JetPack 7.2+, Ubuntu 24.04) or Raspberry Pi 5 + Hailo HAT (Ubuntu 24.04) | Orin is preferred: more CPU/GPU headroom for LIO, plus a future camera pipeline. The Hailo NPU only helps neural-network parts. |
+| Stereo camera | Luxonis OAK-D Lite | Global-shutter OV7251 stereo pair, 7.5 cm baseline (useful depth to about 12 m), 13 MP rolling-shutter IMX214 colour camera, BMI270 IMU, onboard RVC2 processor, USB-C, 2.5 to 3 W. Kickstarter-batch units have no IMU. |
+| Companion | Jetson Orin Nano (JetPack 7.2+, Ubuntu 24.04) or Raspberry Pi 5 + Hailo HAT (Ubuntu 24.04) | Orin is preferred: more CPU/GPU headroom for LIO, plus a future camera pipeline. The Hailo NPU only helps neural-network parts, and the OAK-D can run feature tracking itself. |
 | Autopilot | PX4 v1.15 (ArduPilot later) | Over uXRCE-DDS, matching `px4_msgs` release/1.15. |
 
 What this kit can and can't do: the lidar sees the ground only up to about 30 m above
 ground when mounted pointing down, and the TFmini-S only to about 12 m. So this kit
-suits a **multirotor flying low**. Quadplane cruise and fixed-wing work need a
-long-range altimeter and a camera (Phase 6). There's no camera in the first build, so
-LIO comes before VIO.
+suits a **multirotor flying low**. The OAK-D Lite works at any height, but its
+stereo depth runs out at about 12 m, so higher up it acts as a monocular camera that
+gets its scale from the IMU. Quadplane cruise and fixed-wing work also need a
+long-range altimeter (Phase 6). LIO and VIO are developed side by side in Phase 3.
 
 ---
 
@@ -49,7 +51,7 @@ Goal: everyone works from the same code and data, and the baselines are current.
 - [ ] **R0.3** Re-baseline `flight001` after the PR #1 fixes. Run `tools/bench.sh`, `BENCH_NO_BARO=1 tools/bench.sh` and `tools/mc_run.sh 100`, and record the numbers in `docs/test_reports/` and the README.
 - [ ] **R0.4** Run `tools/setup_ubuntu.sh` once on a real Ubuntu 24.04 machine using the apt path, and fix anything it trips on.
 - [ ] **R0.5** Add GitHub Actions CI: build in a Jazzy container, `run_selftest.sh`, `colcon test`, `make_data.sh`, and a short Zermatt MC (24 seeds) with pass thresholds.
-- [ ] **R0.6** Bring `docs/open_items.md` up to date. OI-002 and OI-003 are done, and OI-009, OI-010 and OI-011 are only described in commit messages.
+- [x] **R0.6** Bring `docs/open_items.md` up to date. OI-002 and OI-003 are done, and OI-009, OI-010 and OI-011 are only described in commit messages.
 
 Done when: CI is green on `main`, and the README validation table shows fresh
 `flight001` numbers.
@@ -85,27 +87,34 @@ gets developed on replay of these logs.
   - `livox_ros_driver2` for the Mid-360S.
   - The H30WP ROS 2 driver, built for Jazzy.
   - TFmini-S on the flight controller (PX4 driver), read on the companion as `distance_sensor`.
-- [ ] **R2.3 Time sync.** PTP from the companion to the Livox. Measure H30WP latency and timestamp it on arrival. Sync the companion and PX4 clocks through uXRCE-DDS. Write down the measured offsets.
-- [ ] **R2.4 Extrinsics.** Lidar to IMU (the Livox has an internal IMU; decide whether LIO uses it or the H30WP), rangefinder pointing, and lever arms. Store them in a vehicle profile file (see R6.1).
-- [ ] **R2.5 Mount and wiring on a multirotor test frame.** The Mid-360S tilted or inverted so it sees the ground. Vibration isolation for the IMU.
+  - `depthai-ros` for the OAK-D Lite: the stereo pair at 30 Hz or more, the IMU at 200 Hz or more, and the colour camera at a low rate for logging. Check for a Jazzy build, and build from source if there isn't one.
+- [ ] **R2.3 Time sync.** PTP from the companion to the Livox. Measure H30WP latency and timestamp it on arrival. Use the OAK-D's device timestamps, synced to the host. Sync the companion and PX4 clocks through uXRCE-DDS. Write down the measured offsets.
+- [ ] **R2.4 Extrinsics.**
+  - Lidar to IMU (the Livox has an internal IMU; decide whether LIO uses it or the H30WP).
+  - Camera to IMU with Kalibr. Use the OAK-D's own BMI270, or the H30WP with an estimated time offset.
+  - Rangefinder pointing and lever arms.
+
+  Store them in a vehicle profile file (see R6.1).
+- [ ] **R2.5 Mount and wiring on a multirotor test frame.** The Mid-360S tilted or inverted so it sees the ground. The OAK-D Lite pointing down or tilted forward-down, so it sees ground texture in hover and in forward flight. Vibration isolation for both IMUs.
 - [ ] **R2.6 Logging.** One launch file records everything to MCAP. Add a short checklist for each flight. Datasets live in a release or shared storage, not in git.
 - [ ] **R2.7 First datasets.** Multirotor flights with GNSS on and logged: hover, straight legs, lawnmower pattern, and flights over flat, rolling and structured ground, at heights from 5 to 40 m.
 
 Done when: there are at least three logged flights where every sensor is present and
 timestamps line up within the agreed tolerance.
 
-## Phase 3: odometry layer (LIO first, VIO when a camera is fitted)
+## Phase 3: odometry layer (LIO and VIO)
 
 Goal: bounded short-term drift between absolute fixes.
 
 - [ ] **R3.1 Run FAST-LIO2 or Point-LIO on the Phase 2 bags.** Measure drift against GNSS by height and terrain type, and note where it degenerates (flat ground, out of range).
 - [ ] **R3.2 GDN odometry input.** A new core update for body-frame velocity or delta-pose with covariance (`ApplyOdom()`), and a node subscription to `nav_msgs/Odometry`. Test: a unit test plus an MC with simulated odometry noise.
 - [ ] **R3.3 Odometry health.** Reject or inflate odometry when LIO reports degeneracy, when the lidar sees too few points, or when its innovations stay too large.
-- [ ] **R3.4 Compute budget.** Measure CPU, GPU and memory for LIO plus GDN on the Orin and on the Pi 5, and decide which one we use.
-- [ ] **R3.5 VIO slot.** Once a camera is chosen (global shutter, ideally hardware-triggered), run OpenVINS through the same `ApplyOdom()` interface.
+- [ ] **R3.4 Compute budget.** Measure CPU, GPU and memory for LIO, VIO and GDN together on the Orin and on the Pi 5, and decide which one we use.
+- [ ] **R3.5 Stereo VIO on the OAK-D Lite.** Run OpenVINS or VINS-Fusion in stereo-inertial mode on the Phase 2 bags. On the Orin, also try cuVSLAM; Isaac ROS support on JetPack 7.2 for Orin was still "coming soon" at last check. Feed it through the same `ApplyOdom()` interface as LIO.
+- [ ] **R3.6 Cross-checking LIO and VIO.** Compare the two against each other and against GNSS by terrain type and height. GDN should down-weight whichever one is degenerate, for example LIO over a flat field or VIO in low light.
 
-Done when: on replay with GNSS ignored, GDN fused with LIO stays within an agreed error
-over the Phase 2 flights.
+Done when: on replay with GNSS ignored, GDN fused with LIO and VIO stays within an
+agreed error over the Phase 2 flights, including the flat-ground ones.
 
 ## Phase 4: absolute fixes, acquisition and integrity
 
@@ -152,7 +161,7 @@ Goal: the same stack on quadplanes and fixed-wing.
 - [ ] **R6.4 Long-range altimeter.** A radar or long-range laser altimeter for cruise heights, using the R1.1 model.
 - [ ] **R6.5 Airspeed and wind.** Wind states, airspeed fusion and a sideslip constraint for fixed-wing.
 - [ ] **R6.6 In-motion alignment.** For catapult or hand launches, where static alignment isn't possible.
-- [ ] **R6.7 Camera geo-registration.** Match downward images to orthophotos for absolute fixes over flat terrain, where the Hailo or Orin accelerator earns its place.
+- [ ] **R6.7 Camera geo-registration.** Match downward images from the OAK-D Lite's colour camera to orthophotos, for absolute fixes over flat terrain. This is where the Orin GPU or the Hailo NPU earns its place. Watch the rolling shutter at speed.
 
 ## Phase 7: hardening
 

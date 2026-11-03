@@ -13,9 +13,10 @@ because every motion estimate drifts. GDN tackles them in layers:
 
 1. **Inertial core.** An error-state Kalman filter (ESKF) integrates the IMU at high
    rate and keeps track of its own uncertainty.
-2. **Relative odometry.** Lidar-inertial odometry (LIO), and later visual-inertial
-   odometry (VIO), measure motion between fixes and slow down IMU drift. *Planned,
-   next after the measurement-model work.*
+2. **Relative odometry.** Lidar-inertial odometry (LIO) from a Livox Mid-360S and
+   stereo visual-inertial odometry (VIO) from a Luxonis OAK-D Lite measure motion
+   between fixes and slow down IMU drift. *Planned, next after the measurement-model
+   work.*
 3. **Absolute fixes.** Terrain-referenced navigation (TRN) compares the terrain under
    the vehicle with an onboard elevation map to pull the estimate back to the right
    place. Lidar map relocalisation and camera-to-satellite matching are planned for
@@ -31,12 +32,19 @@ Today the inertial core and TRN work in simulation and replay. The rest is laid 
 - [Project status](#project-status)
 - [How it works](#how-it-works)
 - [Vehicle-agnostic design](#vehicle-agnostic-design)
+- [Reference hardware](#reference-hardware)
+- [How we got here](#how-we-got-here)
+- [Requirements](#requirements)
 - [Repository layout](#repository-layout)
+- [Tools](#tools)
+- [Data](#data)
 - [Getting started](#getting-started)
 - [Running things](#running-things)
 - [Validation so far](#validation-so-far)
 - [Known limitations](#known-limitations)
+- [Open items](#open-items)
 - [Contributing](#contributing)
+- [Documentation map](#documentation-map)
 - [References](#references)
 
 ## Project status
@@ -52,8 +60,10 @@ assumptions, and it has not flown on real hardware yet.
 | Terrain database tools | Working | Synthetic terrain and real SRTM (Zermatt). The maps rebuild byte for byte. |
 | ROS 2 node (PX4 topics) | Working on replay | Jazzy, `px4_msgs` 1.15, deterministic replay bench. |
 | Unit tests and Monte Carlo | Working | 24 checks at `-O2` and `-O3`; seeded MC campaigns. |
+| Gazebo world from a real DEM | Partly working | World generation works; terrain visuals are broken under WSL2 software rendering (OI-007). |
 | Real altimeter (AGL) measurement model | Next | Baro altitude minus measured height above ground, with an altitude-bias state. |
-| LIO / VIO odometry input | Planned | LIO first (Livox lidar). VIO once a camera is fitted. |
+| LIO odometry (Mid-360S) | Planned | FAST-LIO2 or Point-LIO feeding GDN as a velocity / delta-pose measurement. |
+| Stereo VIO (OAK-D Lite) | Planned | Global-shutter stereo pair plus IMU, through the same odometry interface as LIO. |
 | TRN acquisition from a large position error | Planned | Point-mass or particle filter that hands over to the ESKF. |
 | Integrity monitoring | Planned | Innovation tests, lost-lock detection, quality flag. |
 | Vehicle profiles and flight-regime switching | Planned | Hover, transition and cruise behaviour from one config. |
@@ -66,9 +76,9 @@ assumptions, and it has not flown on real hardware yet.
   ---------------------------------   -----------------------------------   ----------------
   IMU (high rate) ------------------> ESKF propagation
   baro, mag ------------------------> ESKF updates
-  LIO / VIO odometry (planned) -----> velocity / delta-pose updates
+  LIO (lidar) / VIO (stereo camera)-> velocity / delta-pose updates (planned)
   rangefinder / lidar AGL ----------> TRN: terrain height vs onboard map ---> position, velocity,
-  lidar scans, camera (planned) ----> map relocalisation / geo-registration   attitude + covariance
+  lidar scans, camera images -------> map relocalisation / geo-registration   attitude + covariance
                                       integrity monitor (planned) ---------> quality / lost flag
 ```
 
@@ -98,32 +108,61 @@ available:
 
 Updates use the Joseph form, the covariance is repaired whenever it loses positive
 definiteness, and the attitude error is reset after every injection. The full
-reference, with state indices, parameters and topic contract, is in
+reference, with state indices and every parameter, is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+### Interfaces
+
+The node (`eskf_node`) talks to the rest of the system over these topics today.
+
+| Direction | Topic | Type | What it carries |
+|---|---|---|---|
+| in | `/fmu/out/sensor_combined` | `px4_msgs/SensorCombined` | IMU, drives propagation |
+| in | `/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` | GNSS-derived; currently used for ZUPT, take-off detection and initial altitude (to be removed, R1.2) |
+| in | `/fmu/out/vehicle_attitude` | `px4_msgs/VehicleAttitude` | truth heading, logging only |
+| in | `/gdn/trn_meas` | `std_msgs/Float64` | terrain height under the vehicle, m |
+| in | `/gdn/baro_meas` | `std_msgs/Float64` | baro altitude (NED z), m |
+| in | `/gdn/mag_meas` | `geometry_msgs/Vector3` | magnetometer, uT, body frame |
+| out | `/gdn/odom` | `nav_msgs/Odometry` | fused position, velocity, attitude |
+| out | `/gdn/sigma` | `std_msgs/Float64` | horizontal 1-sigma, m |
+
+Parameters (`map_path`, `r_trn`, gates, clamps) default to the values in `EskfConfig`,
+so the node, the unit tests and the Monte Carlo always run the same configuration.
 
 ### Terrain database
 
 Maps are a simple binary grid: a 40-byte header, then row-major `float32` heights. The
 local NED origin is the grid centre. Queries return bilinear height and gradient. Two
-maps ship with the repo: a synthetic fractal map, smoothed so scalar TRN behaves
-(REQ-DB-001), and a 1 arc-second SRTM crop around Zermatt for testing on real relief.
+maps ship with the repo:
+- A synthetic fractal map centred on the PX4 SITL default location (Zurich), smoothed
+  so scalar TRN behaves (REQ-DB-001).
+- A 1 arc-second SRTM crop around Zermatt for testing on real relief.
+
+`tools/fetch_terrain.py` pulls SRTM for any area, and `make_zermatt_map.py` shows how to
+turn a GeoTIFF into a GDN map.
 
 ### Where LIO and VIO fit
 
 Between terrain fixes the filter otherwise relies on the IMU alone, and a MEMS IMU
-drifts by kilometres within minutes. The odometry layer fills that gap. GDN will
-accept velocity or delta-pose from an external odometry source, with its covariance
-and a health flag.
+drifts by kilometres within minutes (TEST-002 measured 245 km over 17 minutes
+unaided). The odometry layer fills that gap. GDN will accept velocity or delta-pose
+from an external odometry source, with its covariance and a health flag, through one
+interface (`ApplyOdom()`, roadmap R3.2).
 
-- **LIO** (FAST-LIO2 or Point-LIO on a Livox Mid-360 class lidar) works in the dark and
-  in low texture. It loses lock above the lidar's useful range, though, and it slides
-  sideways over flat ground with nothing to anchor it horizontally.
-- **VIO** (OpenVINS or similar, once a camera is fitted) is good over flat textured
-  ground. It struggles at night, over water, and when hovering high with little
-  parallax.
+- **LIO** (FAST-LIO2 or Point-LIO on the Mid-360S) works in the dark and in low
+  texture. It loses lock above the lidar's useful range (about 30 m above ground when
+  pointed down), though. It also slides sideways over flat ground with nothing to
+  anchor it horizontally.
+- **Stereo VIO on the OAK-D Lite** (OpenVINS, VINS-Fusion, or cuVSLAM on the Orin)
+  uses the two global-shutter OV7251 cameras and the onboard IMU. It's good over
+  flat textured ground, exactly where LIO is weak. It struggles at night and over
+  water. The 7.5 cm stereo baseline only gives useful depth to about 12 m, so higher
+  up it behaves like monocular VIO and gets its scale from the IMU. The OAK-D's own
+  processor can run feature tracking on-device, which takes load off a Pi 5.
 
 The two fail in different conditions. That is why GDN is the one that weighs them,
-rather than trusting either blindly.
+rather than trusting either blindly. The OAK-D Lite's 13 MP colour camera is also the
+planned source of images for matching against satellite imagery (R6.7).
 
 ## Vehicle-agnostic design
 
@@ -141,8 +180,61 @@ a regime signal taken from the autopilot (ground, hover, transition, cruise).
 | Start-up | Static on the ground | Static | Often launched, so it must align in motion |
 | Things to watch | Motor magnetic interference, vibration | Mode transitions; tailsitters rotate the body 90 degrees | Long GNSS-free legs, wind |
 
-All validation so far has been on fixed-wing-like trajectories. Multirotor and
-quadplane work starts with hardware bring-up (see the roadmap).
+All validation so far has been on a fixed-wing trajectory. Multirotor and quadplane
+work starts with hardware bring-up (see the roadmap).
+
+## Reference hardware
+
+This is the first build we're bringing up. Anything that publishes the same ROS 2
+messages should work.
+
+| Role | Part | What it gives GDN |
+|---|---|---|
+| IMU | Yesense / WHEELTEC H30WP | 9-axis MEMS (gyro, accel, mag), up to 400 Hz over UART/RS485 |
+| Lidar | Livox Mid-360S | 360 by 59 degree point cloud, about 40 m on dark surfaces, built-in IMU, PTP time sync; used for LIO and lidar AGL |
+| Rangefinder | Benewake TFmini-S | Height above ground from 0.1 to 12 m (about 7 m on dark surfaces), for landing and low hover |
+| Stereo camera | Luxonis OAK-D Lite | Global-shutter OV7251 stereo pair (7.5 cm baseline), 13 MP IMX214 colour camera, BMI270 IMU, onboard processor (4 TOPS); used for VIO and later geo-registration |
+| Companion | Jetson Orin Nano (JetPack 7.2+) or Raspberry Pi 5 + Hailo HAT | Runs GDN, LIO and VIO. The Orin has more headroom; the Hailo NPU only helps neural-network parts |
+| Autopilot | PX4 v1.15 | uXRCE-DDS link, matching the `px4_msgs` submodule |
+
+Between them, the lidar and rangefinder cover heights up to about 30 m above ground.
+That suits a low-flying multirotor first. Quadplane cruise and fixed-wing need a
+long-range altimeter, which isn't in this list (R6.4). Two things to check on your own
+units:
+- OAK-D Lite cameras from the original Kickstarter batch shipped without the IMU.
+- The Mid-360S has its own IMU, so we still have to decide whether LIO uses that one
+  or the H30WP (R2.4).
+
+## How we got here
+
+The project grew in phases, each closed by a test report in `docs/test_reports/`. The
+phase numbers in those reports are the original development phases; the ROADMAP
+numbers its phases separately.
+
+| Step | What we learned | Report |
+|---|---|---|
+| Unaided INS on the PX4 replay flight | Pure strapdown drifted 245 km in 1049 s. Absolute aiding is mandatory. | TEST-002 |
+| Coarse alignment and bias removal | Calibration slows the early drift but can't bound it. | TEST-003 (commit c6c4c54) |
+| Batch TERCOM on a loiter | Most windows were ambiguous, and fixes went wrong once drift exceeded the search radius. We moved to recursive point-wise TRN (SITAN style) inside the ESKF. | TEST-005 |
+| Recursive ESKF + TRN, Python | Closed-loop lock on the replay flight. | TEST-006 |
+| Map resolution sweep | The filter is very sensitive to mismatch between world and onboard map. | TEST-008 |
+| C++ node on the replay bench | The C++ node matched the Python prototype (30.4 m RMS at the time). Heading transfer has to be treated as a re-initialisation. | TEST-009/010 |
+| Dual-build unit tests | `-O3` exposed uninitialised accumulators that `-O2` hid. Both builds are now a standing gate. | TEST-011 |
+| Monte Carlo on the smoothed map | 100/100 seeds locked on the sigma-4 map versus 27/100 on sigma-1. The sigma-4 map became REQ-DB-001. | TEST-012 |
+| Barometer and magnetometer states | Vertical channel observable; GNSS-free heading at start-up. | OI-002, OI-003 (TEST-013, TEST-014) |
+| ZUPT on the ground | Pins position and velocity before take-off. | TEST-015 (selftest) |
+| Real terrain | The filter navigates SRTM relief around Zermatt (CEP50 about 14 m). | OI-005, commits 85e2d52 and 742b5ca |
+| Setup rework | A fresh clone builds anywhere. Three bench bugs found and fixed along the way. | PR #1 |
+
+## Requirements
+
+These are the requirements the work has been measured against so far. They'll be
+reviewed per vehicle class in Phase 1 of the roadmap.
+
+| ID | Requirement | Source |
+|---|---|---|
+| REQ-P-001 | Horizontal error at most 100 m over the mission, without GNSS | TEST-002 |
+| REQ-DB-001 | Onboard terrain map at about 30 m resolution, smoothed to sigma 4 cells for scalar TRN | TEST-008, TEST-012 |
 
 ## Repository layout
 
@@ -150,32 +242,61 @@ quadplane work starts with hardware bring-up (see the roadmap).
 .
 ├── README.md                 this file
 ├── ROADMAP.md                what's next, phase by phase
+├── LICENSE                   MIT
 ├── env.sh                    source in every terminal (sets GDN_ROOT, ROS, RMW)
 ├── src/
 │   ├── gdn_fusion/           main package
 │   │   ├── include/gdn/      ROS-free core: eskf.hpp, map_db.hpp, paths.hpp
 │   │   └── src/              eskf_node, map_viz_node, selftest, mc_campaign
-│   ├── gdn_sensors/          sensor_monitor (IMU / local position rate check)
+│   ├── gdn_sensors/          sensor_monitor: prints IMU and local-position rates
 │   └── px4_msgs/             git submodule, PX4 release/1.15
-├── tools/
-│   ├── setup_ubuntu.sh       one-shot machine setup
-│   ├── make_data.sh          derived data, checksum and map verification
-│   ├── fetch_data.sh, pack_data.sh   download / publish the flight001 recording
-│   ├── run_selftest.sh, mc_run.sh, bench.sh, bench_viz.sh
-│   ├── trn_sensor_sim.py, baro_sim.py, mag_sim.py, replay_scorer.py
-│   ├── make_zermatt_bag.py, gen_zermatt_flight.py, plot_zermatt_track.py
-│   ├── generate_terrain.py, export_map_db.py, make_sigma4_map.py, make_zermatt_map.py
-│   ├── fetch_terrain.py, make_world_final.py, make_terrain_mesh.py   SRTM to map / Gazebo
-│   ├── gdn_paths.py          shared repo-root and map helpers for the Python tools
-│   └── analysis scripts      analyze_ins, eskf_trn, eskf_mismatch, trn_match, py_trace
-├── data/                     maps in git; flights generated or downloaded
+├── tools/                    scripts, simulators and analysis (see Tools)
+├── data/                     maps in git; flights generated or downloaded (see Data)
 └── docs/
     ├── SETUP.md              install, update, data, troubleshooting
-    ├── ARCHITECTURE.md       filter maths, topics, parameters, validation detail
-    ├── design/eskf_design.md design record
+    ├── ARCHITECTURE.md       filter maths, parameters, validation detail
+    ├── design/eskf_design.md design record and the literature behind it
     ├── open_items.md         open-item ledger (OI-xxx)
-    └── test_reports/         TEST-002 to TEST-012
+    └── test_reports/         TEST-002 to TEST-012, with plots
 ```
+
+### C++ programs (`gdn_fusion`)
+
+| Program | What it does |
+|---|---|
+| `eskf_node` | The ROS 2 node. Also built as a component (`EskfNode`) for composition. |
+| `map_viz_node` | Publishes the terrain as an RViz mesh, plus the estimated path. |
+| `gdn_selftest` | Unit tests for the core. Run by `tools/run_selftest.sh` and `colcon test`. |
+| `mc_campaign` | Monte Carlo driver. Replays IMU and truth CSVs through the core with seeded sensor errors. |
+
+## Tools
+
+Everything in `tools/` is run from the repo root after `source env.sh`.
+
+| Purpose | Tools |
+|---|---|
+| Setup and data | `setup_ubuntu.sh` (machine setup), `make_data.sh` (derived data and checksum checks), `fetch_data.sh` / `pack_data.sh` (download or publish the flight001 recording) |
+| Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
+| Sensor simulators | `trn_sensor_sim.py` (terrain height under the vehicle), `baro_sim.py`, `mag_sim.py`; all fed by PX4 truth from the bag |
+| Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_zermatt_track.py` (track over hillshade, error and innovations) |
+| Terrain maps | `generate_terrain.py` then `export_map_db.py` then `make_sigma4_map.py` (synthetic map); `fetch_terrain.py` and `make_zermatt_map.py` (SRTM); `export_map_bin.py`, `terrain_map.py` (older helpers) |
+| Synthetic flights | `gen_zermatt_flight.py` (IMU and truth CSVs over Zermatt), `make_zermatt_bag.py` (the same as a PX4-style bag) |
+| Gazebo worlds | `make_world_final.py` (heightmap world), `make_terrain_mesh.py` (mesh visual) |
+| Bag handling | `export_bag.py`, `export_flight_csv.py` (bag to CSV), `bag_qos.yaml` (QoS overrides for recording PX4 topics) |
+| Python prototypes and analysis | `analyze_ins.py` (INS drift, TEST-002/003), `trn_match.py` (batch TERCOM, TEST-005), `eskf_trn.py` and `eskf_mismatch.py` (Python ESKF, TEST-006/008), `py_trace.py` (step-by-step comparison with the C++ core) |
+| Shared helpers | `gdn_paths.py` (repo root and map reader for the Python tools), `gdn.rviz` (RViz layout) |
+
+## Data
+
+| Dataset | What it is | How you get it |
+|---|---|---|
+| `flight001` | PX4 SITL fixed-wing (Cessna) flight, 1049 s: IMU, attitude, local and global position, GPS, status. MCAP bag plus exported CSVs. | `tools/fetch_data.sh` (about 100 MB, GitHub release) |
+| `terrain_db_sigma4.bin` | Synthetic 400 by 400 map, about 28 m cells, smoothed to sigma 4 | in git |
+| `zermatt.bin`, `zermatt.tif` | 129 by 129 SRTM crop and its source GeoTIFF | in git |
+| `flight_zermatt_csv/`, `flight_zermatt/` | Synthetic lawnmower flight over Zermatt, as CSVs and as a PX4-style bag | `tools/make_data.sh`, `python3 tools/make_zermatt_bag.py` |
+
+`data/SHA256SUMS` pins every tracked or deterministic file. Flight logs from the real
+hardware (roadmap R2.6) will go into releases or shared storage, not into git.
 
 ## Getting started
 
@@ -205,9 +326,7 @@ Source `env.sh` first in every terminal.
 | Replay bench on any bag and map | `GDN_BAG=... GDN_MAP=... tools/bench.sh` |
 | Bench with RViz | `tools/bench_viz.sh` |
 | Just the node | `ros2 run gdn_fusion eskf_node --ros-args -p map_path:=data/maps/zermatt.bin` |
-
-The PX4 replay flight (`flight001`) is a download: `tools/fetch_data.sh`. Everything
-else is in the repo or generated by `tools/make_data.sh`.
+| Check sensor rates from PX4 | `ros2 run gdn_sensors sensor_monitor` |
 
 ## Validation so far
 
@@ -216,10 +335,9 @@ else is in the repo or generated by `tools/make_data.sh`.
 | Unit tests | 24 / 24 at `-O2` and `-O3` | Map maths, alignment, TRN, baro, mag, ZUPT |
 | Monte Carlo, Zermatt SRTM | CEP50 14.2 m, 19 of 24 seeds under 100 m | Synthetic flight, known start, map used as truth |
 | ROS replay bench, Zermatt | 13 to 20 m RMS | Synthetic PX4-style bag, baro off |
-| Monte Carlo and bench, PX4 replay flight | Needs re-baselining | Three bench fixes in Nov 2026 changed the setup; the older figures were 15.7 m RMS on the bench and CEP50 14.9 m in MC |
+| Monte Carlo and bench, PX4 replay flight | Needs re-baselining | Three bench fixes in Nov 2026 changed the setup. The older figures were 15.7 m RMS on the bench and CEP50 14.9 m in MC |
 
-The failures in Zermatt are false-contour locks (OI-009). Each test is described in
-`docs/test_reports/`.
+The Zermatt failures are false-contour locks (OI-009).
 
 ## Known limitations
 
@@ -234,12 +352,31 @@ the roadmap.
   start errors above about 60 m fail.
 - **The Monte Carlo uses one map as both world and onboard database,** so map error
   isn't modelled.
-- **The node still reads GNSS-derived data** for ZUPT, the airborne latch and the
+- **The node still reads GNSS-derived data** for ZUPT, take-off detection and the
   initial altitude.
 - **There's no integrity monitoring.** A filter that has lost lock can still report a
   small uncertainty.
 - **Some covariance bookkeeping is inconsistent.** The TRN update skips some state
   corrections but still shrinks their uncertainty, and the clamps do the same.
+- **Late-flight and landing phases** have poor terrain signature on the replay flight,
+  and error grows there (OI-004).
+
+## Open items
+
+The full ledger is [docs/open_items.md](docs/open_items.md). Status as of November
+2026:
+
+| ID | Item | Status |
+|---|---|---|
+| OI-002 | Vertical channel unobservable without a baro state | Done (16th state, then 19-state core) |
+| OI-003 | Heading came from GNSS velocity | Done (magnetometer alignment and bias states) |
+| OI-004 | Error growth late in the flight and near landing | Accepted limitation for now |
+| OI-005 | Untested on fine or real terrain | Done (Zermatt SRTM) |
+| OI-006 | Attitude/velocity oscillation under TRN updates | Done (velocity injection clamp) |
+| OI-007 | Gazebo heightmap visuals broken under WSL2 software rendering | Deferred |
+| OI-009 | False-contour lock in some Zermatt seeds | Open; fixed by acquisition (R4.1) |
+| OI-010 | Bench left stray nodes between runs | Done |
+| OI-011 | Earlier Zermatt map was mirrored north-south | Done (map regenerated from GeoTIFF) |
 
 ## Contributing
 
@@ -256,6 +393,18 @@ decide on the pass rule before looking at the result, then commit. In practice:
 - Pick work from [ROADMAP.md](ROADMAP.md). Each item has an ID; put it in your branch
   name and PR title.
 
+## Documentation map
+
+| Document | Read it when you want to |
+|---|---|
+| [README.md](README.md) | understand what GDN is, where it stands, and how the pieces fit |
+| [ROADMAP.md](ROADMAP.md) | pick up work, or see what comes next and why |
+| [docs/SETUP.md](docs/SETUP.md) | install, update an older copy, get data, fix setup problems |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | work on the filter: state indices, update equations, parameters |
+| [docs/design/eskf_design.md](docs/design/eskf_design.md) | see the design record and the literature behind each choice |
+| [docs/open_items.md](docs/open_items.md) | check or log an open issue |
+| [docs/test_reports/](docs/test_reports/) | see the evidence behind each design decision |
+
 ## References
 
 - J. Solà, *Quaternion kinematics for the error-state Kalman filter*, arXiv:1711.02508, 2017.
@@ -265,7 +414,7 @@ decide on the pass rule before looking at the result, then commit. In practice:
 - T. Barfoot, *State Estimation for Robotics*, Cambridge University Press, 2017.
 - W. Xu et al., *FAST-LIO2: Fast Direct LiDAR-Inertial Odometry*, IEEE T-RO, 2022.
 - P. Geneva et al., *OpenVINS: A Research Platform for Visual-Inertial Estimation*, ICRA, 2020.
-- PX4 ROS 2 user guide; ROS 2 Jazzy documentation.
+- PX4 ROS 2 user guide; ROS 2 Jazzy documentation; Luxonis DepthAI documentation.
 
 ## License
 
