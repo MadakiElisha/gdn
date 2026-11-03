@@ -126,7 +126,7 @@ them in a virtualenv unless it was created with `--system-site-packages`.
 
 | Command | What you should see |
 |---|---|
-| `tools/run_selftest.sh` | `ALL TESTS PASSED` twice, for `-O2` and `-O3` (24 checks each) |
+| `tools/run_selftest.sh` | `ALL TESTS PASSED` twice, for `-O2` and `-O3` (31 checks each) |
 | `colcon test --base-paths src --packages-select gdn_fusion && colcon test-result` | `1 test, 0 errors, 0 failures` |
 | `tools/make_data.sh --verify-maps` | every checksum `OK`, both maps `identical` |
 | `tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin` | CEP50 around 14 m, roughly 19 of 24 seeds passing |

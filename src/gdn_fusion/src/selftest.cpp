@@ -204,6 +204,72 @@ int main() {
         CHECK(zn.pos().head<2>().norm() > 5.0, "eskf: control drifts without zupt");
     }
 
+    // R1.1: real altimeter model. AGL = (h0 - p_z) - h_map(n, e). Altitude error
+    // now enters the measurement, so z and the baro bias are estimated with it.
+    {
+        const std::string mp_flat = "/tmp/gdn_selftest_map_flat.bin";
+        WritePlaneMap(mp_flat, 0.0, 500.0);
+        MapDb flat; flat.Load(mp_flat);
+        EskfConfig fc;
+        fc.r_agl = 4.0;            // 2 m sensor noise; the flat map is exact
+        Eskf a(fc);
+        bool ok = false;
+        for (int i = 0; i < 700 && !ok; ++i) ok = a.FeedStatic(a0, w0);
+        a.TransferAlignYaw(0.0);
+        // Without a datum the update must refuse to run.
+        CHECK(a.ApplyAgl(500.0, flat.Query(0, 0)) != Eskf::UpdResult::kApplied,
+              "eskf: agl refused without altitude datum");
+        a.SetAltitudeDatum(1000.0);              // AMSL height of p_z = 0
+        // The vehicle holds z = 0 (500 m above the flat map). The barometer then reads
+        // 15 m off (NED +15 = reads 15 m too low), as after a pressure change. AGL must
+        // hold the altitude while the filter learns the bias (REQ-NAV-010).
+        const double z_true = 0.0, b_true = 15.0;
+        const double agl_true = (1000.0 - z_true) - 500.0;
+        int acc = 0;
+        for (int k = 0; k < 400; ++k) {
+            a.Propagate(a0, w0, 0.1);
+            if (a.ApplyAgl(agl_true, flat.Query(a.pos().x(), a.pos().y())) == Eskf::UpdResult::kApplied) acc++;
+            a.ApplyBaro(z_true + b_true);
+        }
+        CHECK(acc > 300, "eskf: agl updates accepted");
+        CHECK(std::abs(a.pos().z() - z_true) < 1.0, "eskf: agl holds altitude against a 15 m baro bias");
+        CHECK(std::abs(a.baro_bias() - b_true) < 1.5, "eskf: agl + baro estimate baro bias");
+
+        // Warm start: the datum and baro bias are taken together at start-up, so a
+        // 15 m bias doesn't need to be learned from AGL at all.
+        Eskf w;
+        ok = false;
+        for (int i = 0; i < 700 && !ok; ++i) ok = w.FeedStatic(a0, w0);
+        w.TransferAlignYaw(0.0);
+        w.SetAltitudeDatum(500.0 + 0.5);          // map height + AGL on the ground
+        w.InitBaroBias(0.0 + b_true);             // baro reading on the ground
+        CHECK(std::abs(w.baro_bias() - b_true) < 1e-9, "eskf: baro bias initialised at datum");
+        w.SetAltitudeDatum(500.5, 2.0);
+        w.InitBaroBias(b_true, 1.5);
+        CHECK(std::abs(w.sigma_pos_z() - 2.0) < 1e-9 && std::abs(w.sigma_baro_bias() - 2.5) < 1e-9 &&
+              w.p_mineig() > -1e-9, "eskf: datum and baro calibration set a consistent covariance");
+
+        // Sign of the horizontal Jacobian: on a north slope, a vehicle that is really
+        // 30 m north reads less AGL, and the update must move the estimate north.
+        EskfConfig sc; sc.r_agl = 1.0;
+        Eskf g(sc);
+        ok = false;
+        for (int i = 0; i < 700 && !ok; ++i) ok = g.FeedStatic(a0, w0);
+        g.TransferAlignYaw(0.0);
+        g.SetAltitudeDatum(1000.0);
+        const double agl_n30 = 1000.0 - (500.0 + 0.2 * 30.0);   // z = 0, 30 m north
+        double first = 0.0, last = 0.0;
+        for (int k = 0; k < 20; ++k) {
+            g.Propagate(a0, w0, 0.1);
+            double in = 0.0;
+            g.ApplyAgl(agl_n30, map.Query(g.pos().x(), g.pos().y()), &in);
+            if (k == 0) first = in;
+            last = in;
+        }
+        CHECK(g.pos().x() > 1.0 && std::abs(last) < std::abs(first),
+              "eskf: agl moves position along the gradient");
+    }
+
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

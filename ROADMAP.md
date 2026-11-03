@@ -38,7 +38,8 @@ in CI.
 
 ## Where we are
 
-- The ESKF core, TRN update, baro, mag and ZUPT all work in simulation and on replay.
+- The ESKF core, the TRN update with the real altimeter model (R1.1), baro, mag and
+  ZUPT all work in simulation and on replay.
 - The setup was reworked in PRs #1 to #4:
   - A fresh clone builds and passes its tests on any machine.
   - The maps are in git.
@@ -78,13 +79,13 @@ What this kit can and can't do:
 
 Goal: everyone works from the same code and data, and the baselines are current.
 
-- [ ] **R0.1** Update the dev PC to `main` (steps in `docs/SETUP.md`, "Existing machine", including the copied-workspace note).
-- [ ] **R0.2** Publish the `flight001` recording as release `data-v1` (`tools/pack_data.sh --publish`) and check `tools/fetch_data.sh` on a second machine.
-- [ ] **R0.3** Re-baseline `flight001` after the PR #1 fixes. Run `tools/bench.sh`, `BENCH_NO_BARO=1 tools/bench.sh` and `tools/mc_run.sh 100`, and record the numbers in `docs/test_reports/` and the README.
+- [x] **R0.1** Update the dev PC to `main` (steps in `docs/SETUP.md`, "Existing machine", including the copied-workspace note).
+- [x] **R0.2** Publish the `flight001` recording as release `data-v1` (`tools/pack_data.sh --publish`) and check `tools/fetch_data.sh` on a second machine.
+- [x] **R0.3** Re-baseline `flight001` after the PR #1 fixes. Run `tools/bench.sh`, `BENCH_NO_BARO=1 tools/bench.sh` and `tools/mc_run.sh 100`, and record the numbers in `docs/test_reports/` and the README. Done: TEST-016.
 - [ ] **R0.4** Run `tools/setup_ubuntu.sh` once on a real Ubuntu 24.04 machine using the apt path, and fix anything it trips on.
 - [x] **R0.5** Add GitHub Actions CI: build in a Jazzy container, `run_selftest.sh`, `colcon test`, `make_data.sh`, and a short Zermatt MC (24 seeds) with pass thresholds.
 - [x] **R0.6** Bring `docs/open_items.md` up to date.
-- [ ] **R0.7** Move `PX4-Autopilot` out of the GDN workspace (for example to `~/PX4-Autopilot`), so colcon and git never see it.
+- [x] **R0.7** Move `PX4-Autopilot` out of the GDN workspace (for example to `~/PX4-Autopilot`), so colcon and git never see it.
 
 Done when: CI is green on `main`, and the README validation table shows fresh
 `flight001` numbers.
@@ -97,7 +98,7 @@ item should first produce a test that fails, then the fix.
 
 Estimator:
 
-- [ ] **R1.1 Real altimeter measurement model.** TRN measurement = baro altitude minus measured AGL, corrected for tilt. Add an altitude-bias state, and put z into the TRN Jacobian. Update `trn_sensor_sim.py` to publish AGL with realistic errors. Core: `eskf.hpp`, new `ApplyAgl()`. Test: a 15 m baro bias no longer diverges.
+- [x] **R1.1 Real altimeter measurement model.** TRN measurement = baro altitude minus measured AGL, corrected for tilt. Add an altitude-bias state, and put z into the TRN Jacobian. Update `trn_sensor_sim.py` to publish AGL with realistic errors. Core: `eskf.hpp`, new `ApplyAgl()`. Test: a 15 m baro bias no longer diverges. Done: TEST-017. The node now defaults to `trn_model:=agl`, and the oracle stays available as `trn_model:=ideal` and `--model=ideal`. Follow-ups: the tilt correction belongs with the real rangefinder driver (R6.2), and the baro-bias model needs a rate state if fast pressure changes matter (see TEST-017).
 - [ ] **R1.2 Remove truth leaks from the node.** ZUPT and the airborne latch use IMU stillness or PX4's land detector, not GNSS-derived velocity. Initial altitude comes from baro, not `vehicle_local_position`.
 - [ ] **R1.3 Separate world and database maps.** The MC and bench support a truth map that differs from the onboard map: DEM noise, a bias, a resolution change. Add `make_data.sh` options to build the degraded maps.
 - [ ] **R1.4 Covariance consistency fixes.**
