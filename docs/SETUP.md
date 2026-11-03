@@ -177,8 +177,14 @@ rendering is what broke the terrain visuals in OI-007.
 - Check that it's actually being used:
   - `nvidia-smi` lists the card.
   - `glxinfo -B | grep -i "OpenGL renderer"` names it rather than `llvmpipe`.
-- On a laptop with hybrid graphics, start Gazebo on the NVIDIA GPU with
-  `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia gz sim ...`.
+- **Laptops with hybrid graphics** (Intel plus NVIDIA): the desktop runs on the Intel
+  GPU, so plain `glxinfo -B` reports Intel even when the NVIDIA driver is working. In
+  simulation terminals, run `GDN_GPU=nvidia source env.sh`. That sets the PRIME offload
+  variables, so Gazebo renders on the NVIDIA GPU. Check it with
+  `GDN_GPU=nvidia source env.sh && glxinfo -B | grep "OpenGL renderer"`, which should
+  name the RTX card. To make the NVIDIA GPU drive everything instead, run
+  `sudo prime-select nvidia` and log out and back in. That uses more battery, so keep
+  the laptop on mains power for long simulation runs either way.
 - Some RTX 5060 systems on Ubuntu 24.04 don't detect the card at all, even with the
   right driver. The reported workarounds are enabling "Above 4G decoding" in the BIOS
   or booting with `pci=realloc=off`. Try these only if `nvidia-smi` can't find the GPU.

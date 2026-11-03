@@ -19,6 +19,20 @@ fi
 # agent talks to. Override with e.g. GDN_RMW=rmw_zenoh_cpp before sourcing.
 export RMW_IMPLEMENTATION="${GDN_RMW:-rmw_fastrtps_cpp}"
 
+# Hybrid-graphics laptops (Intel + NVIDIA, "on-demand" PRIME): the desktop runs on
+# the Intel GPU, and programs only use the NVIDIA GPU when asked. Gazebo's camera
+# and lidar sensors need the NVIDIA GPU, so set GDN_GPU=nvidia before sourcing
+# this file in simulation terminals:  GDN_GPU=nvidia source env.sh
+if [ "${GDN_GPU:-}" = "nvidia" ]; then
+  export __NV_PRIME_RENDER_OFFLOAD=1
+  export __GLX_VENDOR_LIBRARY_NAME=nvidia
+  export __VK_LAYER_NV_optimus=NVIDIA_only
+  if [ -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json ]; then
+    # headless rendering (gz sim -s --headless-rendering) goes through EGL
+    export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+  fi
+fi
+
 # Keep this project's ROS graph separate from other work on the same LAN.
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-42}"
 
