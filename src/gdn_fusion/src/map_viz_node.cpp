@@ -1,5 +1,6 @@
 // Visualization node: terrain as PointCloud2 (height-colored) + estimate path.
 #include <rclcpp/rclcpp.hpp>
+#include <string>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -18,7 +19,7 @@ public:
             RCLCPP_ERROR(get_logger(), "Failed to load map: %s", map_path.c_str());
             throw std::runtime_error("map load failed");
         }
-        base_alt_ = map_.At(map_.rows() / 2, map_.cols() / 2);
+        base_alt_ = map_.Query(0.0, 0.0).h;   // map height at the local origin (grid centre)
         RCLCPP_INFO(get_logger(), "Loaded map %dx%d (base_alt=%.1f m)",
                     map_.rows(), map_.cols(), base_alt_);
 
@@ -33,18 +34,31 @@ public:
         cloud_timer_ = create_wall_timer(std::chrono::seconds(2),
                                          [this]() { publishTerrainCloud(); publishTerrainMesh(); });
 
+        // Display frame "map" is ENU (x = east, y = north, z = up), with z = 0 at the
+        // map height of the grid centre. GDN's odometry is NED, so it's converted here.
+        // path_mode "altitude": z from GDN's estimated altitude, -p_z + datum_offset_m
+        //   (datum_offset_m = altitude datum minus centre map height; about 0 when the
+        //   datum is set on a pad at the map centre, as in SITL).
+        // path_mode "terrain": the older display, path drawn terrain_clearance_m above
+        //   the map under the estimate (useful with trn_model:=ideal, no altitude).
+        path_mode_ = declare_parameter("path_mode", std::string("altitude"));
+        datum_offset_ = declare_parameter("datum_offset_m", 0.0);
+        terrain_clearance_ = declare_parameter("terrain_clearance_m", 80.0);
         odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
             "/gdn/odom", 10, [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
                 geometry_msgs::msg::PoseStamped pose;
                 pose.header = msg->header;
-                pose.pose = msg->pose.pose;
-                // Vertical channel is unobservable (OI-002): project path at
-                // nominal AGL above the terrain so the horizontal track is legible.
-                const double relh = map_.Query(pose.pose.position.x,
-                                               pose.pose.position.y).h - base_alt_;
-                pose.pose.position.z = relh + 80.0;
+                pose.header.frame_id = "map";
+                const double n = msg->pose.pose.position.x, e = msg->pose.pose.position.y;
+                pose.pose.position.x = e;
+                pose.pose.position.y = n;
+                if (path_mode_ == "terrain")
+                    pose.pose.position.z = map_.Query(n, e).h - base_alt_ + terrain_clearance_;
+                else
+                    pose.pose.position.z = -msg->pose.pose.position.z + datum_offset_;
+                pose.pose.orientation.w = 1.0;
                 path_.poses.push_back(pose);
-                path_.header = msg->header;
+                path_.header = pose.header;
                 path_pub_->publish(path_);
             });
     }
@@ -57,8 +71,8 @@ private:
         pts.reserve(static_cast<size_t>(rows / step + 1) * (cols / step + 1) * 3);
         for (int i = 0; i < rows; i += step)
             for (int j = 0; j < cols; j += step) {
-                pts.push_back(static_cast<float>((i - rows / 2.0) * map_.dlat() * 111320.0));
-                pts.push_back(static_cast<float>((j - cols / 2.0) * map_.dlon() * 111320.0 * 0.676876));
+                pts.push_back(static_cast<float>(map_.EastOf(j)));    // ENU x = east
+                pts.push_back(static_cast<float>(map_.NorthOf(i)));   // ENU y = north
                 pts.push_back(static_cast<float>(map_.At(i, j) - base_alt_));
             }
         sensor_msgs::msg::PointCloud2 cloud;
@@ -88,12 +102,12 @@ private:
             for (int j = 0; j + step < cols; j += step) {
                 auto P = [&](int ii, int jj) {
                     geometry_msgs::msg::Point p;
-                    p.x = (ii - rows / 2.0) * map_.dlat() * 111320.0;
-                    p.y = (jj - cols / 2.0) * map_.dlon() * 111320.0 * 0.676876;
+                    p.x = map_.EastOf(jj);
+                    p.y = map_.NorthOf(ii);
                     p.z = map_.At(ii, jj) - base_alt_;
                     return p; };
-                m.points.push_back(P(i, j)); m.points.push_back(P(i + step, j)); m.points.push_back(P(i, j + step));
-                m.points.push_back(P(i + step, j)); m.points.push_back(P(i + step, j + step)); m.points.push_back(P(i, j + step));
+                m.points.push_back(P(i, j)); m.points.push_back(P(i, j + step)); m.points.push_back(P(i + step, j));
+                m.points.push_back(P(i + step, j)); m.points.push_back(P(i, j + step)); m.points.push_back(P(i + step, j + step));
             }
         marker_pub_->publish(m);
     }
@@ -106,6 +120,8 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::TimerBase::SharedPtr cloud_timer_;
     nav_msgs::msg::Path path_;
+    std::string path_mode_ = "altitude";
+    double datum_offset_ = 0.0, terrain_clearance_ = 80.0;
 };
 
 int main(int argc, char** argv) {

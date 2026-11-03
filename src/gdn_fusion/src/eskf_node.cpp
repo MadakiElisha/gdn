@@ -30,6 +30,12 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
     cfg.gate_abs_m = declare_parameter("gate_abs_m", cfg.gate_abs_m);
     cfg.clamp_dv   = declare_parameter("clamp_dv", cfg.clamp_dv);   // OI-006
     cfg.r_agl      = declare_parameter("r_agl", cfg.r_agl);
+    // Earth magnetic field at the operating area, NED, microtesla. Defaults are the
+    // WMM values for Zurich in EskfConfig; set them for other sites or simulators
+    // (sim_run.sh passes the Gazebo world's field).
+    cfg.mag_ref_north = declare_parameter("mag_ref_north", cfg.mag_ref_north);
+    cfg.mag_ref_east  = declare_parameter("mag_ref_east",  cfg.mag_ref_east);
+    cfg.mag_ref_down  = declare_parameter("mag_ref_down",  cfg.mag_ref_down);
     // "agl": real altimeter model, /gdn/agl_meas + baro (R1.1, default).
     // "ideal": legacy oracle, /gdn/trn_meas is terrain height directly.
     trn_model_ = declare_parameter("trn_model", std::string("agl"));
