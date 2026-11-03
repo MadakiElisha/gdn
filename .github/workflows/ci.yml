@@ -1,0 +1,83 @@
+name: ci
+
+# Runs on every push and pull request. Matches the setup in docs/SETUP.md:
+# Ubuntu 24.04 + ROS 2 Jazzy, packages under src/ only.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install git (needed for submodules)
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Dependencies
+        run: |
+          apt-get install -y --no-install-recommends \
+            build-essential cmake libeigen3-dev pkg-config \
+            ros-jazzy-rosbag2-storage-mcap ros-jazzy-rclcpp-components \
+            python3-numpy python3-scipy python3-matplotlib python3-h5py \
+            python3-yaml python3-pil python3-rasterio
+          rosdep update --rosdistro jazzy
+          source /opt/ros/jazzy/setup.bash
+          rosdep install --from-paths src --ignore-src -y --rosdistro jazzy
+
+      - name: Unit tests, -O2 and -O3 (no ROS)
+        run: tools/run_selftest.sh
+
+      - name: Cache px4_msgs build
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/px4_msgs
+            install/px4_msgs
+          key: px4msgs-${{ runner.os }}-${{ hashFiles('.gitmodules') }}-${{ hashFiles('src/px4_msgs/msg/*.msg') }}
+
+      - name: colcon build
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --base-paths src --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            --event-handlers console_cohesion+
+
+      - name: colcon test
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          colcon test --base-paths src --packages-select gdn_fusion --event-handlers console_direct+
+          colcon test-result --verbose
+
+      - name: Data checksums and map rebuild
+        run: tools/make_data.sh --verify-maps
+
+      - name: Monte Carlo, Zermatt, 24 seeds
+        run: |
+          source env.sh
+          tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin | tee mc.txt
+          python3 tools/ci_check_mc.py mc.txt --max-cep50 20 --min-passing 17
+
+      - name: Keep MC report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-report
+          path: |
+            mc.txt
+            /tmp/mc_per_seed.csv
+          if-no-files-found: ignore

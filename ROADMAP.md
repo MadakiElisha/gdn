@@ -82,7 +82,7 @@ Goal: everyone works from the same code and data, and the baselines are current.
 - [ ] **R0.2** Publish the `flight001` recording as release `data-v1` (`tools/pack_data.sh --publish`) and check `tools/fetch_data.sh` on a second machine.
 - [ ] **R0.3** Re-baseline `flight001` after the PR #1 fixes. Run `tools/bench.sh`, `BENCH_NO_BARO=1 tools/bench.sh` and `tools/mc_run.sh 100`, and record the numbers in `docs/test_reports/` and the README.
 - [ ] **R0.4** Run `tools/setup_ubuntu.sh` once on a real Ubuntu 24.04 machine using the apt path, and fix anything it trips on.
-- [ ] **R0.5** Add GitHub Actions CI: build in a Jazzy container, `run_selftest.sh`, `colcon test`, `make_data.sh`, and a short Zermatt MC (24 seeds) with pass thresholds.
+- [x] **R0.5** Add GitHub Actions CI: build in a Jazzy container, `run_selftest.sh`, `colcon test`, `make_data.sh`, and a short Zermatt MC (24 seeds) with pass thresholds.
 - [x] **R0.6** Bring `docs/open_items.md` up to date.
 - [ ] **R0.7** Move `PX4-Autopilot` out of the GDN workspace (for example to `~/PX4-Autopilot`), so colcon and git never see it.
 
@@ -107,11 +107,11 @@ Estimator:
   - Make the map gradient consistent with bilinear interpolation.
 - [ ] **R1.5 Consistency metrics in the MC.** Report NEES/NIS and "error over 3 sigma" percentages, and fail the run when they're out of bounds.
 - [ ] **R1.6 IMU error model** (bench, can start now). Record a static H30WP log of 2 hours or more and fit an Allan variance. Do the same for the Mid-360S and OAK-D IMUs. The results feed the process noise, the MC's simulated IMU and the Gazebo IMU models (R2.4).
-- [ ] **R1.7 Start-uncertainty scenarios.** MC options for a start error of 0, 60, 150 and 500 m, and for GNSS loss mid-flight with a covariance handover.
+- [ ] **R1.7 Start-uncertainty and GNSS-loss scenarios.** MC options for a start error of 0, 60, 150 and 500 m, and for GNSS loss mid-flight with a covariance handover. Synthetic flights long enough to score 5 and 10 minutes without GNSS (the Zermatt flight is only 177 s), and an MC scoring window that starts when GNSS is lost rather than the fixed 60 to 300 s.
 
 Engineering:
 
-- [ ] **R1.8 Requirements per vehicle class.** Turn REQ-P-001 into numbers for multirotor, quadplane and fixed-wing, for each terrain class: CEP95, time to acquire, maximum time without aiding, lost-lock detection rate and false-alarm rate. Every later "done when" refers to these. Write them in `docs/requirements.md`.
+- [ ] **R1.8 Requirements per vehicle class.** Drafted in [docs/requirements.md](docs/requirements.md): 5 and 10 minutes without GNSS, with error limits per vehicle class, plus integrity, acquisition and timing requirements. Remaining: agree the error limits, then tick this off. Every later "done when" refers to this file.
 - [ ] **R1.9 Code quality gates in CI.** clang-tidy, cppcheck, ASan/UBSan builds of the selftest and MC, and clang-format. Warnings fail the build for the core.
 - [ ] **R1.10 Configuration files.** Move the filter tuning out of code defaults into versioned YAML loaded by the node and the MC, so a result can always be traced to the exact configuration.
 - [ ] **R1.11 Full internal logging.** The node logs every input, innovation, gate decision and state to MCAP, so any run (sim or real) can be replayed and diagnosed offline.
