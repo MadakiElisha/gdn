@@ -40,6 +40,7 @@ Today the inertial core and TRN work in simulation and replay. The rest is laid 
 - [Data](#data)
 - [Getting started](#getting-started)
 - [Running things](#running-things)
+- [How we validate](#how-we-validate)
 - [Validation so far](#validation-so-far)
 - [Known limitations](#known-limitations)
 - [Open items](#open-items)
@@ -61,6 +62,7 @@ assumptions, and it has not flown on real hardware yet.
 | ROS 2 node (PX4 topics) | Working on replay | Jazzy, `px4_msgs` 1.15, deterministic replay bench. |
 | Unit tests and Monte Carlo | Working | 24 checks at `-O2` and `-O3`; seeded MC campaigns. |
 | Gazebo world from a real DEM | Partly working | World generation works; terrain visuals are broken under WSL2 software rendering (OI-007). |
+| Closed-loop SITL with GDN in the loop | Planned (Phase 2) | PX4 + Gazebo Harmonic, simulated Mid-360S, TFmini-S and OAK-D Lite, scenario runner with automatic scoring. |
 | Real altimeter (AGL) measurement model | Next | Baro altitude minus measured height above ground, with an altitude-bias state. |
 | LIO odometry (Mid-360S) | Planned | FAST-LIO2 or Point-LIO feeding GDN as a velocity / delta-pose measurement. |
 | Stereo VIO (OAK-D Lite) | Planned | Global-shutter stereo pair plus IMU, through the same odometry interface as LIO. |
@@ -162,7 +164,7 @@ interface (`ApplyOdom()`, roadmap R3.2).
 
 The two fail in different conditions. That is why GDN is the one that weighs them,
 rather than trusting either blindly. The OAK-D Lite's 13 MP colour camera is also the
-planned source of images for matching against satellite imagery (R6.7).
+planned source of images for matching against satellite imagery (R8.6).
 
 ## Vehicle-agnostic design
 
@@ -180,8 +182,10 @@ a regime signal taken from the autopilot (ground, hover, transition, cruise).
 | Start-up | Static on the ground | Static | Often launched, so it must align in motion |
 | Things to watch | Motor magnetic interference, vibration | Mode transitions; tailsitters rotate the body 90 degrees | Long GNSS-free legs, wind |
 
-All validation so far has been on a fixed-wing trajectory. Multirotor and quadplane
-work starts with hardware bring-up (see the roadmap).
+All validation so far has been on a fixed-wing trajectory. The simulation
+environment (roadmap Phase 2) brings in PX4's multirotor, standard VTOL and
+fixed-wing models, so all three airframes get tested in closed loop before any of them
+flies.
 
 ## Reference hardware
 
@@ -195,15 +199,15 @@ messages should work.
 | Rangefinder | Benewake TFmini-S | Height above ground from 0.1 to 12 m (about 7 m on dark surfaces), for landing and low hover |
 | Stereo camera | Luxonis OAK-D Lite | Global-shutter OV7251 stereo pair (7.5 cm baseline), 13 MP IMX214 colour camera, BMI270 IMU, onboard processor (4 TOPS); used for VIO and later geo-registration |
 | Companion | Jetson Orin Nano (JetPack 7.2+) or Raspberry Pi 5 + Hailo HAT | Runs GDN, LIO and VIO. The Orin has more headroom; the Hailo NPU only helps neural-network parts |
-| Autopilot | PX4 v1.15 | uXRCE-DDS link, matching the `px4_msgs` submodule |
+| Autopilot | PX4 v1.15 today, moving to v1.16 (R2.1) | uXRCE-DDS link, matching the `px4_msgs` submodule. v1.16 is the first release with official Ubuntu 24.04 and Gazebo Harmonic support |
 
 Between them, the lidar and rangefinder cover heights up to about 30 m above ground.
 That suits a low-flying multirotor first. Quadplane cruise and fixed-wing need a
-long-range altimeter, which isn't in this list (R6.4). Two things to check on your own
+long-range altimeter, which isn't in this list (R8.4). Two things to check on your own
 units:
 - OAK-D Lite cameras from the original Kickstarter batch shipped without the IMU.
 - The Mid-360S has its own IMU, so we still have to decide whether LIO uses that one
-  or the H30WP (R2.4).
+  or the H30WP (R6.4).
 
 ## How we got here
 
@@ -296,7 +300,7 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | `flight_zermatt_csv/`, `flight_zermatt/` | Synthetic lawnmower flight over Zermatt, as CSVs and as a PX4-style bag | `tools/make_data.sh`, `python3 tools/make_zermatt_bag.py` |
 
 `data/SHA256SUMS` pins every tracked or deterministic file. Flight logs from the real
-hardware (roadmap R2.6) will go into releases or shared storage, not into git.
+hardware (roadmap R6.6) will go into releases or shared storage, not into git.
 
 ## Getting started
 
@@ -327,6 +331,25 @@ Source `env.sh` first in every terminal.
 | Bench with RViz | `tools/bench_viz.sh` |
 | Just the node | `ros2 run gdn_fusion eskf_node --ros-args -p map_path:=data/maps/zermatt.bin` |
 | Check sensor rates from PX4 | `ros2 run gdn_sensors sensor_monitor` |
+
+## How we validate
+
+Nothing goes on a vehicle until it has passed in simulation. The simulation is
+layered, and each layer catches different problems:
+
+| Layer | What runs | Catches | Today |
+|---|---|---|---|
+| Unit tests | Core maths only | Equation and bookkeeping bugs | Working |
+| Monte Carlo | Core on IMU and truth CSVs with seeded errors | Statistical robustness, filter consistency | Working |
+| Replay bench | ROS node on recorded bags | ROS wiring, timing, message handling | Working |
+| Closed-loop SITL | PX4 + Gazebo + simulated sensors + GDN, with the autopilot flying | Whole-system behaviour on all three airframes | Planned (Phase 2) |
+| Processor-in-the-loop | The same SITL, with GDN on the Orin or Pi 5 | Compute budget, latency, network timing | Planned (Phase 5) |
+
+Scenarios (vehicle, terrain, height, when and how GNSS is lost, start error, wind,
+sensor faults) are scored automatically against per-vehicle requirements. A
+qualification run of the full scenario matrix at the end of roadmap Phase 5 is the
+gate for hardware. Real flight logs then get replayed through the same scoring, to
+check that the simulated sensors aren't flattering us.
 
 ## Validation so far
 

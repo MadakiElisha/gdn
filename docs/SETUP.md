@@ -170,7 +170,10 @@ rsync -av OLD_PC:gdn_workspace/data/{flight001,flight001_csv} data/
 This path hasn't been re-checked since the setup rework.
 
 1. Use PX4 v1.15.x, to match the `px4_msgs` submodule (`release/1.15`). If the message
-   definitions don't match, topics appear but nothing decodes.
+   definitions don't match, topics appear but nothing decodes. PX4 v1.15's own setup
+   script only supports Ubuntu up to 22.04 (Gazebo Garden). The move to v1.16, which
+   supports 24.04 with Gazebo Harmonic, is roadmap item R2.1. Keep the PX4 checkout
+   outside the GDN workspace.
 2. Run the Micro XRCE-DDS Agent: `MicroXRCEAgent udp4 -p 8888`.
 3. Start PX4 SITL (`make px4_sitl gz_<model>`).
 4. Start `eskf_node` along with `trn_sensor_sim.py`, `mag_sim.py` and `baro_sim.py`.
