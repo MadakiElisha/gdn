@@ -120,6 +120,21 @@ public:
         }
     }
 
+    // Missing IMU data (samples lost upstream, a stalled driver): the nominal state was
+    // carried across the hole with one sample's rate and acceleration, so it may be off
+    // by more than the process noise allows. Add that uncertainty explicitly: sigma_att
+    // (rad) on each attitude axis and sigma_vel (m/s) on each velocity axis. Without
+    // this the gates treat the now-wrong attitude as certain and reject every
+    // magnetometer correction, and a tilt error turns into runaway velocity.
+    void InflateForGap(double sigma_att_rad, double sigma_vel) {
+        for (int i = 0; i < 3; ++i) {
+            P_(6 + i, 6 + i) += sigma_att_rad * sigma_att_rad;
+            P_(3 + i, 3 + i) += sigma_vel * sigma_vel;
+        }
+        n_gap_++;
+    }
+    int gaps() const { return n_gap_; }
+
     void TransferAlignYaw(double yaw_rad) {
         const Eigen::Quaterniond rz(Eigen::AngleAxisd(yaw_rad, V3::UnitZ()));
         const Eigen::Matrix3d Rz = rz.toRotationMatrix();
@@ -481,6 +496,7 @@ private:
     int n_zupt_ = 0;
     int n_rej_trn_ = 0, n_rej_baro_ = 0, n_rej_mag_ = 0;
     int n_rej_agl_ = 0, n_agl_ = 0;
+    int n_gap_ = 0;
     double h0_ = 0.0;
     bool datum_set_ = false;
     double mag_innov_rms_ = 0.0;
