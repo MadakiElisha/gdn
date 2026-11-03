@@ -165,6 +165,24 @@ published, copy it across directly:
 rsync -av OLD_PC:gdn_workspace/data/{flight001,flight001_csv} data/
 ```
 
+## GPU for simulation
+
+Gazebo's camera and lidar sensors render on the GPU, so the simulation environment
+(roadmap Phase 2) needs a working NVIDIA driver on native Linux. WSL2 software
+rendering is what broke the terrain visuals in OI-007.
+
+- **RTX 50-series cards (for example the RTX 5060) only work with NVIDIA's open
+  kernel modules,** driver series 570 or newer. On Ubuntu 24.04, run
+  `sudo ubuntu-drivers list` and install the newest `nvidia-driver-5xx-open` package.
+- Check that it's actually being used:
+  - `nvidia-smi` lists the card.
+  - `glxinfo -B | grep -i "OpenGL renderer"` names it rather than `llvmpipe`.
+- On a laptop with hybrid graphics, start Gazebo on the NVIDIA GPU with
+  `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia gz sim ...`.
+- Some RTX 5060 systems on Ubuntu 24.04 don't detect the card at all, even with the
+  right driver. The reported workarounds are enabling "Above 4G decoding" in the BIOS
+  or booting with `pci=realloc=off`. Try these only if `nvidia-smi` can't find the GPU.
+
 ## Live PX4 SITL
 
 This path hasn't been re-checked since the setup rework.

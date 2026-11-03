@@ -232,13 +232,22 @@ numbers its phases separately.
 
 ## Requirements
 
-These are the requirements the work has been measured against so far. They'll be
-reviewed per vehicle class in Phase 1 of the roadmap.
+The full set, with definitions and how each one is checked, is in
+[docs/requirements.md](docs/requirements.md). It's a draft: the GNSS-free durations are
+fixed, and the error limits are proposals to agree. The first targets are 5 and 10
+minutes without GNSS:
 
-| ID | Requirement | Source |
+| Vehicle | 5 min without GNSS | 10 min without GNSS |
 |---|---|---|
-| REQ-P-001 | Horizontal error at most 100 m over the mission, without GNSS | TEST-002 |
-| REQ-DB-001 | Onboard terrain map at about 30 m resolution, smoothed to sigma 4 cells for scalar TRN | TEST-008, TEST-012 |
+| Multirotor, low | CEP95 15 m, max 30 m | CEP95 25 m, max 50 m |
+| Quadplane, cruise | CEP95 40 m, max 80 m | CEP95 60 m, max 120 m |
+| Fixed-wing, cruise | CEP95 50 m, max 100 m | CEP95 75 m, max 100 m |
+
+On top of these: altitude within 5 m, the reported uncertainty has to be honest
+(error over 3-sigma in at most 1% of samples), lost lock is flagged within 30 s, and
+acquisition from a 500 m start error takes 120 s or less on hilly terrain. The older
+REQ-P-001 (at most 100 m over a mission) and REQ-DB-001 (map resolution and smoothing)
+still stand.
 
 ## Repository layout
 
@@ -282,7 +291,7 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | Setup and data | `setup_ubuntu.sh` (machine setup), `make_data.sh` (derived data and checksum checks), `fetch_data.sh` / `pack_data.sh` (download or publish the flight001 recording) |
 | Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
 | Sensor simulators | `trn_sensor_sim.py` (terrain height under the vehicle), `baro_sim.py`, `mag_sim.py`; all fed by PX4 truth from the bag |
-| Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_zermatt_track.py` (track over hillshade, error and innovations) |
+| Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
 | Terrain maps | `generate_terrain.py` then `export_map_db.py` then `make_sigma4_map.py` (synthetic map); `fetch_terrain.py` and `make_zermatt_map.py` (SRTM); `export_map_bin.py`, `terrain_map.py` (older helpers) |
 | Synthetic flights | `gen_zermatt_flight.py` (IMU and truth CSVs over Zermatt), `make_zermatt_bag.py` (the same as a PX4-style bag) |
 | Gazebo worlds | `make_world_final.py` (heightmap world), `make_terrain_mesh.py` (mesh visual) |
@@ -407,8 +416,10 @@ We work in small, checkable steps: state a hypothesis, run one decisive experime
 decide on the pass rule before looking at the result, then commit. In practice:
 
 - Branch from `main` and open a pull request. Don't push to `main` directly.
-- `tools/run_selftest.sh` and `colcon test` must pass. Changes to the filter core also
-  need the Monte Carlo and bench numbers before and after, in the PR description.
+- CI (`.github/workflows/ci.yml`) runs on every PR: the build, the unit tests at `-O2`
+  and `-O3`, `colcon test`, the map checks and a 24-seed Zermatt Monte Carlo with
+  regression thresholds. It has to be green before merging. Changes to the filter core
+  also need the Monte Carlo and bench numbers before and after, in the PR description.
 - New behaviour comes with a test, and ideally one that fails on the old code.
 - Keep the core ROS-free. Anything ROS-specific belongs in the node.
 - Record open questions in `docs/open_items.md` with an OI number, and test write-ups
@@ -425,6 +436,7 @@ decide on the pass rule before looking at the result, then commit. In practice:
 | [docs/SETUP.md](docs/SETUP.md) | install, update an older copy, get data, fix setup problems |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | work on the filter: state indices, update equations, parameters |
 | [docs/design/eskf_design.md](docs/design/eskf_design.md) | see the design record and the literature behind each choice |
+| [docs/requirements.md](docs/requirements.md) | see what "good enough" means for each vehicle, and how it's checked |
 | [docs/open_items.md](docs/open_items.md) | check or log an open issue |
 | [docs/test_reports/](docs/test_reports/) | see the evidence behind each design decision |
 
