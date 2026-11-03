@@ -48,7 +48,10 @@ error comes in through the updates. Fusing the magnetometer for initial yaw only
 against the mag-bias states is one cause (R1.4, heading-only mag). The larger one is
 that nothing observes tilt well on a slow multirotor that pitches hard: TRN alone is
 too weak, where the fixed wing got away with it. Velocity aiding (Phase 3) is the
-real fix. Reproduce with `tools/sim_run.sh`, then `tools/sim_replay.sh` on the bag
+real fix. The new IMU-coverage check also shows the `flight001` recording covers only
+50% of the IMU time (4 ms integrals every 8 ms), so the fixed-wing baseline was
+earned on half the IMU data; future recordings should set `IMU_INTEG_RATE`.
+Reproduce with `tools/sim_run.sh`, then `tools/sim_replay.sh` on the bag
 it records. Note that bag replays of the same flight vary by roughly 40% between
 runs because playback timing isn't deterministic.
 
