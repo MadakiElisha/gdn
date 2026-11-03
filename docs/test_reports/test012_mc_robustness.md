@@ -15,4 +15,4 @@
 
 **Result:** REQ-DB-001 revised to σ4. Primary window (60-300 s) achieves 15.7 m RMS.
 
-**Known Limitation:** OI-004 (landing-phase observability) remains — terrain near landing zone has poor TRN signature, horizontal error grows to >1 km after t=950 s.
+**Known Limitation:** OI-004 (landing-phase observability) remains: terrain near the landing zone has poor TRN signature, horizontal error grows to >1 km after t=950 s.

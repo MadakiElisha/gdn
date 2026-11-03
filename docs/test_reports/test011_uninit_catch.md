@@ -12,6 +12,6 @@ drift → innovations exceeding gates → updates rejected → TRN tests failed.
 **Process impact:** `tools/run_selftest.sh` (`-O2`) and `colcon Release`
 (`-O3`) selftest are now BOTH required to pass as a merge gate. The bug would
 have manifested stochastically in flight (only when the stack happened to be
-dirty) — the dual-build strategy converts it into a deterministic catch.
+dirty), and the dual-build strategy converts it into a deterministic catch.
 
 **Category:** Undefined behavior / uninitialized state. Resolved v3.

@@ -1,4 +1,4 @@
-# gdn_fusion v3 — design record
+# gdn_fusion v3 design record
 
 ## Architecture
 - **ROS-free core** (`include/gdn/map_db.hpp`, `include/gdn/eskf.hpp`): pure Eigen, no rclcpp.
@@ -14,7 +14,7 @@
 - Baseline/limits of batch TERCOM: J. P. Golden, SPIE 1980.
 - Observability reasoning (yaw unobservable without aiding; vertical with scalar TRN): T. Barfoot, *State Estimation for Robotics*, CUP 2017.
 - Middleware-free estimator precedent: PX4-EKF standalone library (shared by PX4 + ArduPilot).
-- Component registration: ROS 2 docs — *About Composition*, *rclcpp_components*.
+- Component registration: ROS 2 docs, *About Composition*, *rclcpp_components*.
 
 ## Database
 - REQ-DB-001: `sigma=4` cell smoothing (MC campaign validated 100/100 seeds, CEP95=40 m).
