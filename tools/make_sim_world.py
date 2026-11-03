@@ -30,9 +30,12 @@ from PIL import Image
 
 from gdn_paths import ROOT, load_map
 
-# Earth field for the world, ENU, tesla. Same value as PX4's own Gazebo worlds
-# (north 23 uT, east 6 uT, down 42 uT). GDN's mag reference must match:
-# eskf_node mag_ref_north/east/down = 23.0 / 6.0 / 42.0 uT (sim_run.sh sets this).
+# Earth field, ENU, tesla, the same value as PX4's own worlds. Note that Gazebo
+# Harmonic's magnetometer ignores it when the world has spherical coordinates (ours
+# does) and uses its built-in field model at that lat/lon instead (with odd axes,
+# see on_mag in sim_adapter.py). So GDN's mag_ref
+# comes from what the sensor actually reports: sim_adapter.py logs the field in NED,
+# and sim_run.sh passes it to eskf_node.
 MAG_ENU_T = (6e-06, 2.3e-05, -4.2e-05)
 
 

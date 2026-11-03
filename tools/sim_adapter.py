@@ -3,7 +3,7 @@
 
 In SITL (tools/sim_run.sh), ros_gz_bridge brings these Gazebo topics into ROS:
   /gdn/sim/agl_scan      sensor_msgs/LaserScan      downward radar altimeter (slant range)
-  /gdn/sim/mag           sensor_msgs/MagneticField  x500 magnetometer, body FLU, tesla
+  /gdn/sim/mag           sensor_msgs/MagneticField  x500 magnetometer (see on_mag for its units)
   /gdn/sim/air_pressure  sensor_msgs/FluidPressure  x500 barometer, Pa
   /gdn/sim/truth_odom    nav_msgs/Odometry          true pose, world ENU, origin = map centre
 plus PX4's /fmu/out/vehicle_attitude for removing tilt from the altimeter range.
@@ -79,6 +79,8 @@ class SimAdapter(Node):
 
         self.cos_tilt = None          # from PX4 attitude
         self.truth = None             # (north, east, z_world_up)
+        self.q_truth = None           # true attitude, body FLU to world ENU
+        self.mag_ned = []
         self.h_ref = None             # pressure altitude at start
         self.t_start = None
         self.last_agl_t = 0.0
@@ -105,6 +107,17 @@ class SimAdapter(Node):
         """Vertical AGL the map predicts at the true position."""
         n, e, z_up = self.truth
         return (self.z0_amsl + z_up) - self.map_h(n, e)
+
+    def r_ned_frd(self):
+        """Body FRD to world NED rotation from the true ENU/FLU attitude."""
+        w, x, y, z = self.q_truth
+        r_enu_flu = np.array([
+            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]])
+        enu_to_ned = np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]])
+        frd_to_flu = np.diag([1, -1, -1])
+        return enu_to_ned @ r_enu_flu @ frd_to_flu
 
     def publish_agl(self, value):
         t = self.now_s()
@@ -134,9 +147,22 @@ class SimAdapter(Node):
         self.publish_agl(agl)
 
     def on_mag(self, msg):
-        f = msg.magnetic_field                              # tesla, body FLU
-        self.pub_mag.publish(Vector3(x=f.x * 1e6, y=-f.y * 1e6, z=-f.z * 1e6))   # uT, FRD
+        # Gazebo Harmonic's magnetometer publishes gauss (not tesla, despite the field
+        # name), body FLU, as a proper rotation of a fixed world vector. That vector
+        # comes from Gazebo's own field model at the world's lat/lon (it ignores
+        # <magnetic_field>) and holds the north/east/down values in the east/north/up
+        # slots, so the simulated field points east and up. That's physically odd
+        # but self-consistent, which is all GDN needs: we rotate FLU to FRD, and
+        # sim_run.sh gives eskf_node the matching reference (this node logs it in NED
+        # every 10 s). Checked against truth attitude over a +-90 degree yaw sweep.
+        # PX4's gz_bridge maps it as (-y, -x, z) instead (gz-sim PR 2460), which is a
+        # reflection and only right at one heading; PX4 still flies on GPS.
+        f = msg.magnetic_field
+        m = np.array([f.x, -f.y, -f.z]) * 100.0             # gauss -> uT, FLU -> FRD
+        self.pub_mag.publish(Vector3(x=float(m[0]), y=float(m[1]), z=float(m[2])))
         self.n_mag += 1
+        if self.q_truth is not None:                        # field in NED, for the mag_ref check
+            self.mag_ned.append(self.r_ned_frd() @ m)
 
     def on_baro(self, msg):
         h = pressure_altitude(msg.fluid_pressure)
@@ -150,6 +176,8 @@ class SimAdapter(Node):
     def on_truth(self, msg):
         p = msg.pose.pose.position                          # world ENU
         self.truth = (p.y, p.x, p.z)
+        o = msg.pose.pose.orientation
+        self.q_truth = (o.w, o.x, o.y, o.z)
         t = self.now_s()
         if t - self.last_truth_pub >= 0.5:
             self.last_truth_pub = t
@@ -188,8 +216,12 @@ class SimAdapter(Node):
             r = np.array(self.resid)
             msg += (f"; radar AGL minus map-predicted AGL: mean {r.mean():+.2f} m, rms {np.sqrt((r ** 2).mean()):.2f} m, "
                     f"n={len(r)}")
+        if self.mag_ned:
+            f = np.mean(self.mag_ned, axis=0)
+            msg += f"; field in NED {f[0]:.1f} {f[1]:.1f} {f[2]:.1f} uT (eskf_node mag_ref_* should match)"
         self.get_logger().info(msg)
         self.resid.clear()
+        self.mag_ned.clear()
         self.n_scan = self.n_mag = self.n_baro = 0
 
 

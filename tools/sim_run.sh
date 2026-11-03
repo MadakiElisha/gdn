@@ -6,6 +6,7 @@
 #   tools/sim_run.sh                      # Gazebo + RViz windows, fly the default route
 #   GPS_OFF_AT=120 tools/sim_run.sh       # Stage B: cut GPS 120 s into the route
 #   HEADLESS=1 tools/sim_run.sh           # no windows (sensors still render via EGL)
+#   GDN_NODE_ARGS="-p mag_fusion:=align" tools/sim_run.sh   # extra eskf_node parameters
 #
 # One-time setup: tools/setup_sim.sh. Logs: $GDN_LOG_DIR (default /tmp/gdn_sim).
 # Ctrl+C stops everything.
@@ -74,8 +75,15 @@ done
 echo
 timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
   || die "no /fmu/out/vehicle_local_position after 3 minutes; see $LOG/px4.log and $LOG/agent.log"
-# Allow the GPS-failure injection used by Stage B.
-( cd "$PX4_DIR/build/px4_sitl_default/rootfs" && ../bin/px4-param set SYS_FAILURE_EN 1 ) >> "$LOG/px4.log" 2>&1
+# PX4 settings for this setup:
+# - IMU_INTEG_RATE 100: uXRCE-DDS forwards sensor_combined at most at 100 Hz, while PX4
+#   integrates the IMU at 250 Hz by default. Then each message GDN gets covers only
+#   4 of every 10 ms and 60% of the motion is lost, which wrecks the attitude on a
+#   multirotor. At 100 Hz every message covers its whole interval.
+# - SYS_FAILURE_EN 1: allow the GPS-failure injection used by Stage B.
+# - NAV_DLL_ACT 0: arm without QGroundControl (the x500 airframe requires a GCS link).
+( cd "$PX4_DIR/build/px4_sitl_default/rootfs" && ../bin/px4-param set IMU_INTEG_RATE 100 \
+    && ../bin/px4-param set SYS_FAILURE_EN 1 && ../bin/px4-param set NAV_DLL_ACT 0 ) >> "$LOG/px4.log" 2>&1
 
 # Gazebo -> ROS for the sensors GDN needs (raw, not PX4's estimates).
 SENS="/world/$WORLD/model/$MODEL_INSTANCE/link/base_link/sensor"
@@ -105,10 +113,24 @@ ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:="$LOG/bridge.
 python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" ${GDN_SIM_ADAPTER_ARGS:-} \
   > "$LOG/adapter.log" 2>&1 & PIDS+=($!)
 
-# GDN in shadow mode. The mag reference is the Gazebo world's field (make_sim_world.py).
+# GDN in shadow mode. The mag reference is the field Gazebo's magnetometer actually
+# simulates (its built-in model at the world's lat/lon, with odd axes: see on_mag in
+# sim_adapter.py). For Zermatt that's north 0.9, east 22.5, down -41.8 uT;
+# adapter.log prints it in NED for any world, so a new world can be checked.
+MAG_REF="${GDN_MAG_REF:-0.9 22.5 -41.8}"
+read -r MAG_N MAG_E MAG_D <<< "$MAG_REF"
 ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$MAP" \
-  -p mag_ref_north:=23.0 -p mag_ref_east:=6.0 -p mag_ref_down:=42.0 > "$LOG/gdn.log" 2>&1 & PIDS+=($!)
+  -p mag_ref_north:="$MAG_N" -p mag_ref_east:="$MAG_E" -p mag_ref_down:="$MAG_D" ${GDN_NODE_ARGS:-} \
+  > "$LOG/gdn.log" 2>&1 & PIDS+=($!)
 python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & PIDS+=($!)
+
+# Record everything GDN sees plus truth, so any run can be replayed offline through
+# eskf_node with different settings (ros2 bag play $LOG/sitl_bag).
+rm -rf "$LOG/sitl_bag"
+ros2 bag record -s mcap -o "$LOG/sitl_bag" --qos-profile-overrides-path "$ROOT/tools/bag_qos.yaml" \
+  /fmu/out/sensor_combined /fmu/out/vehicle_attitude /fmu/out/vehicle_local_position \
+  /fmu/out/vehicle_status_v1 /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
+  /gdn/sim/truth_odom > "$LOG/bag.log" 2>&1 & PIDS+=($!)
 
 if [ -z "$HEADLESS" ]; then
   ros2 run gdn_fusion map_viz_node --ros-args -p map_path:="$MAP" > "$LOG/viz.log" 2>&1 & PIDS+=($!)
@@ -126,8 +148,10 @@ grep -h "altitude datum" "$LOG/gdn.log" | tail -1 || echo "sim_run: warning, GDN
 echo "sim_run: flying (Ctrl+C to stop early)"
 python3 tools/sim_fly.py --map "$MAP" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"
 sleep 20     # let it land and the scorer catch the end
-kill -INT "$(pgrep -f replay_scorer.py)" 2>/dev/null; sleep 2
+kill -INT "$(pgrep -f replay_scorer.py)" 2>/dev/null
+kill -INT "$(pgrep -f "ros2 bag record")" 2>/dev/null; sleep 4
 echo; echo "=== GDN vs truth (horizontal) ==="
 grep -hE "RMS|MAX" "$LOG/scorer.log" || tail -3 "$LOG/scorer.log"
 echo "=== altimeter check (radar vs map at the true position) ==="
 grep -h "radar AGL" "$LOG/adapter.log" | tail -3 || grep -h "no radar" "$LOG/adapter.log" | tail -1
+echo "=== recorded: $LOG/sitl_bag ==="

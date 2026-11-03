@@ -30,6 +30,28 @@ there, with errors in the kilometres. A point-gradient filter can't tell similar
 contours apart once the error is larger than the terrain's correlation length.
 Remedy: a multi-hypothesis or batch acquisition stage before the ESKF (ROADMAP R4.1).
 
+### OI-012: GDN drifts on the x500 in closed-loop SITL (open)
+First closed-loop runs (PX4 v1.16, x500, Zermatt, Stage A): PX4 flies the route
+fine, but GDN's horizontal error reaches about 2 km within 4 minutes. The same
+filter holds 21 m RMS on the fixed-wing `flight001` replay. Found and fixed so far:
+- magnetometer units and axes in `sim_adapter.py` (Gazebo publishes gauss, rotated
+  from a field vector with odd axes);
+- PX4 integrating the IMU at 250 Hz while uXRCE-DDS forwards 100 Hz, so 60% of the
+  motion never reached GDN (`IMU_INTEG_RATE 100` in `sim_run.sh`, plus a node error);
+- single lost IMU messages (about 0.2 s) during fast manoeuvres left a 15 to 20 degree
+  attitude error that the covariance didn't know about, after which the magnetometer
+  gate rejected every correction (`Eskf::InflateForGap`, with a unit test).
+What's left: the attitude still runs 5 to 12 degrees off in forward flight and the
+velocity follows. The gyro alone integrates to within 1 degree over 10 s, so the
+error comes in through the updates. Fusing the magnetometer for initial yaw only
+(`mag_fusion:=align`) cuts the drift about 5x, so the 3-axis mag update trading tilt
+against the mag-bias states is one cause (R1.4, heading-only mag). The larger one is
+that nothing observes tilt well on a slow multirotor that pitches hard: TRN alone is
+too weak, where the fixed wing got away with it. Velocity aiding (Phase 3) is the
+real fix. Reproduce with `tools/sim_run.sh`, then `tools/sim_replay.sh` on the bag
+it records. Note that bag replays of the same flight vary by roughly 40% between
+runs because playback timing isn't deterministic.
+
 ## Closed
 
 ### OI-002: vertical channel unobservable (closed)

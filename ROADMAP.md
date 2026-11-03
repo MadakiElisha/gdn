@@ -104,7 +104,7 @@ Estimator:
 - [x] **R1.1 Real altimeter measurement model.** TRN measurement = baro altitude minus measured AGL, corrected for tilt. Add an altitude-bias state, and put z into the TRN Jacobian. Update `trn_sensor_sim.py` to publish AGL with realistic errors. Core: `eskf.hpp`, new `ApplyAgl()`. Test: a 15 m baro bias no longer diverges. Done: TEST-017. The node now defaults to `trn_model:=agl`, and the oracle stays available as `trn_model:=ideal` and `--model=ideal`. Follow-ups: the tilt correction belongs with the real rangefinder driver (R6.2), and the baro-bias model needs a rate state if fast pressure changes matter (see TEST-017).
 - [ ] **R1.2 Remove truth leaks from the node.** ZUPT and the airborne latch use IMU stillness or PX4's land detector, not GNSS-derived velocity. Initial altitude comes from baro, not `vehicle_local_position`.
 - [ ] **R1.3 Separate world and database maps.** The MC and bench support a truth map that differs from the onboard map: DEM noise, a bias, a resolution change. Add `make_data.sh` options to build the degraded maps.
-- [ ] **R1.4 Covariance consistency fixes.**
+- [ ] **R1.4 Covariance consistency fixes.** Raised in priority by OI-012: the 3-axis mag update corrupts tilt on the SITL multirotor.
   - Zero the gain rows for states an update doesn't correct.
   - Remove the per-update clamps, or inflate the covariance when one fires.
   - Fuse the magnetometer as heading only.
@@ -135,7 +135,7 @@ each later item lands in a working system:
 
 | Stage | What it shows | Needs | Status |
 |---|---|---|---|
-| A. Shadow mode | PX4 flies a terrain-following route on GPS; GDN estimates without GPS, drawn against truth in RViz | R2.1, a first world and vehicle | Built, see `docs/SIMULATION.md`. Check on the dev PC: radar AGL residual, 5 and 10 minute scores |
+| A. Shadow mode | PX4 flies a terrain-following route on GPS; GDN estimates without GPS, drawn against truth in RViz | R2.1, a first world and vehicle | Runs end to end (checked headless, without a GPU). GDN drifts badly on the multirotor (OI-012), so this stage is now the estimator test bench. Still to check on the dev PC: the rendered radar altimeter |
 | B. GPS cut | The same flight with a GPS failure injected mid-route; PX4 alone fails safe, GDN carries on | Stage A | Built (`GPS_OFF_AT`) |
 | C. Flying on GDN | PX4 takes GDN's position and finishes the route with GPS off | R5.1 | Not started |
 

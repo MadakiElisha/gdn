@@ -12,7 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot-1.16}"
 PX4_TAG="${PX4_TAG:-v1.16.2}"
-XRCE_TAG="v2.4.2"      # the version PX4's uXRCE-DDS docs use
+XRCE_TAG="v2.4.3"      # v2.4.2 no longer builds: the Fast-DDS 2.12.x branch it pulls is gone upstream
 log() { printf '\n\033[1;34m[gdn-sim-setup] %s\033[0m\n' "$*"; }
 
 # shellcheck disable=SC1091

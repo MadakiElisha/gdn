@@ -43,7 +43,15 @@ This is the technical reference for the estimator. For the project overview see 
 Node parameters: `map_path` (relative paths resolve against `$GDN_ROOT`), `trn_model`
 (`agl` or `ideal`), `r_trn`, `slope_min`, `gate_sigma`, `gate_abs_m`, `clamp_dv`, and
 `mag_ref_north`, `mag_ref_east`, `mag_ref_down` (the local field in uT; the defaults
-are the bench's, SITL passes the Gazebo world's). Defaults come from `EskfConfig`, so
+are the bench's, SITL passes the Gazebo world's), and `mag_fusion` (`full`, or `align`
+to use the magnetometer for the initial yaw only; a diagnostic for OI-012).
+
+IMU holes: each `sensor_combined` holds the mean rate over `gyro_integral_dt`. When
+the time since the previous message is longer than that, samples were lost upstream.
+The node then calls `Eskf::InflateForGap`, which widens the attitude covariance by
+twice the current rate times the hole plus 1 degree, and the velocity covariance by
+2 m/s^2 times the hole. If messages routinely cover much less than their spacing, it
+logs an error (on PX4, set `IMU_INTEG_RATE` to the DDS rate). Defaults come from `EskfConfig`, so
 the node, selftest and Monte Carlo always run the same configuration.
 
 `map_viz_node` draws the map as a terrain mesh in the RViz `map` frame (ENU, x east,
