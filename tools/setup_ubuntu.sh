@@ -55,8 +55,16 @@ git -C "$ROOT" submodule update --init --recursive
 
 log "5/7 colcon build (px4_msgs takes several minutes the first time)"
 cd "$ROOT"
+# Keep the mode of an existing build: switching an old copy-install tree to
+# --symlink-install makes colcon fail ("existing path cannot be removed").
+BUILD_MODE=(--symlink-install)
+if [ -f install/px4_msgs/share/px4_msgs/package.xml ] && [ ! -L install/px4_msgs/share/px4_msgs/package.xml ]; then
+  echo "existing non-symlink build found; building without --symlink-install"
+  echo "(for symlink mode: rm -rf build install log, then re-run this script)"
+  BUILD_MODE=()
+fi
 set +u
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build "${BUILD_MODE[@]}" --cmake-args -DCMAKE_BUILD_TYPE=Release
 set -u
 
 log "6/7 derived data"
@@ -72,4 +80,4 @@ python3 tools/make_zermatt_bag.py      # synthetic PX4 bag for the bench smoke t
 log "Done. In every new terminal:  cd $ROOT && source env.sh"
 echo "Smoke-test the full ROS bench (about 3 min):"
 echo "  BENCH_NO_BARO=1 GDN_BAG=data/flight_zermatt GDN_MAP=data/maps/zermatt.bin tools/bench.sh"
-echo "Recorded PX4 flight for the main bench: tools/fetch_data.sh (see README)."
+echo "Recorded PX4 flight for the main bench: tools/fetch_data.sh (see docs/SETUP.md)."

@@ -50,7 +50,7 @@ def main():
     print(f"pad: {pad_amsl:.1f} m AMSL = image elev {pad_img:.1f} m; relief {h:.1f} m")
     arr = np.clip((dem-mn)/h*65535, 0, 65535).astype(np.uint16)
     png = os.path.abspath(os.path.join(a.out_dir, "heightmap16.png"))
-    Image.fromarray(arr, mode='I;16').save(png)
+    Image.fromarray(arr).save(png)
     wm = (east-west)*111320*np.cos(np.radians(clat)); dm = (north-south)*111320
     sz = pad_img + 0.5
     with open(f"/tmp/{a.name}_sz.txt", "w") as f: f.write(f"{sz:.1f}")

@@ -1,7 +1,7 @@
 # GDN architecture and filter reference
 
-This is the technical reference for the estimator. For setup and running, see the
-[README](../README.md).
+This is the technical reference for the estimator. For the project overview see the [README](../README.md); for setup see
+[SETUP.md](SETUP.md).
 
 ## Design principles
 
@@ -111,8 +111,8 @@ int32 nx, int32 ny, float64 lat0, lon0, dlat, dlon, float32 alt[ny*nx]  (row-maj
 
 | Map | Source | Recipe |
 |---|---|---|
-| `terrain_db_sigma4.bin` | synthetic fractal, Zurich-centred | `generate_terrain.py` (seed 42) → `export_map_db.py` → `make_sigma4_map.py` |
-| `zermatt.bin` | SRTM 1″ crop, Alps | `zermatt.tif` → `make_zermatt_map.py` |
+| `terrain_db_sigma4.bin` | synthetic fractal, Zurich-centred | `generate_terrain.py` (seed 42) then `export_map_db.py` then `make_sigma4_map.py` |
+| `zermatt.bin` | SRTM 1″ crop, Alps | `zermatt.tif` then `make_zermatt_map.py` |
 
 `tools/make_data.sh --verify-maps` rebuilds both and checks them byte-for-byte.
 
@@ -148,7 +148,7 @@ All simulators use fixed seeds for replay parity.
   masked and -O3 exposed.
 - **TEST-012:** Monte Carlo campaign, the standing robustness gate.
 
-**Results as of the `fix/new-pc-setup` branch** (fresh clone, Ubuntu 24.04 + ROS 2 Jazzy):
+**Results after PR #1** (fresh clone, Ubuntu 24.04 + ROS 2 Jazzy):
 
 | Check | Result |
 |---|---|
@@ -157,17 +157,17 @@ All simulators use fixed seeds for replay parity.
 | flight001 bench + MC | **needs re-baselining**: three fixes on this branch change it (TRN sim origin, east scale, node r_trn) |
 
 Historical flight001 numbers, measured before those fixes: bench 15.7 m RMS (σ4,
-r_trn=400, early v3), later about 25–30 m; MC 100/100 seeds, CEP50 14.9 m, CEP95 40.3 m.
+r_trn=400, early v3), later about 25 to 30 m; MC 100/100 seeds, CEP50 14.9 m, CEP95 40.3 m.
 
-## Known gaps (honest status)
+## Known gaps
 
 These are the main things standing between this and a fielded GNSS-denied stack. See
-the production roadmap discussion and `docs/open_items.md`.
+[ROADMAP.md](../ROADMAP.md) (Phase 1 covers most of these) and `docs/open_items.md`.
 
 - **The TRN measurement is idealised.** The simulator outputs terrain height directly,
   so altitude error never enters it. A real sensor gives baro altitude minus measured
   AGL, so an altitude bias of tens of metres causes divergence.
-- **The filter starts at the true position** (P₀ ≈ 10 m σ) and has no acquisition mode.
+- **The filter starts at the true position** (initial position sigma of about 10 m) and has no acquisition mode.
   Start errors above about 60 m fail.
 - **The Monte Carlo uses the same map for world and database.** Realistic DEM error
   is not modelled.
