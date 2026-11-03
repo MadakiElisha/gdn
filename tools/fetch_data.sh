@@ -24,3 +24,10 @@ curl -fL --retry 3 -o "$ASSET.sha256" "$BASE/$ASSET.sha256"
 sha256sum -c "$ASSET.sha256"
 tar -xzf "$ASSET" && rm -f "$ASSET" "$ASSET.sha256"
 echo "OK: data/flight001 and data/flight001_csv ready"
+# The release bag was recorded with px4_msgs 1.15. Convert it for the 1.16 build if
+# the workspace is built and sourced; otherwise say how (the CSVs need nothing).
+if python3 -c "import px4_msgs.msg" 2>/dev/null; then
+  "$ROOT/tools/migrate_flight001.sh"
+else
+  echo "note: before replaying the bag, build, source env.sh and run tools/migrate_flight001.sh"
+fi

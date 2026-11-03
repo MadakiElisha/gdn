@@ -8,6 +8,9 @@ BAG="${GDN_BAG:-data/flight001}"
 export GDN_MAP="${GDN_MAP:-$ROOT/data/maps/terrain_db_sigma4.bin}"
 LOG="${GDN_LOG_DIR:-/tmp/gdn_bench}"; mkdir -p "$LOG"
 [ -d "$BAG" ] || { echo "bag not found: $BAG  (run tools/fetch_data.sh)"; exit 1; }
+if [ ! -f "$BAG/.px4_msgs_version" ] && [ "${GDN_SKIP_BAG_CHECK:-0}" != "1" ]; then
+  echo "$BAG looks like a px4_msgs 1.15 recording: run tools/migrate_flight001.sh first"; exit 1
+fi
 command -v rviz2 >/dev/null || { echo "rviz2 missing: sudo apt install ros-jazzy-rviz2"; exit 1; }
 
 pkill -f eskf_node; pkill -f trn_sensor_sim; pkill -f replay_scorer; pkill -f map_viz
