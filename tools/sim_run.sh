@@ -51,7 +51,12 @@ sleep 1
 
 # Gazebo paths and plugins exactly as PX4 sets them, plus GDN's models.
 # shellcheck disable=SC1091
+# gz_env.sh appends to these without checking they exist, which fails under set -u.
+export GZ_SIM_RESOURCE_PATH="${GZ_SIM_RESOURCE_PATH:-}"
+export GZ_SIM_SYSTEM_PLUGIN_PATH="${GZ_SIM_SYSTEM_PLUGIN_PATH:-}"
+set +u
 source "$PX4_DIR/build/px4_sitl_default/rootfs/gz_env.sh"
+set -u
 export GZ_SIM_RESOURCE_PATH="$GZ_SIM_RESOURCE_PATH:$ROOT/sim/models:$WDIR"
 
 echo "sim_run: starting Gazebo ($WORLD)"
