@@ -1,0 +1,43 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Marker
+      Topic:
+        Value: /terrain_mesh
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Name: Terrain (GDN map)
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Topic:
+        Value: /gdn/truth_path
+      Name: Truth (Gazebo)
+      Color: 255; 255; 255
+      Line Style: Lines
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Topic:
+        Value: /gdn_path
+      Name: GDN estimate (GPS ignored)
+      Color: 255; 40; 40
+      Line Style: Lines
+      Value: true
+  Global Options:
+    Fixed Frame: map
+    Background Color: 30; 34; 40
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 2600
+      Focal Point: {X: 0, Y: 0, Z: 100}
+      Yaw: 0.6
+      Pitch: 0.9
+Window Geometry:
+  Height: 900
+  Width: 1400

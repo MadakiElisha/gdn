@@ -180,6 +180,39 @@ int main() {
         CHECK((m2.mag_bias() - truth_bias).norm() < 1.0, "eskf: mag bias estimated");
     }
 
+    // IMU hole: the filter believes it's level, the vehicle is really pitched 15 deg
+    // (the attitude change during lost IMU samples). Without inflation the mag gate
+    // rejects the large innovation forever; with InflateForGap the mag pulls it back.
+    {
+        const V3 m_ref(25.0, 0.0, 45.0);
+        const Eigen::Quaterniond q_true(Eigen::AngleAxisd(15.0 * Eskf::kDeg, V3::UnitY()));
+        const Eigen::Matrix3d R_true = q_true.toRotationMatrix();
+        const V3 a_true = R_true.transpose() * V3(0.0, 0.0, -9.80665);
+        auto run = [&](bool inflate, int* applied) {
+            EskfConfig c; c.mag_ref_north = 25.0; c.mag_ref_east = 0.0; c.mag_ref_down = 45.0;
+            Eskf f(c);
+            bool ok = false;
+            for (int i = 0; i < 700 && !ok; ++i) ok = f.FeedStatic(V3(0.0, 0.0, -9.80665), V3::Zero());
+            for (int k = 0; k < 60; ++k) {                 // settle the covariance, level and still
+                f.Propagate(V3(0.0, 0.0, -9.80665), V3::Zero(), 0.1);
+                f.ApplyMag(m_ref);
+            }
+            if (inflate) f.InflateForGap(30.0 * Eskf::kDeg, 1.0);
+            *applied = 0;
+            for (int k = 0; k < 100; ++k) {                 // 10 s at the true (pitched) attitude
+                for (int j = 0; j < 10; ++j) f.Propagate(a_true, V3::Zero(), 0.01);
+                if (f.ApplyMag(R_true.transpose() * m_ref) == Eskf::UpdResult::kApplied) (*applied)++;
+            }
+            return 2.0 * std::acos(std::min(1.0, std::abs((f.q() * q_true.conjugate()).w()))) / Eskf::kDeg;
+        };
+        int ap_no = 0, ap_yes = 0;
+        const double e_no = run(false, &ap_no), e_yes = run(true, &ap_yes);
+        std::printf("  [DIAG] IMU hole: no inflation err %.1f deg (mag applied %d); inflated err %.1f deg (applied %d)\n",
+                    e_no, ap_no, e_yes, ap_yes);
+        CHECK(e_no > 10.0, "eskf: imu hole without inflation stays wrong (test is meaningful)");
+        CHECK(e_yes < 3.0 && ap_yes > 50, "eskf: imu hole inflation lets the mag recover attitude");
+    }
+
         // TEST-015: ZUPT pins horizontal states while static
     {
         EskfConfig zc;

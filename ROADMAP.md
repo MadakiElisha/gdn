@@ -45,9 +45,12 @@ in CI.
   - The maps are in git.
   - Three bench bugs were fixed: the simulator/filter map-origin offset, the
     east-scale error, and the node overriding `r_trn`.
-- The simulation today is the Monte Carlo and the replay bench. There's no closed-loop
-  SITL with GDN in the loop yet, and the Gazebo world tools stop at the terrain
-  (OI-007).
+- The simulation is the Monte Carlo, the replay bench and, from the R2.1 branch, a
+  first closed-loop SITL (Stage A below, `docs/SIMULATION.md`): PX4 v1.16 flies an
+  x500 over the Zermatt terrain in Gazebo Harmonic, and GDN runs alongside in shadow
+  mode, drawn live in RViz against the true path.
+- The hardware is on order. Until it arrives, all work is in simulation, and the IMU
+  noise in simulation is a generic MEMS placeholder (see R1.6).
 - Nothing has flown on real hardware.
 - The main weaknesses are listed under "Known limitations" in the README.
 
@@ -63,7 +66,7 @@ sensors that publish the same ROS 2 messages as the real drivers.
 | Rangefinder | Benewake TFmini-S | 0.1 to 12 m (about 7 m on dark surfaces), 2 degree beam, UART/I2C. PX4 has a driver. |
 | Stereo camera | Luxonis OAK-D Lite | Global-shutter OV7251 stereo pair, 7.5 cm baseline (useful depth to about 12 m), 73 degree HFOV. 13 MP rolling-shutter IMX214 colour camera, BMI270 IMU, onboard RVC2 processor, USB-C, 2.5 to 3 W. Kickstarter-batch units have no IMU. |
 | Companion | Jetson Orin Nano (JetPack 7.2+, Ubuntu 24.04) or Raspberry Pi 5 + Hailo HAT (Ubuntu 24.04) | Orin is preferred: more CPU/GPU headroom for LIO and VIO. The Hailo NPU only helps neural-network parts, and the OAK-D can run feature tracking itself. |
-| Autopilot | PX4 (v1.15 today, moving to v1.16, see R2.1); ArduPilot later | uXRCE-DDS link, with `px4_msgs` matching the PX4 release. |
+| Autopilot | PX4 v1.16 (`px4_msgs` release/1.16, see R2.1); ArduPilot later | uXRCE-DDS link, with `px4_msgs` matching the PX4 release. |
 
 What this kit can and can't do:
 - The lidar sees the ground only up to about 30 m above ground when mounted pointing
@@ -101,13 +104,13 @@ Estimator:
 - [x] **R1.1 Real altimeter measurement model.** TRN measurement = baro altitude minus measured AGL, corrected for tilt. Add an altitude-bias state, and put z into the TRN Jacobian. Update `trn_sensor_sim.py` to publish AGL with realistic errors. Core: `eskf.hpp`, new `ApplyAgl()`. Test: a 15 m baro bias no longer diverges. Done: TEST-017. The node now defaults to `trn_model:=agl`, and the oracle stays available as `trn_model:=ideal` and `--model=ideal`. Follow-ups: the tilt correction belongs with the real rangefinder driver (R6.2), and the baro-bias model needs a rate state if fast pressure changes matter (see TEST-017).
 - [ ] **R1.2 Remove truth leaks from the node.** ZUPT and the airborne latch use IMU stillness or PX4's land detector, not GNSS-derived velocity. Initial altitude comes from baro, not `vehicle_local_position`.
 - [ ] **R1.3 Separate world and database maps.** The MC and bench support a truth map that differs from the onboard map: DEM noise, a bias, a resolution change. Add `make_data.sh` options to build the degraded maps.
-- [ ] **R1.4 Covariance consistency fixes.**
+- [ ] **R1.4 Covariance consistency fixes.** Raised in priority by OI-012: the 3-axis mag update corrupts tilt on the SITL multirotor.
   - Zero the gain rows for states an update doesn't correct.
   - Remove the per-update clamps, or inflate the covariance when one fires.
   - Fuse the magnetometer as heading only.
   - Make the map gradient consistent with bilinear interpolation.
 - [ ] **R1.5 Consistency metrics in the MC.** Report NEES/NIS and "error over 3 sigma" percentages, and fail the run when they're out of bounds.
-- [ ] **R1.6 IMU error model** (bench, can start now). Record a static H30WP log of 2 hours or more and fit an Allan variance. Do the same for the Mid-360S and OAK-D IMUs. The results feed the process noise, the MC's simulated IMU and the Gazebo IMU models (R2.4).
+- [ ] **R1.6 IMU error model** (bench, waits for the H30WP). Until then the MC and Gazebo use a generic MEMS placeholder (PX4's default IMU noise), and results are labelled with it. Record a static H30WP log of 2 hours or more and fit an Allan variance. Do the same for the Mid-360S and OAK-D IMUs. The results feed the process noise, the MC's simulated IMU and the Gazebo IMU models (R2.4).
 - [ ] **R1.7 Start-uncertainty and GNSS-loss scenarios.** MC options for a start error of 0, 60, 150 and 500 m, and for GNSS loss mid-flight with a covariance handover. Synthetic flights long enough to score 5 and 10 minutes without GNSS (the Zermatt flight is only 177 s), and an MC scoring window that starts when GNSS is lost rather than the fixed 60 to 300 s.
 
 Engineering:
@@ -127,7 +130,16 @@ Goal: a closed-loop simulation good enough that passing it means something. PX4 
 the vehicle in Gazebo, simulated sensors look like our real ones, and GDN runs on top.
 Everything gets scored automatically against R1.8.
 
-- [ ] **R2.1 Toolchain.**
+We bring the visible part forward in three stages, so the whole loop runs early and
+each later item lands in a working system:
+
+| Stage | What it shows | Needs | Status |
+|---|---|---|---|
+| A. Shadow mode | PX4 flies a terrain-following route on GPS; GDN estimates without GPS, drawn against truth in RViz | R2.1, a first world and vehicle | Runs end to end (checked headless, without a GPU). GDN drifts badly on the multirotor (OI-012), so this stage is now the estimator test bench. Still to check on the dev PC: the rendered radar altimeter |
+| B. GPS cut | The same flight with a GPS failure injected mid-route; PX4 alone fails safe, GDN carries on | Stage A | Built (`GPS_OFF_AT`) |
+| C. Flying on GDN | PX4 takes GDN's position and finishes the route with GPS off | R5.1 | Not started |
+
+- [ ] **R2.1 Toolchain.** Done so far: `px4_msgs` on release/1.16, the `flight001` bag migrated with `tools/migrate_flight001.sh`, `tools/setup_sim.sh` for PX4 v1.16.2, Gazebo Harmonic, ros_gz_bridge and the XRCE agent. Left: the Docker image.
   - Move to **PX4 v1.16.x**. v1.15's setup only supports Ubuntu 22.04 with Gazebo Garden. From v1.16, PX4 officially supports Ubuntu 24.04 with Gazebo Harmonic, which is the pairing ROS 2 Jazzy is built for.
   - Bump the `px4_msgs` submodule to `release/1.16`, and adapt the node to any renamed or versioned topics (1.16 introduced message versioning).
   - Pin everything in a Docker dev image, with a GPU passthrough option, so every machine runs the same simulation.

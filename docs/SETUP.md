@@ -47,6 +47,20 @@ tools/make_data.sh                # checks the maps already in data/ against SHA
 tools/run_selftest.sh
 ```
 
+**px4_msgs 1.16.** From the R2.1 change on, `src/px4_msgs` follows PX4 release/1.16.
+After pulling, update the submodule, rebuild (px4_msgs takes about 5 minutes) and
+convert the `flight001` bag once, because one message (`VehicleLocalPosition`)
+changed layout:
+
+```bash
+git submodule update --init --recursive
+colcon build --base-paths src --cmake-args -DCMAKE_BUILD_TYPE=Release
+source env.sh
+tools/migrate_flight001.sh     # keeps the original as data/flight001_px4_1_15
+```
+
+`bench.sh` refuses an unconverted bag and says so.
+
 **If you copied the workspace rather than cloning it**, `git status` may list every
 file as modified, and `git pull` refuses with "Your local changes would be
 overwritten". Usually only the file permissions changed in the copy (everything
@@ -191,18 +205,10 @@ rendering is what broke the terrain visuals in OI-007.
 
 ## Live PX4 SITL
 
-This path hasn't been re-checked since the setup rework.
-
-1. Use PX4 v1.15.x, to match the `px4_msgs` submodule (`release/1.15`). If the message
-   definitions don't match, topics appear but nothing decodes. PX4 v1.15's own setup
-   script only supports Ubuntu up to 22.04 (Gazebo Garden). The move to v1.16, which
-   supports 24.04 with Gazebo Harmonic, is roadmap item R2.1. Keep the PX4 checkout
-   outside the GDN workspace.
-2. Run the Micro XRCE-DDS Agent: `MicroXRCEAgent udp4 -p 8888`.
-3. Start PX4 SITL (`make px4_sitl gz_<model>`).
-4. Start `eskf_node` along with `trn_sensor_sim.py`, `mag_sim.py` and `baro_sim.py`.
-   PX4 doesn't publish the GDN measurement topics; the simulators build them from PX4
-   truth.
+See [SIMULATION.md](SIMULATION.md). In short: `tools/setup_sim.sh` once, then
+`GDN_GPU=nvidia source env.sh && tools/sim_run.sh`. PX4 must be v1.16.x to match the
+`px4_msgs` submodule (`release/1.16`). With mismatched message definitions, topics
+appear but nothing decodes. Keep the PX4 checkout outside the GDN workspace.
 
 ## Troubleshooting
 
@@ -210,6 +216,7 @@ This path hasn't been re-checked since the setup rework.
 |---|---|
 | `cd: ~/gdn_workspace: No such file or directory` | Old scripts. Pull `main`; nothing depends on the clone location now. |
 | `map load failed: .../data/maps/...` | `env.sh` wasn't sourced, so `GDN_ROOT` is unset. Or pass `--ros-args -p map_path:=/abs/path`. |
+| `bench.sh`: bag was recorded with px4_msgs 1.15 | Run `tools/migrate_flight001.sh` once (see "px4_msgs 1.16" above). |
 | `px4_msgs` missing or `src/px4_msgs` empty | Cloned without submodules: `git submodule update --init --recursive`. |
 | `git pull` says untracked files "would be overwritten" | You have your own copy of a file that's now in git. Move yours aside (`mv tools/x.py ~/x.py.mine`), pull, then compare. |
 | `git pull`: "Your local changes would be overwritten" for many files | The workspace was copied and file permissions changed. See "If you copied the workspace" above (`git config core.fileMode false`). |

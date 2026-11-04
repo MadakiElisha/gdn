@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PX4 x500 plus the GDN payload. Sensor topics are set explicitly (gdn/...) so the
+  bridge config doesn't depend on world or instance names.
+
+  Radar altimeter: a 1-beam gpu_lidar pointing straight down in the body frame,
+  0.2 to 1500 m, 20 Hz, 0.3 m noise (radar-altimeter class). It measures the slant
+  range along body down; tools/sim_adapter.py removes the tilt using PX4's attitude.
+  gpu_lidar renders the terrain, so it needs a working GPU (see docs/SETUP.md).
+
+  Truth: OdometryPublisher gives the true pose in the world frame (ENU, origin = map
+  centre). It's only used for scoring, never fed to the filter.
+-->
+<sdf version="1.9">
+  <model name="x500_gdn">
+    <include merge="true">
+      <uri>model://x500</uri>
+    </include>
+
+    <link name="gdn_agl_link">
+      <pose relative_to="base_link">0 0 -0.06 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <sensor name="gdn_agl_radar" type="gpu_lidar">
+        <!-- gpu_lidar fires along its +x axis; pitch +90 deg points that straight down -->
+        <pose>0 0 0 0 1.5707963 0</pose>
+        <topic>gdn/agl_radar</topic>
+        <update_rate>20</update_rate>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+        <lidar>
+          <scan>
+            <horizontal><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></horizontal>
+            <vertical><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+          </scan>
+          <range><min>0.2</min><max>1500.0</max><resolution>0.01</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.3</stddev></noise>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name="gdn_agl_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>gdn_agl_link</child>
+    </joint>
+
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_publish_frequency>20</odom_publish_frequency>
+      <odom_topic>gdn/truth_odom</odom_topic>
+      <dimensions>3</dimensions>
+    </plugin>
+  </model>
+</sdf>

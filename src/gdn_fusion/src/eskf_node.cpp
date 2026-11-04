@@ -30,9 +30,18 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
     cfg.gate_abs_m = declare_parameter("gate_abs_m", cfg.gate_abs_m);
     cfg.clamp_dv   = declare_parameter("clamp_dv", cfg.clamp_dv);   // OI-006
     cfg.r_agl      = declare_parameter("r_agl", cfg.r_agl);
+    // Earth magnetic field at the operating area, NED, microtesla. Defaults are the
+    // WMM values for Zurich in EskfConfig; set them for other sites or simulators
+    // (sim_run.sh passes the Gazebo world's field).
+    cfg.mag_ref_north = declare_parameter("mag_ref_north", cfg.mag_ref_north);
+    cfg.mag_ref_east  = declare_parameter("mag_ref_east",  cfg.mag_ref_east);
+    cfg.mag_ref_down  = declare_parameter("mag_ref_down",  cfg.mag_ref_down);
     // "agl": real altimeter model, /gdn/agl_meas + baro (R1.1, default).
     // "ideal": legacy oracle, /gdn/trn_meas is terrain height directly.
     trn_model_ = declare_parameter("trn_model", std::string("agl"));
+    // mag_fusion: "full" (3-axis update, default) or "align" (initial yaw only). A
+    // diagnostic switch for separating magnetometer effects from the rest.
+    mag_fusion_ = declare_parameter("mag_fusion", std::string("full"));
     datum_sigma_ = declare_parameter("datum_sigma_m", 5.0);
     if (trn_model_ != "agl" && trn_model_ != "ideal")
         throw std::runtime_error("trn_model must be 'agl' or 'ideal'");
@@ -108,7 +117,31 @@ void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
     if (dt <= 0.0 || dt > 0.25) { n_drop_++; return; }  // wrap/stall: skip, never fabricate
     if (dt > 0.1) { n_stall_++; if (n_stall_ % 10 == 1)
         RCLCPP_WARN(get_logger(), "IMU gap absorbed %.3f s (count %d)", dt, n_stall_); }
+    // Each sensor_combined message holds the mean rate over gyro_integral_dt. If that's
+    // much shorter than the spacing between messages, samples are being dropped on the
+    // way (e.g. uXRCE-DDS's 100 Hz cap with PX4 integrating at 250 Hz), and most of the
+    // motion never reaches the filter. Say so loudly; the fix is IMU_INTEG_RATE.
+    if (msg->gyro_integral_dt > 0 && dt * 1e6 > 1.5 * msg->gyro_integral_dt) {
+        if (++n_undercover_ == 200)
+            RCLCPP_ERROR(get_logger(), "IMU messages cover only %.0f%% of the time between them "
+                         "(integral %.1f ms, spacing %.1f ms): samples are dropped upstream. "
+                         "On PX4 set IMU_INTEG_RATE to the DDS rate (100).",
+                         100.0 * msg->gyro_integral_dt * 1e-6 / dt, msg->gyro_integral_dt * 1e-3, dt * 1e3);
+    }
     eskf_->Propagate(a_m, w_m, dt);
+    // Time not covered by this message's integral means IMU data was lost. The
+    // propagation above guessed the motion in the hole from this one sample, so widen
+    // the attitude and velocity uncertainty by what could have happened in it
+    // (twice the current rate times the hole, plus 1 degree; 2 m/s^2 for velocity).
+    const double covered = msg->gyro_integral_dt > 0 ? msg->gyro_integral_dt * 1e-6 : dt;
+    const double hole = dt - covered;
+    if (hole > 0.02) {
+        eskf_->InflateForGap(2.0 * (w_m - eskf_->gyro_bias()).norm() * hole + 1.0 * gdn::Eskf::kDeg,
+                             2.0 * hole);
+        if (eskf_->gaps() % 20 == 1)
+            RCLCPP_WARN(get_logger(), "IMU hole of %.0f ms (rate %.0f dps): attitude uncertainty widened "
+                        "(count %d)", hole * 1e3, w_m.norm() / gdn::Eskf::kDeg, eskf_->gaps());
+    }
 
         // ZUPT: Pin horizontal states while provably stationary on the ground
         if (!airborne_latch_ && have_lpos_) {
@@ -172,7 +205,7 @@ void MagCb(const geometry_msgs::msg::Vector3::SharedPtr msg) {
         RCLCPP_INFO(get_logger(), "OI-003: Instantaneous Mag Yaw Aligned at t=%.1f", t_cur_);
         return;
     }
-    eskf_->ApplyMag(z_meas);
+    if (mag_fusion_ == "full") eskf_->ApplyMag(z_meas);
 }
 
 void TrnCb(const std_msgs::msg::Float64::SharedPtr msg) {
@@ -252,6 +285,8 @@ double z_truth_ = 0.0;
 uint64_t last_t_ = 0;
 double t_cur_ = 0.0;
 int n_stall_ = 0;
+int n_undercover_ = 0;
+std::string mag_fusion_ = "full";
     int n_drop_ = 0;
     int mag_cb_ = 0;
 bool have_lpos_ = false;

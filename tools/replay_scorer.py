@@ -30,4 +30,10 @@ except KeyboardInterrupt:
     ts = np.array(n.ts); e = np.array(n.errs); w = (ts > 60) & (ts < 300)
     if w.any():
         print(f'RMS 60-300s: {np.sqrt((e[w]**2).mean()):.1f} m | MAX 60-300s: {e[w].max():.1f} m')
+    # Windows matching docs/requirements.md (5 and 10 minutes), plus the whole run.
+    for lo, hi, name in ((0, 300, '0-300s (5 min)'), (0, 600, '0-600s (10 min)'), (0, 1e9, 'whole run')):
+        w = (ts >= lo) & (ts <= hi)
+        if w.any():
+            print(f'RMS {name}: {np.sqrt((e[w]**2).mean()):.1f} m | P95: {np.percentile(e[w], 95):.1f} m '
+                  f'| MAX: {e[w].max():.1f} m | n={int(w.sum())}')
 rclpy.shutdown()

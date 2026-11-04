@@ -15,6 +15,14 @@ BAG="${GDN_BAG:-data/flight001}"
 export GDN_MAP="${GDN_MAP:-$ROOT/data/maps/terrain_db_sigma4.bin}"
 LOG="${GDN_LOG_DIR:-/tmp/gdn_bench}"; mkdir -p "$LOG"
 [ -d "$BAG" ] || { echo "bag not found: $BAG  (run tools/fetch_data.sh)"; exit 1; }
+# Bags recorded with px4_msgs 1.15 don't decode with the 1.16 build (VehicleLocalPosition
+# changed layout). Migrated or newly generated bags carry a marker file.
+if [ ! -f "$BAG/.px4_msgs_version" ] && [ "${GDN_SKIP_BAG_CHECK:-0}" != "1" ]; then
+  echo "$BAG has no .px4_msgs_version marker, so it's probably a px4_msgs 1.15 recording."
+  echo "Migrate it first: tools/migrate_flight001.sh (or tools/migrate_bag_px4_msgs.py IN OUT)."
+  echo "Set GDN_SKIP_BAG_CHECK=1 if you know it's fine."
+  exit 1
+fi
 [ -f "$GDN_MAP" ] || { echo "map not found: $GDN_MAP  (run tools/make_data.sh)"; exit 1; }
 command -v ros2 >/dev/null || { echo "ros2 not on PATH - source env.sh"; exit 1; }
 

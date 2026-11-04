@@ -57,6 +57,10 @@ public:
     float At(int i, int j) const { return A(i, j); }
     double lat0() const { return lat0_; } double lon0() const { return lon0_; }
     double lat_c() const { return lat_c_; } double lon_c() const { return lon_c_; }
+    double m_per_deg_lon() const { return m_per_deg_lon_; }
+    // Local north/east (m) of grid sample (i, j), the same geometry Query() uses.
+    double NorthOf(int i) const { return (lat0_ + i * dlat_ - lat_c_) * kMPerDegLat; }
+    double EastOf(int j) const { return (lon0_ + j * dlon_ - lon_c_) * m_per_deg_lon_; }
     double dlat() const { return dlat_; } double dlon() const { return dlon_; }
 
 private:

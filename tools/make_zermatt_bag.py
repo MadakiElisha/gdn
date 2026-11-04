@@ -69,6 +69,7 @@ def main():
     for ts, topic, msg in events:
         w.write(topic, serialize_message(msg), t0_ns + ts * 1000)
     del w
+    (OUT / '.px4_msgs_version').write_text('1.16\n')
     print(f'wrote {OUT} ({len(events)} messages, {events[-1][0] / 1e6:.0f} s)')
 
 
