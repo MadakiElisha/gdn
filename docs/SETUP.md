@@ -183,7 +183,7 @@ rsync -av OLD_PC:gdn_workspace/data/{flight001,flight001_csv} data/
 
 Gazebo's camera and lidar sensors render on the GPU, so the simulation environment
 (roadmap Phase 2) needs a working NVIDIA driver on native Linux. WSL2 software
-rendering is what broke the terrain visuals in OI-007.
+rendering broke the terrain visuals when this was first tried (OI-007, since fixed by drawing the terrain as a mesh).
 
 - **RTX 50-series cards (for example the RTX 5060) only work with NVIDIA's open
   kernel modules,** driver series 570 or newer. On Ubuntu 24.04, run

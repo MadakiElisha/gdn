@@ -31,7 +31,7 @@ ros2 pkg prefix gdn_fusion >/dev/null 2>&1 || die "GDN not built: colcon build -
 
 # World (generated per machine because it holds absolute paths).
 WDIR="$ROOT/data/sim/$WORLD"
-if [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ]; then
+if [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ] || [ tools/make_sim_world.py -nt "$WDIR/$WORLD.sdf" ]; then
   python3 tools/make_sim_world.py --map "$MAP" --name "$WORLD" || die "world generation failed"
 fi
 
@@ -63,8 +63,9 @@ export GZ_SIM_RESOURCE_PATH="$GZ_SIM_RESOURCE_PATH:$ROOT/sim/models:$WDIR"
 # some VPNs) it fails with "Network is unreachable". Everything here is on one machine.
 export GZ_IP="${GZ_IP:-127.0.0.1}"
 
-# Render engine: ogre2 (default, needed for the OAK-D camera later) or ogre (Ogre1, the
-# fallback when ogre2's shaders fail to compile on a driver). It applies to both the
+# Render engine: ogre2 (default, needed for the OAK-D camera later) or ogre (Ogre1, a
+# fallback if ogre2's shaders fail to compile on a driver). The terrain is a mesh, which
+# both render the same; tools/check_sim_radar.py checks the radar against the map. It applies to both the
 # server's sensors (the radar altimeter) and the GUI, via a copy of PX4's server config.
 RENDER="${GDN_GZ_RENDER:-ogre2}"
 sed "s#<render_engine>[a-z0-9]*</render_engine>#<render_engine>$RENDER</render_engine>#" \

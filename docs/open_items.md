@@ -18,12 +18,6 @@ playbacks (TEST-009). TEST-012 later attributed it to the landing terrain.
 Accepted as a limitation for now. It should be revisited once the odometry layer
 (ROADMAP Phase 3) gives velocity aiding during approach.
 
-### OI-007: Gazebo heightmap visuals broken under WSL2 (deferred)
-The SRTM-to-Gazebo pipeline (`tools/make_world_final.py`, `tools/make_terrain_mesh.py`)
-produces valid worlds. Under WSL2 software GL, though, the Ogre1/Ogre2 heightmap visual
-doesn't render. Collision works. Deferred until the simulation environment is built on a native Linux machine with a
-GPU (ROADMAP R2.2).
-
 ### OI-009: false-contour lock on Zermatt (open)
 In the Zermatt Monte Carlo, about 5 of 24 seeds lock onto a parallel contour and stay
 there, with errors in the kilometres. A point-gradient filter can't tell similar
@@ -69,6 +63,15 @@ is the IMU setting GDN is most sensitive to. With PX4's pre-2025 Gazebo bias dri
 the H30WP Allan fit (R1.6, `config/imu/README.md`) and re-run the TEST-022 sweep.
 
 ## Closed
+
+### OI-007: Gazebo heightmap visuals broken (closed)
+First seen under WSL2 software rendering. On the dev PC (native Ubuntu, RTX 5060) it
+came back in two forms: Ogre2's heightmap shader failed to compile and crashed the
+server (the same failure reproduces on Mesa), and Ogre1 rendered the heightmap with
+geometry that didn't match the collision, so the simulated radar altimeter was up
+to 177 m off. Fixed by drawing the terrain as a mesh on the same grid
+(`make_sim_world.py`); collision stays a heightmap. `tools/check_sim_radar.py`
+now checks it: within 1.4 m at 26 points with both renderers.
 
 ### OI-002: vertical channel unobservable (closed)
 With scalar TRN only, z drifted. Added a baro bias state (16th state), then folded it
