@@ -160,12 +160,13 @@ something looks off on a new world or a new PX4 version.
 it stops and prints the error from `gz.log`. If only the window dies, the flight
 carries on, and `gz_gui.log` says why.
 
-- **`Fragment Program ... PixelShader_ps failed to compile` / `OGRE EXCEPTION`**: the
-  default renderer (Ogre2) can't compile its shaders on this driver setup. Use the
-  older renderer: `GDN_GZ_RENDER=ogre tools/sim_run.sh`. The radar altimeter works
-  with it too. Ogre2 matters later, for the simulated OAK-D camera. Also try without
-  `GDN_GPU=nvidia` once, to see whether the problem is the NVIDIA offload or the
-  driver itself.
+- **`Fragment Program ... PixelShader_ps failed to compile` / `OGRE EXCEPTION`**: this
+  was Ogre2's heightmap terrain shader, and it failed the same way on the dev PC's
+  NVIDIA card and on plain Mesa. Worlds made by `make_sim_world.py` now draw the
+  terrain as a mesh instead, so it shouldn't happen any more. Delete
+  `data/sim/<world>` if an old world is still around (`sim_run.sh` regenerates it
+  when the generator is newer). If some other Ogre2 error turns up,
+  `GDN_GZ_RENDER=ogre` switches to the older renderer.
 - **`Exception sending a multicast message: Network is unreachable`**: Gazebo's
   messaging had no network route. `sim_run.sh` now sets `GZ_IP=127.0.0.1`, so it stays
   on this machine.
@@ -189,8 +190,19 @@ mistakes. Result on the Zermatt world:
 
 Single probes on the steepest cells can sit several metres off. That's because
 Gazebo's physics surface is made of triangles. It only matters for touching the
-ground, and the pad is flat. The radar altimeter measures the rendered terrain, and
-the adapter's live check covers that part on the machine that renders it.
+ground, and the pad is flat.
+
+`tools/check_sim_radar.py` checks what the radar altimeter sees, which is the
+rendered terrain rather than the physics one. It puts a probe carrying the x500_gdn
+radar 100 m above the map at 26 points and compares the ranges:
+
+| Terrain visual | Ogre1 | Ogre2 |
+|---|---|---|
+| Heightmap (before) | median +2 m, but up to 177 m off, and no return at 4 points | crashes (shader) |
+| Mesh (now) | median +0.1 m, max 0.8 m | median +0.2 m, max 1.4 m |
+
+During a run, `adapter.log` reports the same comparison every 10 s along the real
+flight path (`radar AGL minus map-predicted AGL`).
 
 ## Known limits
 

@@ -150,7 +150,7 @@ each later item lands in a working system:
   - built-up area with structures
   - coast or open water
 
-  Each world comes with an onboard GDN map built from a coarser source (SRTM or Copernicus GLO-30), so the filter never sees the exact truth terrain. Fix OI-007 by rendering on native Linux with a GPU.
+  Each world comes with an onboard GDN map built from a coarser source (SRTM or Copernicus GLO-30), so the filter never sees the exact truth terrain. Terrain is drawn as a mesh (OI-007, closed) and checked with `tools/check_sim_radar.py`.
 - [ ] **R2.3 Vehicles.** PX4's Gazebo multirotor (x500), standard VTOL and fixed-wing models, each with a GDN sensor payload attached through an SDF include.
 - [ ] **R2.4 Simulated sensors that match the real ones**, publishing the same message types and topic names as the real drivers:
   - **Mid-360S:** gpu_lidar with a 360 by 59 degree FOV (-7 to 52 degrees), 40 m range on low-reflectivity ground, 10 Hz, and a scan pattern that approximates the Livox non-repetitive pattern. The existing Livox simulation plugins target Gazebo Classic and ROS 1, so port one or approximate. The real pattern gets checked on real bags in Phase 6.

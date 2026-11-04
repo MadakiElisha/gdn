@@ -30,7 +30,7 @@ log "2/6 PX4 dependencies and Gazebo Harmonic (PX4's own script; asks for sudo)"
 bash "$PX4_DIR/Tools/setup/ubuntu.sh" --no-nuttx
 
 log "3/6 ROS-Gazebo bridge and Gazebo Python bindings"
-sudo apt-get install -y ros-jazzy-ros-gz-bridge python3-gz-sim8 python3-gz-math7 || \
+sudo apt-get install -y ros-jazzy-ros-gz-bridge python3-gz-sim8 python3-gz-math7 python3-gz-transport13 python3-gz-msgs10 || \
   sudo apt-get install -y ros-jazzy-ros-gz-bridge
 
 log "4/6 Micro XRCE-DDS Agent $XRCE_TAG"
@@ -54,6 +54,7 @@ cd "$ROOT"
 python3 tools/make_sim_world.py
 if python3 -c "import gz.sim8, gz.math7" 2>/dev/null; then
   python3 tools/check_sim_world.py || echo "world check FAILED: see output above"
+  python3 tools/check_sim_radar.py || echo "radar check FAILED (needs a working GPU display): see output above"
 else
   echo "(gz Python bindings not available, skipping tools/check_sim_world.py)"
 fi
