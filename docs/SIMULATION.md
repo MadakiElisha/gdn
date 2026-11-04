@@ -87,6 +87,7 @@ Useful variations:
 | Variable | Effect |
 |---|---|
 | `HEADLESS=1` | no windows; the sensors still render through EGL |
+| `GDN_GZ_RENDER=ogre` | older renderer, if Ogre2 crashes (see "If Gazebo crashes at start") |
 | `GDN_FLY_ARGS="--legs 2 --clearance 80"` | shorter route, more clearance (`python3 tools/sim_fly.py -h`) |
 | `GDN_SIM_ADAPTER_ARGS="-p baro_drift_m_per_min:=2.0"` | add a barometer drift |
 | `GDN_SIM_ADAPTER_ARGS="-p agl_source:=truth"` | skip the rendered radar (map at the true position instead) |
@@ -152,6 +153,24 @@ something looks off on a new world or a new PX4 version.
   anyway is fine.
 - **Micro XRCE-DDS Agent v2.4.2 no longer builds from source,** because the Fast-DDS
   branch it pulls is gone. `setup_sim.sh` uses v2.4.3.
+
+## If Gazebo crashes at start
+
+`sim_run.sh` runs the Gazebo server and GUI as separate processes. If the server dies,
+it stops and prints the error from `gz.log`. If only the window dies, the flight
+carries on, and `gz_gui.log` says why.
+
+- **`Fragment Program ... PixelShader_ps failed to compile` / `OGRE EXCEPTION`**: the
+  default renderer (Ogre2) can't compile its shaders on this driver setup. Use the
+  older renderer: `GDN_GZ_RENDER=ogre tools/sim_run.sh`. The radar altimeter works
+  with it too. Ogre2 matters later, for the simulated OAK-D camera. Also try without
+  `GDN_GPU=nvidia` once, to see whether the problem is the NVIDIA offload or the
+  driver itself.
+- **`Exception sending a multicast message: Network is unreachable`**: Gazebo's
+  messaging had no network route. `sim_run.sh` now sets `GZ_IP=127.0.0.1`, so it stays
+  on this machine.
+- **Waiting for PX4 forever**: PX4 runs in lockstep with Gazebo, so it doesn't
+  publish anything until the Gazebo server is running. Check `gz.log` first.
 
 ## How the world is checked
 
