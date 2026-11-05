@@ -1,4 +1,5 @@
 import rclpy, math
+from rclpy.executors import ExternalShutdownException
 import numpy as np
 from rclpy.node import Node
 from geometry_msgs.msg import PointStamped
@@ -19,14 +20,18 @@ class Scorer(Node):
         e = math.hypot(m.point.x - self.odom.pose.pose.position.x,
                        m.point.y - self.odom.pose.pose.position.y)
         self.ts.append(t - self.t0); self.errs.append(e)
-        if t - self.lp > 20:
+        if t - self.lp >= 1.0:   # 1 Hz log; bench.sh's fallback summary reads these lines
             self.lp = t
             self.get_logger().info(f't={t - self.t0:6.1f} s  horiz err {e:8.1f} m')
 
 rclpy.init(); n = Scorer()
 try:
     rclpy.spin(n)
-except KeyboardInterrupt:
+except (KeyboardInterrupt, ExternalShutdownException):
+    # Jazzy turns SIGINT inside spin() into ExternalShutdownException, not
+    # KeyboardInterrupt; catching only the latter meant this summary never printed.
+    pass
+finally:
     ts = np.array(n.ts); e = np.array(n.errs); w = (ts > 60) & (ts < 300)
     if w.any():
         print(f'RMS 60-300s: {np.sqrt((e[w]**2).mean()):.1f} m | MAX 60-300s: {e[w].max():.1f} m')
@@ -36,4 +41,5 @@ except KeyboardInterrupt:
         if w.any():
             print(f'RMS {name}: {np.sqrt((e[w]**2).mean()):.1f} m | P95: {np.percentile(e[w], 95):.1f} m '
                   f'| MAX: {e[w].max():.1f} m | n={int(w.sum())}')
-rclpy.shutdown()
+if rclpy.ok():
+    rclpy.shutdown()

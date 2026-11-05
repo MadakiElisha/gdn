@@ -26,8 +26,19 @@ fi
 [ -f "$GDN_MAP" ] || { echo "map not found: $GDN_MAP  (run tools/make_data.sh)"; exit 1; }
 command -v ros2 >/dev/null || { echo "ros2 not on PATH - source env.sh"; exit 1; }
 
-pkill -9 -f eskf_node; pkill -9 -f trn_sensor_sim; pkill -9 -f replay_scorer
-pkill -9 -f baro_sim; pkill -9 -f mag_sim; pkill -9 -f "ros2 bag play"; sleep 2
+# Stop GDN bench processes. Binaries match by exact process name (-x) and scripts by
+# path, so this never hits the shell that launched the bench (pkill -f eskf_node did,
+# whenever that shell's command line mentioned eskf_node). The C++ node runs as a child
+# of the `ros2 run` wrapper; killing only the wrapper's PID left it running.
+gdn_stop() {
+  local sig="${1:--TERM}"
+  pkill "$sig" -x eskf_node; pkill "$sig" -x map_viz_node
+  pkill "$sig" -f "ros2 run gdn_fusion (eskf_node|map_viz_node)"
+  pkill "$sig" -f "tools/(trn_sensor_sim|baro_sim|mag_sim|replay_scorer)\.py"
+  pkill "$sig" -f "ros2 bag play"
+  return 0
+}
+gdn_stop -9; sleep 2
 
 ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/node.log" 2>&1 & NPID=$!
 python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 & SPID=$!
@@ -48,8 +59,7 @@ ros2 bag play "$BAG"
 
 kill -INT $CPID 2>/dev/null; sleep 2
 kill $NPID $SPID $BPID $MPID 2>/dev/null
-pkill -9 -f "ros2 bag play" 2>/dev/null
-pkill -9 -f baro_sim.py 2>/dev/null
+gdn_stop; sleep 1; gdn_stop -9
 
 echo ""
 echo "=== Scorer summary ==="

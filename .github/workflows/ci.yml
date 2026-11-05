@@ -78,6 +78,12 @@ jobs:
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl | tee mc_zermatt_agl.txt
           python3 tools/ci_check_mc.py mc_zermatt_agl.txt --max-cep50 25 --min-passing 15
 
+      - name: Monte Carlo, Zermatt, 24 seeds (AGL model, node start-up path, R1.2)
+        run: |
+          source env.sh
+          tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl --startup=node | tee mc_zermatt_node.txt
+          python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-cep50 15 --min-passing 19
+
       - name: Fetch flight001 (release data-v1)
         run: tools/fetch_data.sh
 

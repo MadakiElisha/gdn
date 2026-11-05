@@ -15,6 +15,7 @@
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/ground_monitor.hpp"
 #include "gdn/paths.hpp"
 
 namespace {
@@ -79,14 +80,30 @@ int main(int argc_all, char** argv_all) {
     //   --q-baro=Q     baro-bias random walk, m^2/s (EskfConfig q_baro_bias)
     //   --r-agl=R      AGL measurement variance, m^2 (EskfConfig r_agl)
     //   --r-trn=R      TRN measurement variance, m^2 (EskfConfig r_trn)
+    //   --startup=truth  heading from truth GNSS velocity at take-off (TransferAlignYaw);
+    //                  TRN starts then. The original MC, kept as the CI regression path.
+    //   --startup=node   what eskf_node does (R1.2): magnetometer heading while parked,
+    //                  ZUPT from the IMU ground monitor, mag updates throughout, TRN
+    //                  from yaw alignment on. The mag is simulated as mag_sim.py does:
+    //                  R^T m_ref + hard iron (2,-1,1) uT + N(0, 2 uT), 10 Hz.
+    //   --ground=imu|gnss  node start-up only: IMU ground monitor (default), or the
+    //                  pre-R1.2 rule (ZUPT until GNSS speed > 2 m/s) for comparison
+    //   --mag=full|align  node start-up only, as the node's mag_fusion parameter: 3-axis
+    //                  mag updates throughout (default), or initial heading only. The
+    //                  simulated mag assumes level flight along the velocity vector, true
+    //                  for the synthetic Zermatt flight but not for a real recording such
+    //                  as flight001 (bank, crab), whose CSVs carry no attitude truth.
     // Relative paths resolve against $GDN_ROOT (exported by env.sh).
     std::vector<char*> pos_args;
-    std::string model = "ideal";
+    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "full";
     double baro_drift = 0.0, clearance = 30.0, w0 = 60.0, w1 = 300.0;
     gdn::EskfConfig cfg;   // defaults == node defaults
     for (int a = 0; a < argc_all; ++a) {
         const std::string s = argv_all[a];
         if (s.rfind("--model=", 0) == 0) model = s.substr(8);
+        else if (s.rfind("--startup=", 0) == 0) startup = s.substr(10);
+        else if (s.rfind("--ground=", 0) == 0) ground_mode = s.substr(9);
+        else if (s.rfind("--mag=", 0) == 0) mag_mode = s.substr(6);
         else if (s.rfind("--baro-drift=", 0) == 0) baro_drift = std::atof(s.c_str() + 13);
         else if (s.rfind("--clearance=", 0) == 0) clearance = std::atof(s.c_str() + 12);
         else if (s.rfind("--window=", 0) == 0) std::sscanf(s.c_str() + 9, "%lf,%lf", &w0, &w1);
@@ -99,6 +116,12 @@ int main(int argc_all, char** argv_all) {
     if (model != "ideal" && model != "naive" && model != "agl") {
         std::printf("ERROR: --model must be ideal, naive or agl\n"); return 1;
     }
+    if ((startup != "truth" && startup != "node") || (ground_mode != "imu" && ground_mode != "gnss") ||
+        (mag_mode != "full" && mag_mode != "align")) {
+        std::printf("ERROR: --startup must be truth or node, --ground imu or gnss, --mag full or align\n");
+        return 1;
+    }
+    const bool node_startup = startup == "node";
     const int argc = static_cast<int>(pos_args.size());
     char** argv = pos_args.data();
     const int nseeds = argc > 1 ? std::atoi(argv[1]) : 100;
@@ -129,7 +152,15 @@ int main(int argc_all, char** argv_all) {
         if (q.ok) H_true = std::max(H_true, q.h + lz[r] + clearance);
     }
 
-    std::vector<double> pool, vpool, seed_rms, seed_max;
+    // Node start-up: heading while parked = heading at first motion (as
+    // make_zermatt_bag.py writes the parked attitude).
+    double yaw_park = 0.0;
+    for (size_t q = 0; q < lt.size(); ++q)
+        if (std::hypot(lvx[q], lvy[q]) > 0.5) { yaw_park = std::atan2(lvy[q], lvx[q]); break; }
+    const Eigen::Vector3d m_ref(cfg.mag_ref_north, cfg.mag_ref_east, cfg.mag_ref_down);
+    const Eigen::Vector3d b_hardiron(2.0, -1.0, 1.0);
+
+    std::vector<double> pool, vpool, seed_rms, seed_max, latch_t;
     int pass_seeds = 0;
 
     for (int seed = 0; seed < nseeds; ++seed) {
@@ -156,17 +187,25 @@ int main(int argc_all, char** argv_all) {
         auto baro_bias_true = [&](double tt) {
             const double ramp = t_trn < 0 ? 0.0 : std::min(1.0, std::max(0.0, (tt - t_trn) / 300.0));
             return b0 + baro_drift * ramp; };
+        // Node start-up: own streams, so the truth path's random sequence is unchanged.
+        std::mt19937_64 rng_mag(0x4d4147ULL + static_cast<uint64_t>(seed));
+        std::normal_distribution<double> d_mag(0, 2.0);
+        gdn::GroundMonitor ground;
+        bool gnss_airborne = false; int gnss_zc = 0, last_m = -1;
 
         for (size_t i = 0; i < it.size(); ++i) {
             const double t = (it[i] - t0) * 1e-6;
             const Eigen::Vector3d a_m(ax[i] + ba_off.x(), ay[i] + ba_off.y(), az[i] + ba_off.z());
             const Eigen::Vector3d w_m(gx[i] + bg_off.x(), gy[i] + bg_off.y(), gz[i] + bg_off.z());
             if (!eskf.aligned()) {
-            if (eskf.FeedStatic(a_m, w_m) && diag_mode) {
+            if (eskf.FeedStatic(a_m, w_m)) {
+                ground.Start(eskf.RestSpecificForce(), eskf.gyro_bias());
+                if (diag_mode) {
                 const Eigen::Vector3d r0 = eskf.q().toRotationMatrix().eulerAngles(2,1,0)/gdn::Eskf::kDeg;
                 std::printf("ALIGN t=%.1f ba=%.4f bg=%.4f yaw=%.1f pit=%.1f rol=%.1f\n", t,
                     eskf.accel_bias().norm(), eskf.gyro_bias().norm()/gdn::Eskf::kDeg,
                     r0.x(), r0.y(), r0.z());
+                }
             }
             prev_t = t; continue;
         }
@@ -176,7 +215,37 @@ int main(int argc_all, char** argv_all) {
 
             while (j + 1 < lt.size() && (lt[j + 1] - t0) * 1e-6 <= t) ++j;
             const double spd = std::hypot(lvx[j], lvy[j]);
-            if (!yaw_done && spd > 3.0 &&
+            if (node_startup) {
+                // Ground detection and ZUPT, as eskf_node.
+                if (ground_mode == "imu") {
+                    const bool was = ground.airborne();
+                    if (ground.Update(a_m, w_m, dt)) eskf.ApplyZupt();
+                    if (ground.airborne() && !was) {
+                        latch_t.push_back(t);
+                        if (diag_mode) std::printf("LATCH t=%.2f (IMU) spd=%.2f\n", t, spd);
+                    }
+                } else if (!gnss_airborne) {                 // pre-R1.2 node rule
+                    if (spd > 2.0) { gnss_airborne = true; latch_t.push_back(t); }
+                    else if (++gnss_zc % 10 == 0) eskf.ApplyZupt();
+                }
+                // Magnetometer at 10 Hz (mag_sim.py), level flight along the velocity.
+                const int m = static_cast<int>(std::floor(t * 10.0));
+                if (m != last_m) {
+                    last_m = m;
+                    const double yaw_t = spd > 0.5 ? std::atan2(lvy[j], lvx[j]) : yaw_park;
+                    const Eigen::Matrix3d Rt =
+                        Eigen::AngleAxisd(yaw_t, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+                    const Eigen::Vector3d zm = Rt.transpose() * m_ref + b_hardiron +
+                        Eigen::Vector3d(d_mag(rng_mag), d_mag(rng_mag), d_mag(rng_mag));
+                    if (!eskf.yaw_aligned()) {
+                        eskf.AlignYawFromMag(zm);
+                        if (diag_mode) std::printf("YAW t=%.1f mag align\n", t);
+                    } else if (mag_mode == "full") {
+                        eskf.ApplyMag(zm);
+                    }
+                }
+                yaw_done = eskf.yaw_aligned();
+            } else if (!yaw_done && spd > 3.0 &&
                 std::abs(w_m.z() - eskf.gyro_bias().z()) < 0.05) {
                 eskf.TransferAlignYaw(std::atan2(lvy[j], lvx[j]));
                 yaw_done = true;
@@ -251,8 +320,14 @@ int main(int argc_all, char** argv_all) {
     }
 
     int in_spec = 0; for (double e : pool) if (e < 100.0) ++in_spec;
-    std::printf("MC campaign: %d seeds, model %s, baro drift %.1f m, window %.0f-%.0f s, pooled n=%zu\n",
-                nseeds, model.c_str(), baro_drift, w0, w1, pool.size());
+    std::printf("MC campaign: %d seeds, model %s, startup %s%s, baro drift %.1f m, window %.0f-%.0f s, pooled n=%zu\n",
+                nseeds, model.c_str(), startup.c_str(),
+                node_startup ? (ground_mode == "imu" ? (mag_mode == "full" ? " (IMU ground, mag full)" : " (IMU ground, mag align)")
+                                                     : (mag_mode == "full" ? " (GNSS-speed ground, mag full)" : " (GNSS-speed ground, mag align)")) : "",
+                baro_drift, w0, w1, pool.size());
+    if (node_startup && !latch_t.empty())
+        std::printf("airborne latch: %zu/%d seeds, t median %.2f s\n", latch_t.size(), nseeds,
+                    Percentile(latch_t, 50));
     std::printf("CEP50: %.1f m  CEP95: %.1f m  MAX: %.1f m  in-spec(<100 m): %.1f%%\n",
                 Percentile(pool, 50), Percentile(pool, 95), Percentile(pool, 100),
                 pool.empty() ? 0.0 : 100.0 * in_spec / pool.size());

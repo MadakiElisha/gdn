@@ -12,6 +12,7 @@
 #include <string>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/ground_monitor.hpp"
 #include "gdn/paths.hpp"
 
 class EskfNode : public rclcpp::Node {
@@ -78,8 +79,14 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
         std_msgs::msg::Float64 m; m.data = eskf_->sigma_pos(); sig_pub_->publish(m); });
     dbg_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() {
         if (!eskf_->aligned()) return;
-        const Eigen::Vector3d rpy = eskf_->q().toRotationMatrix().eulerAngles(2, 1, 0)
-                                    / gdn::Eskf::kDeg;
+        // ZYX Euler angles: yaw in (-180, 180], pitch in [-90, 90]. Eigen's eulerAngles()
+        // keeps the first angle in [0, 180] and shows yaw 242 as "62, pitch 180, roll 180".
+        const Eigen::Quaterniond& q = eskf_->q();
+        const Eigen::Vector3d rpy = Eigen::Vector3d(
+            std::atan2(2.0 * (q.w() * q.z() + q.x() * q.y()), 1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z())),
+            std::asin(std::clamp(2.0 * (q.w() * q.y() - q.z() * q.x()), -1.0, 1.0)),
+            std::atan2(2.0 * (q.w() * q.x() + q.y() * q.z()), 1.0 - 2.0 * (q.x() * q.x() + q.y() * q.y())))
+            / gdn::Eskf::kDeg;
         RCLCPP_INFO(get_logger(),
             "DBG t=%.0f pos=(%.0f,%.0f,%.0f) zt=%.0f |v|=%.1f yaw=%.1f pit=%.1f rol=%.1f "
             "ba=%.4f bg=%.4f bb=%.1f mb=(%.1f,%.1f,%.1f) sp=%.1f spz=%.1f st=%.2f pa=%.1e pe=%.1e pbz=%.1e rej=%d(m%d b%d t%d a%d) alt=%.1f zu=%d mi=%.2f mhz=%d dp=%d",
@@ -105,10 +112,13 @@ void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
                               msg->accelerometer_m_s2[2]);
     const Eigen::Vector3d w_m(msg->gyro_rad[0], msg->gyro_rad[1], msg->gyro_rad[2]);
     if (!eskf_->aligned()) {
-        if (eskf_->FeedStatic(a_m, w_m))
+        if (eskf_->FeedStatic(a_m, w_m)) {
             RCLCPP_INFO(get_logger(), "coarse alignment: ba=%.4f m/s2, bg=%.4f deg/s",
                         eskf_->accel_bias().norm(),
                         eskf_->gyro_bias().norm() / gdn::Eskf::kDeg);
+            // R1.2: on-ground detection is referenced to the aligned rest state.
+            ground_.Start(eskf_->RestSpecificForce(), eskf_->gyro_bias());
+        }
         return;
     }
     const uint64_t t = msg->timestamp; t_cur_ = t * 1e-6;
@@ -143,26 +153,13 @@ void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
                         "(count %d)", hole * 1e3, w_m.norm() / gdn::Eskf::kDeg, eskf_->gaps());
     }
 
-        // ZUPT: Pin horizontal states while provably stationary on the ground
-        if (!airborne_latch_ && have_lpos_) {
-            if (vel_lpos_.norm() > 2.0) {
-                airborne_latch_ = true;
-                RCLCPP_INFO(get_logger(), "Airborne latch set (vel=%.1f m/s) - ZUPT disabled", vel_lpos_.norm());
-            } else {
-                zupt_count_++;
-                if (zupt_count_ % 10 == 0) { // ~10 Hz ZUPT
-                    eskf_->ApplyZupt();
-                }
-            }
-        }
-
-    const double spd = vel_lpos_.head<2>().norm();
-    if (!eskf_->yaw_aligned() && have_lpos_ && spd > 3.0 &&
-        std::abs(w_m.z() - eskf_->gyro_bias().z()) < 0.05) {
-        const double yaw = std::atan2(vel_lpos_.y(), vel_lpos_.x());
-        RCLCPP_INFO(get_logger(), "transfer yaw %.1f deg at spd %.1f m/s; TRN on",
-                    yaw / gdn::Eskf::kDeg, spd);
-    }
+    // R1.2: ZUPT while the IMU says the vehicle is still; sustained motion sets the
+    // airborne latch. No GNSS input (gdn/ground_monitor.hpp, TEST-018).
+    const bool was_airborne = ground_.airborne();
+    if (ground_.Update(a_m, w_m, dt)) eskf_->ApplyZupt();
+    if (ground_.airborne() && !was_airborne)
+        RCLCPP_INFO(get_logger(), "Airborne latch set at t=%.1f (IMU motion for %.1f s) - ZUPT disabled",
+                    t_cur_, gdn::GroundConfig{}.latch_s);
 
     nav_msgs::msg::Odometry o;
     o.header.stamp = now(); o.header.frame_id = "map"; o.child_frame_id = "base_link";
@@ -179,16 +176,10 @@ void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
     odom_pub_->publish(o);
 }
 
+// vehicle_local_position is PX4's GNSS-aided estimate. It is reference truth for the
+// DBG line only (zt=) and is never fed to the filter (R1.2).
 void LposCb(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg) {
-    vel_lpos_ = Eigen::Vector3d(msg->vx, msg->vy, msg->vz); have_lpos_ = true;
     if (msg->z_valid) { z_truth_ = msg->z; x_truth_ = msg->x; y_truth_ = msg->y; }
-    // OI-002 (legacy "ideal" mode only): initial z from LPOS, which is GNSS-derived.
-    // In "agl" mode the altitude datum comes from the map and the first AGL reading.
-    if (trn_model_ == "ideal" && !z_initialized_ && msg->z_valid && eskf_->aligned()) {
-        eskf_->SetInitialZ(msg->z);
-        z_initialized_ = true;
-        RCLCPP_INFO(get_logger(), "OI-002: Initial Z set to %.2f m (NED)", msg->z);
-    }
 }
 
 void AttCb(const px4_msgs::msg::VehicleAttitude::SharedPtr msg) {
@@ -258,6 +249,17 @@ void AglCb(const std_msgs::msg::Float64::SharedPtr msg) {
 void BaroCb(const std_msgs::msg::Float64::SharedPtr msg) {
     // baro measurement: z_meas = z_true + bias + noise (NED)
     last_baro_ = msg->data; have_baro_ = true; last_baro_time_ = now();
+    // R1.2, "ideal" mode: the local frame's origin is the start point, so the vehicle
+    // starts at z = 0 and the first baro reading after alignment sets the baro bias.
+    // (This used to take z from vehicle_local_position, which is GNSS-derived.) In
+    // "agl" mode AglCb sets the altitude datum and the bias instead.
+    if (trn_model_ == "ideal" && !z_initialized_ && eskf_->aligned()) {
+        eskf_->InitBaroBias(msg->data, 1.5);
+        z_initialized_ = true;
+        RCLCPP_INFO(get_logger(), "R1.2: start altitude z=%.2f m, baro bias %.2f m from first baro",
+                    eskf_->pos().z(), eskf_->baro_bias());
+        return;
+    }
     if (z_initialized_ && eskf_->aligned()) {
         eskf_->ApplyBaro(msg->data);
     }
@@ -276,7 +278,7 @@ rclcpp::TimerBase::SharedPtr sig_timer_, dbg_timer_;
 
 gdn::MapDb map_;
 std::unique_ptr<gdn::Eskf> eskf_;
-Eigen::Vector3d vel_lpos_ = Eigen::Vector3d::Zero();
+gdn::GroundMonitor ground_;
 double z_truth_ = 0.0;
     double x_truth_ = 0.0;
     double yaw_truth_ = 0.0;
@@ -289,7 +291,6 @@ int n_undercover_ = 0;
 std::string mag_fusion_ = "full";
     int n_drop_ = 0;
     int mag_cb_ = 0;
-bool have_lpos_ = false;
 bool z_initialized_ = false;
 std::string trn_model_ = "agl";
 double datum_sigma_ = 5.0;
@@ -297,8 +298,6 @@ double last_baro_ = 0.0;
 bool have_baro_ = false;
 rclcpp::Time last_baro_time_{0, 0, RCL_ROS_TIME};
 rclcpp::Time last_no_baro_warn_{0, 0, RCL_ROS_TIME};
-    bool airborne_latch_ = false;
-    int zupt_count_ = 0;
 
 };
 

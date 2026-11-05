@@ -275,9 +275,23 @@ public:
         if (d2 > 100.0) { n_rej_++; return UpdResult::kInnovGate; }
         
         Eigen::Matrix3d S_inv = S.inverse();
-        const Eigen::Matrix<double, 19, 3> K = P_ * H.transpose() * S_inv;
+        Eigen::Matrix<double, 19, 3> K = P_ * H.transpose() * S_inv;
+        // Zero velocity says nothing about heading (rotating a parked vehicle about the
+        // vertical leaves its velocity at zero), nor about the baro and mag biases.
+        // Through the noisy-accel coupling in F, a full gain still moves them: 8 deg of
+        // yaw walk in 60 s parked (TEST-018). Remove those gain components. Attitude
+        // and gyro-bias errors are body-frame, so heading is the body-frame vertical
+        // u = R^T e_down. The Joseph update below is valid for any gain, so the
+        // covariance stays consistent with what was applied.
+        {
+            const V3 u = q_.conjugate() * V3::UnitZ();
+            const Eigen::Matrix3d Pu = Eigen::Matrix3d::Identity() - u * u.transpose();
+            K.block<3,3>(6, 0)  = Pu * K.block<3,3>(6, 0);
+            K.block<3,3>(12, 0) = Pu * K.block<3,3>(12, 0);
+            K.block<4,3>(15, 0).setZero();          // baro bias, mag bias
+        }
         V19 dx = K * y;
-        
+
         dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
         dx.segment<3>(6)  = Clamp(dx.segment<3>(6),  cfg_.clamp_dtheta_deg * kDeg);
         dx.segment<3>(9)  = Clamp(dx.segment<3>(9),  cfg_.clamp_dva);
@@ -394,6 +408,10 @@ public:
         n_upd_++;
         return UpdResult::kApplied;
     }
+
+    // Accelerometer reading expected at rest with the current attitude and bias:
+    // R^T (-g) + b_a. Right after FeedStatic this is the parked mean exactly.
+    V3 RestSpecificForce() const { return q_.conjugate() * (-g_) + ba_; }
 
     void SetInitialZ(double z_ned) {
         if (aligned_) { pos_.z() = z_ned; x_.setZero(); }

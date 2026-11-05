@@ -3,9 +3,11 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/ground_monitor.hpp"
 
 using namespace gdn;
 static int g_fail = 0;
@@ -301,6 +303,101 @@ int main() {
         }
         CHECK(g.pos().x() > 1.0 && std::abs(last) < std::abs(first),
               "eskf: agl moves position along the gradient");
+    }
+
+    // TEST-018 (R1.2): on-ground detection from the IMU alone. Before R1.2 the node
+    // ran ZUPT until GNSS speed passed 2 m/s, so without GNSS it never ran ZUPT, and
+    // with GNSS it kept pinning velocity to zero for the first 2 m/s of the take-off roll.
+    {
+        std::mt19937 rng(18);
+        std::normal_distribution<double> na(0.0, 0.15), nw(0.0, 0.002);
+        const V3 ba_true(0.05, -0.03, 0.04), bg_true(0.002, -0.001, 0.0015);
+        // Noisy IMU sample for a level vehicle: specific force -g plus body accel acc_b.
+        auto imu = [&](const V3& acc_b, const V3& rate_b, V3& a, V3& w) {
+            a = a0 + acc_b + ba_true + V3(na(rng), na(rng), na(rng));
+            w = rate_b + bg_true + V3(nw(rng), nw(rng), nw(rng));
+        };
+        const double dt = 0.01;
+        // Align on noisy data, then start the monitor from the aligned rest state.
+        auto make = [&](Eskf& e, GroundMonitor& g) {
+            V3 a, w; bool ok = false;
+            for (int i = 0; i < 2000 && !ok; ++i) { imu(V3::Zero(), V3::Zero(), a, w); ok = e.FeedStatic(a, w); }
+            g.Start(e.RestSpecificForce(), e.gyro_bias());
+            return ok;
+        };
+        // (a) Parked for 60 s: ZUPT about every 0.1 s, never airborne. Heading is not
+        // observable while parked, so ZUPT must leave it alone: with noisy accel samples
+        // in the linearisation, a full-gain ZUPT random-walks yaw by degrees.
+        auto heading = [](const Eskf& e) {
+            const V3 f = e.q() * V3::UnitX(); return std::atan2(f.y(), f.x()); };
+        {
+            Eskf e; GroundMonitor g;
+            CHECK(make(e, g), "ground: TEST-018 aligned on noisy IMU");
+            int z = 0; V3 a, w;
+            const double yaw0 = heading(e);
+            for (int i = 0; i < 6000; ++i) {
+                imu(V3::Zero(), V3::Zero(), a, w);
+                e.Propagate(a, w, dt);
+                if (g.Update(a, w, dt)) { e.ApplyZupt(); z++; }
+            }
+            CHECK(z > 500 && z < 620 && !g.airborne(), "ground: parked 60 s gives ~10 Hz ZUPT, no latch");
+            const double dyaw = std::abs(std::remainder(heading(e) - yaw0, 2 * M_PI)) / Eskf::kDeg;
+            std::printf("      heading change over 60 s of ZUPT: %.2f deg\n", dyaw);
+            CHECK(dyaw < 0.5, "eskf: zupt leaves heading alone");
+        }
+        // (b) Hard take-off roll, 2 m/s^2: ZUPT stops within 0.05 s, latch within 0.6 s.
+        // (c) Gentle roll, 0.5 m/s^2: ZUPT stops within 0.15 s, latch within 1.0 s.
+        struct Roll { double acc, stop_s, latch_s; const char* name; };
+        for (const Roll& r : {Roll{2.0, 0.05, 0.6, "ground: 2 m/s^2 roll stops ZUPT at once and latches"},
+                              Roll{0.5, 0.15, 1.0, "ground: 0.5 m/s^2 roll stops ZUPT and latches"}}) {
+            Eskf e; GroundMonitor g; make(e, g);
+            V3 a, w; int late = 0;
+            for (int i = 0; i < 1000; ++i) { imu(V3::Zero(), V3::Zero(), a, w); g.Update(a, w, dt); }
+            const double t_on = 10.0;
+            for (int i = 0; i < 300; ++i) {
+                imu(V3(r.acc, 0, 0), V3::Zero(), a, w);
+                if (g.Update(a, w, dt) && i * dt > r.stop_s) late++;
+            }
+            CHECK(late == 0 && g.airborne() && g.latch_time() > t_on && g.latch_time() < t_on + r.latch_s, r.name);
+        }
+        // (d) A 0.2 s bump (someone touches the vehicle) must not latch, and ZUPT resumes.
+        {
+            Eskf e; GroundMonitor g; make(e, g);
+            V3 a, w; int after = 0;
+            for (int i = 0; i < 500; ++i) { imu(V3::Zero(), V3::Zero(), a, w); g.Update(a, w, dt); }
+            for (int i = 0; i < 20; ++i) { imu(V3(1.5, 0, 0), V3::Zero(), a, w); g.Update(a, w, dt); }
+            for (int i = 0; i < 200; ++i) { imu(V3::Zero(), V3::Zero(), a, w); after += g.Update(a, w, dt); }
+            CHECK(!g.airborne() && after > 10, "ground: short bump does not latch, ZUPT resumes");
+        }
+        // (e) Turning on the spot (0.1 rad/s, no acceleration) counts as motion.
+        {
+            Eskf e; GroundMonitor g; make(e, g);
+            V3 a, w; int z = 0;
+            for (int i = 0; i < 500; ++i) { imu(V3::Zero(), V3::Zero(), a, w); g.Update(a, w, dt); }
+            for (int i = 0; i < 100; ++i) { imu(V3::Zero(), V3(0, 0, 0.1), a, w); if (g.Update(a, w, dt) && i > 5) z++; }
+            CHECK(z == 0 && g.airborne(), "ground: turning on the spot stops ZUPT and latches");
+        }
+        // (f) End to end: 10 s parked, then 5 s at 2 m/s^2 (truth 10 m/s at the end).
+        // With the IMU monitor the velocity comes out right. Control: the old rule
+        // (ZUPT until GNSS speed > 2 m/s) holds velocity at zero for the first second.
+        auto takeoff = [&](bool gnss_rule) {
+            Eskf e; GroundMonitor g; make(e, g);
+            V3 a, w; double v_true = 0.0, t_z = 0.0;
+            for (int i = 0; i < 1500; ++i) {
+                const double acc = i >= 1000 ? 2.0 : 0.0;
+                imu(V3(acc, 0, 0), V3::Zero(), a, w);
+                e.Propagate(a, w, dt);
+                v_true += acc * dt; t_z += dt;
+                if (gnss_rule) { if (v_true <= 2.0 && t_z >= 0.1) { e.ApplyZupt(); t_z = 0.0; } }
+                else if (g.Update(a, w, dt)) e.ApplyZupt();
+            }
+            return std::abs(e.vel().x() - v_true);
+        };
+        const double err_imu = takeoff(false), err_gnss = takeoff(true);
+        std::printf("      take-off velocity error: IMU monitor %.2f m/s, GNSS-speed rule %.2f m/s\n",
+                    err_imu, err_gnss);
+        CHECK(err_imu < 0.3, "ground: take-off velocity right with IMU-driven ZUPT");
+        CHECK(err_gnss > 0.5, "ground: control - GNSS-speed rule corrupts take-off velocity");
     }
 
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
