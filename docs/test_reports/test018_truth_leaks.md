@@ -118,17 +118,18 @@ On Zermatt the same switch costs accuracy (`--mag=align`: 16.3 m / 527 m / 70, a
 ## Results: ROS bench
 
 Zermatt bag (regenerated for px4_msgs 1.16), `trn_model:=agl` with baro and mag, one
-run on 5 November 2026. The node latched at t = 30.5 s, with ZUPT stopping at the start
+two runs on 5 November 2026. The node latched at t = 30.5 s, with ZUPT stopping at the start
 of the roll; altitude datum 3047.3 m AMSL, baro bias 4.81 m.
 
 | | RMS 60 to 300 s | MAX 60 to 300 s | P95 whole run |
 |---|---|---|---|
-| This branch | 11.3 m | 23.8 m | 21.1 m |
+| This branch, run 1 | 11.3 m | 23.8 m | 21.1 m |
+| This branch, run 2 (second PC session) | 20.8 m | 54.6 m | n/a |
 
 Before R1.2 the bench on this bag gave between 18.9 m and 68.0 m on two runs (old
 build, px4_msgs 1.15, scorer summary from 6 to 11 samples), and the audit measured
-hundreds of metres. One bench run is a single sample of ROS timing, so the MC above is
-the measurement; the bench shows the node runs the same path end to end.
+hundreds of metres. Each bench run is a single sample of ROS timing (the two runs differ
+by 2x), so the MC above is the measurement; the bench shows the node runs the same path end to end.
 
 ## Limits and follow-ups
 
