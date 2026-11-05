@@ -13,8 +13,19 @@ if [ ! -f "$BAG/.px4_msgs_version" ] && [ "${GDN_SKIP_BAG_CHECK:-0}" != "1" ]; t
 fi
 command -v rviz2 >/dev/null || { echo "rviz2 missing: sudo apt install ros-jazzy-rviz2"; exit 1; }
 
-pkill -f eskf_node; pkill -f trn_sensor_sim; pkill -f replay_scorer; pkill -f map_viz
-pkill -f mag_sim; pkill -f "ros2 bag play"; sleep 2
+# Stop GDN bench processes. Binaries match by exact process name (-x) and scripts by
+# path, so this never hits the shell that launched the bench (pkill -f eskf_node did,
+# whenever that shell's command line mentioned eskf_node). The C++ node runs as a child
+# of the `ros2 run` wrapper; killing only the wrapper's PID left it running.
+gdn_stop() {
+  local sig="${1:--TERM}"
+  pkill "$sig" -x eskf_node; pkill "$sig" -x map_viz_node
+  pkill "$sig" -f "ros2 run gdn_fusion (eskf_node|map_viz_node)"
+  pkill "$sig" -f "tools/(trn_sensor_sim|baro_sim|mag_sim|replay_scorer)\.py"
+  pkill "$sig" -f "ros2 bag play"
+  return 0
+}
+gdn_stop; sleep 2
 
 ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/node.log" 2>&1 & NPID=$!
 python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 & SPID=$!
@@ -35,7 +46,7 @@ ros2 bag play "$BAG"
 kill $RVIZ_PID 2>/dev/null
 kill -INT $CPID 2>/dev/null; sleep 2
 kill $NPID $SPID $VPID $MPID 2>/dev/null
-pkill -f "ros2 bag play" 2>/dev/null
+gdn_stop; sleep 1; gdn_stop -9
 
 echo ""
 echo "=== Scorer summary ==="

@@ -31,7 +31,7 @@ This is the technical reference for the estimator. For the project overview see 
 | Dir | Topic | Type | Purpose |
 |---|---|---|---|
 | sub | `/fmu/out/sensor_combined` | `px4_msgs/SensorCombined` | IMU (accel + gyro), drives propagation |
-| sub | `/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` | **Truth/GNSS-derived**: ground ZUPT and airborne latch; initial altitude only in `trn_model:=ideal` (see Known gaps) |
+| sub | `/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` | **Truth/GNSS-derived**: the DBG line's truth column only; never fed to the filter (R1.2) |
 | sub | `/fmu/out/vehicle_attitude` | `px4_msgs/VehicleAttitude` | truth yaw, logging only |
 | sub | `/gdn/mag_meas` | `geometry_msgs/Vector3` | magnetometer, uT, body FRD |
 | sub | `/gdn/agl_meas` | `std_msgs/Float64` | height above ground, tilt-corrected, m (`trn_model:=agl`, default) |
@@ -85,11 +85,13 @@ core; the node drops IMU gaps above 0.25 s. Covariance: P ← ΦPΦᵀ + Qc·h, 
 1. **Static coarse alignment** (`FeedStatic`): motion-gated averaging of still IMU
    samples. Roll/pitch come from gravity, gyro bias from the rate mean, accel bias from
    the gravity residual. Then `ResetCovariance`.
-2. **ZUPT** (`ApplyZupt`, node only): zero-velocity pinning on the ground until the
-   airborne latch trips.
+2. **ZUPT** (`ApplyZupt`): zero-velocity pinning while `GroundMonitor`
+   (`gdn/ground_monitor.hpp`) sees a still IMU, until 0.5 s of motion sets the airborne
+   latch. IMU only, no GNSS (R1.2, TEST-018). ZUPT doesn't correct heading or the baro
+   and mag biases. Used by the node and by `mc_campaign --startup=node`.
 3. **Yaw alignment**: `AlignYawFromMag` (node) does a one-shot heading from the
    magnetometer. `TransferAlignYaw` (heading from GNSS velocity) is still used by
-   `mc_campaign`.
+   `mc_campaign`'s default `--startup=truth`; `--startup=node` uses the mag as the node does.
 4. **Magnetometer** (`ApplyMag`): 3-axis field against a fixed reference vector.
    Updates attitude and mag bias.
 5. **TRN scalar elevation** (`ApplyTrn`): H = [∂h/∂n, ∂h/∂e, 0 …] from the map gradient.
@@ -204,8 +206,6 @@ These are the main things standing between this and a fielded GNSS-denied stack.
   Start errors above about 60 m fail.
 - **The Monte Carlo uses the same map for world and database.** Realistic DEM error
   is not modelled.
-- **Truth leaks in the node:** GNSS-derived `vehicle_local_position` drives ZUPT, the
-  airborne latch and the initial altitude.
 - **No integrity monitoring:** a lost filter can report a small sigma.
 - **Consistency:** `ApplyTrn` zeroes some state corrections but still contracts their
   covariance; the clamps do the same.
