@@ -108,6 +108,6 @@ None of these can be properly measured yet. Here's what we have:
   recorded flight is 2.9 m with no baro drift and 4.1 m with 5 m of drift, both inside
   REQ-NAV-010. With 15 m of drift over 5 minutes it's 9.9 m, which fails, though the
   filter no longer diverges (97 of 100 seeds stay under 100 m RMS).
-- **Integrity.** Not implemented, so REQ-INT is failed by definition (R4.4).
+- **Integrity.** REQ-INT-001 is measured by the MC since R1.5 (TEST-019), with error > 3 x published sigma as the check. flight001 passes (0.04%); Zermatt fails (12.8%), all of it from false-lock seeds. REQ-INT-002 to 005 need integrity monitoring (R4.4) and are failed by definition until then.
 - **Multirotor and quadplane.** Not testable until the closed-loop SITL (Phase 2) and
   the odometry layer (Phase 3).

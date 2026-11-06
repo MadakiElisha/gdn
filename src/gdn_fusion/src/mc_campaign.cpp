@@ -15,6 +15,7 @@
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/consistency.hpp"
 #include "gdn/ground_monitor.hpp"
 #include "gdn/paths.hpp"
 
@@ -88,6 +89,9 @@ int main(int argc_all, char** argv_all) {
     //                  R^T m_ref + hard iron (2,-1,1) uT + N(0, 2 uT), 10 Hz.
     //   --ground=imu|gnss  node start-up only: IMU ground monitor (default), or the
     //                  pre-R1.2 rule (ZUPT until GNSS speed > 2 m/s) for comparison
+    //   --trace=FILE   write every scored sample of every seed (0.5 s grid, from yaw
+    //                  alignment on) as CSV: seed,t,x,y,tx,ty,err,sigma,nees.
+    //                  tools/plot_consistency.py draws it.
     //   --mag=full|align  node start-up only, as the node's mag_fusion parameter: 3-axis
     //                  mag updates throughout (default), or initial heading only. The
     //                  simulated mag assumes level flight along the velocity vector, true
@@ -95,7 +99,7 @@ int main(int argc_all, char** argv_all) {
     //                  as flight001 (bank, crab), whose CSVs carry no attitude truth.
     // Relative paths resolve against $GDN_ROOT (exported by env.sh).
     std::vector<char*> pos_args;
-    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "full";
+    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "full", trace_path;
     double baro_drift = 0.0, clearance = 30.0, w0 = 60.0, w1 = 300.0;
     gdn::EskfConfig cfg;   // defaults == node defaults
     for (int a = 0; a < argc_all; ++a) {
@@ -104,6 +108,7 @@ int main(int argc_all, char** argv_all) {
         else if (s.rfind("--startup=", 0) == 0) startup = s.substr(10);
         else if (s.rfind("--ground=", 0) == 0) ground_mode = s.substr(9);
         else if (s.rfind("--mag=", 0) == 0) mag_mode = s.substr(6);
+        else if (s.rfind("--trace=", 0) == 0) trace_path = s.substr(8);
         else if (s.rfind("--baro-drift=", 0) == 0) baro_drift = std::atof(s.c_str() + 13);
         else if (s.rfind("--clearance=", 0) == 0) clearance = std::atof(s.c_str() + 12);
         else if (s.rfind("--window=", 0) == 0) std::sscanf(s.c_str() + 9, "%lf,%lf", &w0, &w1);
@@ -161,6 +166,13 @@ int main(int argc_all, char** argv_all) {
     const Eigen::Vector3d b_hardiron(2.0, -1.0, 1.0);
 
     std::vector<double> pool, vpool, seed_rms, seed_max, latch_t;
+    gdn::ConsistencyStats cons_all, cons_pass, cons_fail;   // R1.5
+    std::ofstream trace;
+    if (!trace_path.empty()) {
+        trace.open(trace_path);
+        if (!trace) { std::printf("ERROR: cannot write %s\n", trace_path.c_str()); return 1; }
+        trace << "seed,t,x,y,tx,ty,err,sigma,nees\n";
+    }
     int pass_seeds = 0;
 
     for (int seed = 0; seed < nseeds; ++seed) {
@@ -191,6 +203,7 @@ int main(int argc_all, char** argv_all) {
         std::mt19937_64 rng_mag(0x4d4147ULL + static_cast<uint64_t>(seed));
         std::normal_distribution<double> d_mag(0, 2.0);
         gdn::GroundMonitor ground;
+        gdn::ConsistencyStats cons;
         bool gnss_airborne = false; int gnss_zc = 0, last_m = -1;
 
         for (size_t i = 0; i < it.size(); ++i) {
@@ -293,6 +306,8 @@ int main(int argc_all, char** argv_all) {
                         res = eskf.ApplyAgl(agl, mq, &innov, &S);
                     }
                 }
+            if (res != gdn::Eskf::UpdResult::kSlopeGate && t >= w0 && t <= w1)
+                cons.AddInnovation(innov, S);   // NIS, before the gate
             if (diag_mode && (kc < 12 || focus >= 0)) {
                 const Eigen::Vector3d fwd_n = eskf.q() * Eigen::Vector3d::UnitX();
                 const double yaw_est = std::atan2(fwd_n.y(), fwd_n.x()) / gdn::Eskf::kDeg;
@@ -304,11 +319,22 @@ int main(int argc_all, char** argv_all) {
             }
             }
             const double e = std::hypot(eskf.pos().x() - lx[j], eskf.pos().y() - ly[j]);
+            if (trace.is_open()) {
+                const Eigen::Vector2d ev(eskf.pos().x() - lx[j], eskf.pos().y() - ly[j]);
+                const Eigen::Matrix2d Ph = eskf.P_horiz();
+                const double nees = Ph.determinant() > 0 ? ev.dot(Ph.ldlt().solve(ev)) : 1e12;
+                char row[256];
+                std::snprintf(row, sizeof row, "%d,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.3f,%.4g\n", seed, t,
+                              eskf.pos().x(), eskf.pos().y(), lx[j], ly[j], e, eskf.sigma_pos(), nees);
+                trace << row;
+            }
             if (diag_mode && t >= 25.0 && std::fmod(t, 1.0) < 0.5)
                 std::printf("t=%3.0f err=%7.1f pos=(%7.1f,%7.1f) truth=(%7.1f,%7.1f) sp=%5.1f\n",
                             t, e, eskf.pos().x(), eskf.pos().y(), lx[j], ly[j],
                             eskf.sigma_pos());
             if (t >= w0 && t <= w1) {
+                cons.AddPosition(Eigen::Vector2d(eskf.pos().x() - lx[j], eskf.pos().y() - ly[j]),
+                                 eskf.P_horiz(), eskf.sigma_pos());
                 pool.push_back(e); se += e * e; sn++; if (e > smax) smax = e;
                 if (eskf.datum_set())
                     vpool.push_back(std::abs(eskf.altitude_amsl() - (H_true - lz[j])));
@@ -316,6 +342,8 @@ int main(int argc_all, char** argv_all) {
         }
         const double rms = sn > 0 ? std::sqrt(se / sn) : 1e9;
         seed_rms.push_back(rms); seed_max.push_back(smax);
+        cons_all.Merge(cons);
+        (rms < 100.0 ? cons_pass : cons_fail).Merge(cons);
         if (rms < 100.0) ++pass_seeds;
     }
 
@@ -334,6 +362,16 @@ int main(int argc_all, char** argv_all) {
     std::printf("per-seed RMS: median %.1f m  p95 %.1f m  worst %.1f m  passing(<100 m): %d/%d\n",
                 Percentile(seed_rms, 50), Percentile(seed_rms, 95),
                 Percentile(seed_rms, 100), pass_seeds, nseeds);
+    // R1.5 consistency (gdn/consistency.hpp). ci_check_mc.py parses these lines.
+    std::printf("consistency: NEES mean %.2f median %.2f (consistent: 2, 1.39), outside 3-sigma ellipse %.1f%% (1.1%%)\n",
+                cons_all.nees_mean(), cons_all.nees_median(), cons_all.nees_over9_pct());
+    std::printf("consistency: error > 3 x published sigma %.2f%% (REQ-INT-001: at most 1%%)\n",
+                cons_all.over3sigma_pct());
+    std::printf("consistency: NIS mean %.2f median %.2f (consistent: 1, 0.45), NIS > 9 %.1f%% (0.27%%), n=%zu\n",
+                cons_all.nis_mean(), cons_all.nis_median(), cons_all.nis_over9_pct(), cons_all.innovations());
+    std::printf("consistency by seed: passing %d: over 3 sigma %.2f%%, NEES median %.2f | failing %d: over 3 sigma %.2f%%, NEES median %.2f\n",
+                pass_seeds, cons_pass.over3sigma_pct(), cons_pass.nees_median(),
+                nseeds - pass_seeds, cons_fail.over3sigma_pct(), cons_fail.nees_median());
     if (!vpool.empty())
         std::printf("vertical: altitude error p50 %.1f m  p95 %.1f m  max %.1f m\n",
                     Percentile(vpool, 50), Percentile(vpool, 95), Percentile(vpool, 100));

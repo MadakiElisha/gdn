@@ -2,6 +2,7 @@
 """Fail (exit 1) if a Monte Carlo report is worse than the given thresholds.
 
     python3 tools/ci_check_mc.py mc.txt --max-cep50 20 --min-passing 17
+    python3 tools/ci_check_mc.py mc.txt --max-over-3sigma 1 --max-nees-median 2.8
 
 Reads the summary lines printed by mc_campaign. The thresholds are regression
 guards around today's baseline, not the requirements in docs/requirements.md.
@@ -15,6 +16,13 @@ ap.add_argument("report")
 ap.add_argument("--max-cep50", type=float, help="fail if pooled CEP50 [m] is above this")
 ap.add_argument("--max-cep95", type=float, help="fail if pooled CEP95 [m] is above this")
 ap.add_argument("--min-passing", type=int, help="fail if fewer seeds pass (<100 m RMS)")
+# R1.5 consistency (gdn/consistency.hpp). REQ-INT-001 is --max-over-3sigma 1.
+ap.add_argument("--max-over-3sigma", type=float,
+                help="fail if more than this %% of samples have error > 3 x published sigma")
+ap.add_argument("--max-nees-median", type=float,
+                help="fail if the horizontal NEES median is above this (consistent: 1.39)")
+ap.add_argument("--max-nis-over9", type=float,
+                help="fail if more than this %% of TRN/AGL updates have NIS > 9 (consistent: 0.27)")
 a = ap.parse_args()
 
 text = open(a.report).read()
@@ -24,6 +32,12 @@ if not cep or not passing:
     sys.exit("could not find the MC summary lines in " + a.report)
 
 cep50, cep95 = float(cep.group(1)), float(cep.group(2))
+over3 = re.search(r"error > 3 x published sigma\s*([0-9.]+)%", text)
+nees = re.search(r"NEES mean\s*[0-9.]+\s+median\s*([0-9.]+)", text)
+nis9 = re.search(r"NIS > 9\s*([0-9.]+)%", text)
+wants = (a.max_over_3sigma, a.max_nees_median, a.max_nis_over9)
+if any(w is not None for w in wants) and not (over3 and nees and nis9):
+    sys.exit("consistency thresholds given, but no consistency lines in " + a.report)
 n_pass, n_all = int(passing.group(1)), int(passing.group(2))
 print(f"CEP50 {cep50:.1f} m, CEP95 {cep95:.1f} m, passing {n_pass}/{n_all}")
 
@@ -34,6 +48,15 @@ if a.max_cep95 is not None and cep95 > a.max_cep95:
     failures.append(f"CEP95 {cep95:.1f} m > {a.max_cep95} m")
 if a.min_passing is not None and n_pass < a.min_passing:
     failures.append(f"passing seeds {n_pass} < {a.min_passing}")
+if over3:
+    print(f"consistency: over 3 sigma {float(over3.group(1)):.2f}%, NEES median {float(nees.group(1)):.2f}, "
+          f"NIS > 9 {float(nis9.group(1)):.1f}%")
+if a.max_over_3sigma is not None and float(over3.group(1)) > a.max_over_3sigma:
+    failures.append(f"error > 3 sigma in {float(over3.group(1)):.2f}% of samples > {a.max_over_3sigma}%")
+if a.max_nees_median is not None and float(nees.group(1)) > a.max_nees_median:
+    failures.append(f"NEES median {float(nees.group(1)):.2f} > {a.max_nees_median}")
+if a.max_nis_over9 is not None and float(nis9.group(1)) > a.max_nis_over9:
+    failures.append(f"NIS > 9 in {float(nis9.group(1)):.1f}% of updates > {a.max_nis_over9}%")
 if failures:
     print("FAIL: " + "; ".join(failures))
     sys.exit(1)

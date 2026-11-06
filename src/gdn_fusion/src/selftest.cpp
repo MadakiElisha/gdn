@@ -7,6 +7,7 @@
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/consistency.hpp"
 #include "gdn/ground_monitor.hpp"
 
 using namespace gdn;
@@ -398,6 +399,43 @@ int main() {
                     err_imu, err_gnss);
         CHECK(err_imu < 0.3, "ground: take-off velocity right with IMU-driven ZUPT");
         CHECK(err_gnss > 0.5, "ground: control - GNSS-speed rule corrupts take-off velocity");
+    }
+
+    // TEST-019 (R1.5): consistency statistics against known distributions. Errors
+    // drawn from the covariance the "filter" reports must give the chi-square values;
+    // errors twice the reported sigma (overconfident by 2x) must be caught.
+    {
+        std::mt19937 rng(19);
+        std::normal_distribution<double> n01(0.0, 1.0);
+        Eigen::Matrix2d P; P << 25.0, 6.0, 6.0, 9.0;           // correlated, not round
+        const Eigen::Matrix2d L = P.llt().matrixL();
+        const double sig = std::sqrt(P.trace());
+        ConsistencyStats ok, over;
+        for (int i = 0; i < 200000; ++i) {
+            const Eigen::Vector2d z(n01(rng), n01(rng));
+            ok.AddPosition(L * z, P, sig);
+            over.AddPosition(2.0 * L * z, P, sig);
+            const double S = 4.0, in = std::sqrt(S) * n01(rng);
+            ok.AddInnovation(in, S); over.AddInnovation(2.0 * in, S);
+        }
+        std::printf("      consistent: NEES mean %.3f median %.3f >9 %.2f%%, over 3 sigma %.3f%%, NIS mean %.3f >9 %.2f%%\n",
+                    ok.nees_mean(), ok.nees_median(), ok.nees_over9_pct(), ok.over3sigma_pct(),
+                    ok.nis_mean(), ok.nis_over9_pct());
+        std::printf("      2x overconfident: NEES mean %.2f >9 %.1f%%, over 3 sigma %.2f%%, NIS mean %.2f\n",
+                    over.nees_mean(), over.nees_over9_pct(), over.over3sigma_pct(), over.nis_mean());
+        CHECK(std::abs(ok.nees_mean() - 2.0) < 0.03 && std::abs(ok.nees_median() - 1.386) < 0.03,
+              "consistency: TEST-019 NEES matches chi-square(2)");
+        CHECK(std::abs(ok.nees_over9_pct() - 1.11) < 0.1, "consistency: 1.1% outside the 3-sigma ellipse");
+        CHECK(ok.over3sigma_pct() < 0.1, "consistency: published-sigma check passes REQ-INT-001 when consistent");
+        CHECK(std::abs(ok.nis_mean() - 1.0) < 0.02 && std::abs(ok.nis_over9_pct() - 0.27) < 0.05,
+              "consistency: NIS matches chi-square(1)");
+        CHECK(over.nees_mean() > 7.5 && over.over3sigma_pct() > 1.0 && over.nis_mean() > 3.8,
+              "consistency: 2x overconfidence fails NEES, NIS and REQ-INT-001");
+        ConsistencyStats m; m.Merge(ok); m.Merge(over);
+        CHECK(m.positions() == 400000 && std::abs(m.nees_mean() - 0.5 * (ok.nees_mean() + over.nees_mean())) < 1e-9,
+              "consistency: merge pools samples");
+        ConsistencyStats z; z.AddPosition(Eigen::Vector2d(1.0, 0.0), Eigen::Matrix2d::Zero(), 0.0);
+        CHECK(z.nees_mean() > 1e9 && z.over3sigma_pct() == 100.0, "consistency: collapsed covariance flagged");
     }
 
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);

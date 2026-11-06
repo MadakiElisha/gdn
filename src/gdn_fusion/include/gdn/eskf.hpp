@@ -431,6 +431,7 @@ public:
     double baro_bias() const { return baro_bias_; }
     const V3& mag_bias() const { return mag_bias_; }
     double sigma_pos() const { return std::sqrt(P_(0, 0) + P_(1, 1)); }
+    Eigen::Matrix2d P_horiz() const { return P_.block<2, 2>(0, 0); }   // north/east (R1.5)
     double sigma_pos_z() const { return std::sqrt(P_(2, 2)); }
     double sigma_baro_bias() const { return std::sqrt(P_(15, 15)); }
     double MagInnovation(const V3& z_m) const {
