@@ -8,6 +8,8 @@
 #include <std_msgs/msg/float64.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <string>
 #include "gdn/map_db.hpp"
@@ -52,6 +54,12 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
             "--ros-args -p map_path:=/abs/path/to/map.bin", map_path.c_str());
         throw std::runtime_error("map load failed");
     }
+    // Local-frame origin (R1.3). Default: the map's grid centre. When the onboard map
+    // differs from the map the world or simulator uses, pass that frame's origin here so
+    // both name the same place by the same coordinates (bench.sh does, for GDN_DB_MAP).
+    const double o_lat = declare_parameter("origin_lat", std::numeric_limits<double>::quiet_NaN());
+    const double o_lon = declare_parameter("origin_lon", std::numeric_limits<double>::quiet_NaN());
+    if (std::isfinite(o_lat) && std::isfinite(o_lon)) map_.SetOrigin(o_lat, o_lon);
     RCLCPP_INFO(get_logger(), "DEM loaded %dx%d from %s (origin %.6f, %.6f), r_trn=%.0f",
                 map_.rows(), map_.cols(), map_path.c_str(), map_.lat_c(), map_.lon_c(), cfg.r_trn);
     eskf_ = std::make_unique<gdn::Eskf>(cfg);

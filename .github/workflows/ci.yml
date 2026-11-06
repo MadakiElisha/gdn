@@ -91,6 +91,17 @@ jobs:
         continue-on-error: true
         run: python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-over-3sigma 1 --max-nees-median 2.8
 
+      # R1.3: onboard map differs from the truth world (REQ-DB-002). An SRTM-like map
+      # (3x coarser, 6 m correlated noise, 3 m bias), 5 error patterns x 20 flights,
+      # pooled. Regression guard around TEST-020 (25.6 m, 91/100).
+      - name: Monte Carlo, Zermatt, degraded onboard maps (R1.3, 5 maps x 20 flights)
+        run: |
+          source env.sh
+          python3 tools/mc_map_ensemble.py --world data/maps/zermatt.bin --csv data/flight_zermatt_csv \
+            --recipe "--coarsen 3 --noise 6 --corr 200 --bias 3" --maps 5 --per-map 20 --tag ci_srtm \
+            -- --model=agl --startup=node | tee mc_zermatt_dbmap.txt
+          python3 tools/ci_check_mc.py mc_zermatt_dbmap.txt --max-cep50 35 --min-passing 80
+
       - name: Fetch flight001 (release data-v1)
         run: tools/fetch_data.sh
 

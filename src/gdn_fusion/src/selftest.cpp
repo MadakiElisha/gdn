@@ -1,4 +1,5 @@
 // Unit tests for the ROS-free navigation core.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -38,6 +39,31 @@ static void WritePlaneMap(const std::string& path, double slope_n, double base,
             const double n = (lat0 + i * dlat - lat_c) * MapDb::kMPerDegLat;
             const double e = (lon0 + j * dlon - lon_c) * m_lon;
             alt[static_cast<size_t>(i) * nx + j] = static_cast<float>(base + slope_n * n + slope_e * e);
+        }
+    f.write(reinterpret_cast<const char*>(alt.data()), 4LL * nx * ny);
+}
+
+// Map of a terrain defined in geographic coordinates, cut around (lat_c, lon_c), so two
+// maps with different centres sample the same ground (R1.3 shared-origin test).
+static void WriteGeoMap(const std::string& path, double lat_c, double lon_c) {
+    const int nx = 64, ny = 64;
+    const double dlat = 0.001, dlon = 0.001;
+    const double lat0 = lat_c - 0.032, lon0 = lon_c - 0.032;
+    std::ofstream f(path, std::ios::binary);
+    const int32_t a = nx, b = ny;
+    f.write(reinterpret_cast<const char*>(&a), 4);
+    f.write(reinterpret_cast<const char*>(&b), 4);
+    f.write(reinterpret_cast<const char*>(&lat0), 8);
+    f.write(reinterpret_cast<const char*>(&lon0), 8);
+    f.write(reinterpret_cast<const char*>(&dlat), 8);
+    f.write(reinterpret_cast<const char*>(&dlon), 8);
+    std::vector<float> alt(static_cast<size_t>(nx) * ny);
+    for (int i = 0; i < ny; ++i)
+        for (int j = 0; j < nx; ++j) {
+            const double n = (lat0 + i * dlat - 45.96) * MapDb::kMPerDegLat;
+            const double e = (lon0 + j * dlon - 7.64) * MapDb::kMPerDegLat * std::cos(45.96 * M_PI / 180.0);
+            alt[static_cast<size_t>(i) * nx + j] =
+                static_cast<float>(1000.0 + 0.2 * n + 50.0 * std::sin(n / 300.0) * std::cos(e / 400.0));
         }
     f.write(reinterpret_cast<const char*>(alt.data()), 4LL * nx * ny);
 }
@@ -436,6 +462,34 @@ int main() {
               "consistency: merge pools samples");
         ConsistencyStats z; z.AddPosition(Eigen::Vector2d(1.0, 0.0), Eigen::Matrix2d::Zero(), 0.0);
         CHECK(z.nees_mean() > 1e9 && z.over3sigma_pct() == 100.0, "consistency: collapsed covariance flagged");
+    }
+
+    // TEST-020 (R1.3): a truth world map and an onboard map with different grid centres
+    // must share one local frame. Same ground, centres 0.004 deg N and 0.003 deg E apart
+    // (about 450 m and 230 m). Control: each map's own centre as origin gives the same
+    // local coordinate two different places on Earth.
+    {
+        const std::string pw = "/tmp/gdn_selftest_geo_world.bin", pd = "/tmp/gdn_selftest_geo_db.bin";
+        WriteGeoMap(pw, 45.9632, 7.6440);
+        WriteGeoMap(pd, 45.96757, 7.64731);   // not a whole number of cells
+        MapDb world, db, db_own;
+        const bool ok = world.Load(pw) && db.Load(pd) && db_own.Load(pd);
+        db.SetOrigin(world.lat_c(), world.lon_c());
+        double worst = 0.0, worst_own = 0.0, worst_g = 0.0;
+        for (double n = -1200; n <= 1200; n += 97)
+            for (double e = -900; e <= 900; e += 83) {
+                const MapQuery qw = world.Query(n, e), qd = db.Query(n, e), qo = db_own.Query(n, e);
+                if (!(qw.ok && qd.ok && qo.ok)) continue;
+                worst = std::max(worst, std::abs(qw.h - qd.h));
+                worst_own = std::max(worst_own, std::abs(qw.h - qo.h));
+                worst_g = std::max(worst_g, std::hypot(qw.dn - qd.dn, qw.de - qd.de));
+            }
+        std::printf("      same ground, different centres: max height mismatch %.2f m with a shared origin, "
+                    "%.1f m with each map's own centre\n", worst, worst_own);
+        CHECK(ok && worst < 2.0 && worst_g < 0.05, "map_db: TEST-020 shared origin puts two maps in one frame");
+        CHECK(worst_own > 50.0, "map_db: control - own centres give the same coordinate different ground");
+        CHECK(std::abs(db.grid_centre_lat() - 45.96757) < 1e-9 && std::abs(db.lat_c() - world.lat_c()) < 1e-12,
+              "map_db: grid centre kept, origin moved");
     }
 
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);

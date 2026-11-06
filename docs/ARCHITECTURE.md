@@ -204,8 +204,12 @@ These are the main things standing between this and a fielded GNSS-denied stack.
   accuracy.
 - **The filter starts at the true position** (initial position sigma of about 10 m) and has no acquisition mode.
   Start errors above about 60 m fail.
-- **The Monte Carlo uses the same map for world and database.** Realistic DEM error
-  is not modelled.
+- **Map error is synthetic.** Since R1.3 the MC (`--db-map`) and bench (`GDN_DB_MAP`)
+  fly over a truth map and navigate with a different onboard map, built by
+  `tools/make_db_map.py` (noise, bias, coarser cells). Both maps come from the same
+  SRTM tile, though; a truly independent source (a 1 to 5 m DEM world against an SRTM
+  onboard map) arrives with the Gazebo worlds (R2.2). Correlated map noise is not
+  modelled in the filter, so it makes the filter overconfident (TEST-020).
 - **No integrity monitoring:** a lost filter can report a small sigma.
 - **Consistency:** `ApplyTrn` zeroes some state corrections but still contracts their
   covariance; the clamps do the same.

@@ -35,9 +35,10 @@ cep50, cep95 = float(cep.group(1)), float(cep.group(2))
 over3 = re.search(r"error > 3 x published sigma\s*([0-9.]+)%", text)
 nees = re.search(r"NEES mean\s*[0-9.]+\s+median\s*([0-9.]+)", text)
 nis9 = re.search(r"NIS > 9\s*([0-9.]+)%", text)
-wants = (a.max_over_3sigma, a.max_nees_median, a.max_nis_over9)
-if any(w is not None for w in wants) and not (over3 and nees and nis9):
-    sys.exit("consistency thresholds given, but no consistency lines in " + a.report)
+for want, found, what in ((a.max_over_3sigma, over3, "error > 3 x sigma"),
+                          (a.max_nees_median, nees, "NEES"), (a.max_nis_over9, nis9, "NIS")):
+    if want is not None and not found:
+        sys.exit(f"threshold on {what} given, but no {what} line in {a.report}")
 n_pass, n_all = int(passing.group(1)), int(passing.group(2))
 print(f"CEP50 {cep50:.1f} m, CEP95 {cep95:.1f} m, passing {n_pass}/{n_all}")
 
@@ -48,9 +49,10 @@ if a.max_cep95 is not None and cep95 > a.max_cep95:
     failures.append(f"CEP95 {cep95:.1f} m > {a.max_cep95} m")
 if a.min_passing is not None and n_pass < a.min_passing:
     failures.append(f"passing seeds {n_pass} < {a.min_passing}")
-if over3:
-    print(f"consistency: over 3 sigma {float(over3.group(1)):.2f}%, NEES median {float(nees.group(1)):.2f}, "
-          f"NIS > 9 {float(nis9.group(1)):.1f}%")
+if over3 or nees or nis9:
+    print("consistency:" + (f" over 3 sigma {float(over3.group(1)):.2f}%" if over3 else "")
+          + (f", NEES median {float(nees.group(1)):.2f}" if nees else "")
+          + (f", NIS > 9 {float(nis9.group(1)):.1f}%" if nis9 else ""))
 if a.max_over_3sigma is not None and float(over3.group(1)) > a.max_over_3sigma:
     failures.append(f"error > 3 sigma in {float(over3.group(1)):.2f}% of samples > {a.max_over_3sigma}%")
 if a.max_nees_median is not None and float(nees.group(1)) > a.max_nees_median:

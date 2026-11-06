@@ -89,6 +89,14 @@ int main(int argc_all, char** argv_all) {
     //                  R^T m_ref + hard iron (2,-1,1) uT + N(0, 2 uT), 10 Hz.
     //   --ground=imu|gnss  node start-up only: IMU ground monitor (default), or the
     //                  pre-R1.2 rule (ZUPT until GNSS speed > 2 m/s) for comparison
+    //   --db-map=PATH  onboard map the filter navigates with (R1.3). The positional map
+    //                  stays the truth world that measurements are simulated from.
+    //                  Default: the same file (no map error). The onboard map is put in
+    //                  the world map's frame (MapDb::SetOrigin). Build degraded maps with
+    //                  tools/make_data.sh --db-maps.
+    //   --seed0=N      first seed number (default 0): seeds N .. N+nseeds-1. Lets several
+    //                  runs (e.g. one per onboard map, tools/mc_map_ensemble.py) use
+    //                  distinct flight-noise draws.
     //   --trace=FILE   write every scored sample of every seed (0.5 s grid, from yaw
     //                  alignment on) as CSV: seed,t,x,y,tx,ty,err,sigma,nees.
     //                  tools/plot_consistency.py draws it.
@@ -99,8 +107,9 @@ int main(int argc_all, char** argv_all) {
     //                  as flight001 (bank, crab), whose CSVs carry no attitude truth.
     // Relative paths resolve against $GDN_ROOT (exported by env.sh).
     std::vector<char*> pos_args;
-    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "full", trace_path;
+    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "full", trace_path, db_arg;
     double baro_drift = 0.0, clearance = 30.0, w0 = 60.0, w1 = 300.0;
+    int seed0 = 0;
     gdn::EskfConfig cfg;   // defaults == node defaults
     for (int a = 0; a < argc_all; ++a) {
         const std::string s = argv_all[a];
@@ -109,6 +118,8 @@ int main(int argc_all, char** argv_all) {
         else if (s.rfind("--ground=", 0) == 0) ground_mode = s.substr(9);
         else if (s.rfind("--mag=", 0) == 0) mag_mode = s.substr(6);
         else if (s.rfind("--trace=", 0) == 0) trace_path = s.substr(8);
+        else if (s.rfind("--db-map=", 0) == 0) db_arg = s.substr(9);
+        else if (s.rfind("--seed0=", 0) == 0) seed0 = std::atoi(s.c_str() + 8);
         else if (s.rfind("--baro-drift=", 0) == 0) baro_drift = std::atof(s.c_str() + 13);
         else if (s.rfind("--clearance=", 0) == 0) clearance = std::atof(s.c_str() + 12);
         else if (s.rfind("--window=", 0) == 0) std::sscanf(s.c_str() + 9, "%lf,%lf", &w0, &w1);
@@ -140,6 +151,11 @@ int main(int argc_all, char** argv_all) {
     }
     gdn::MapDb world;
     if (!world.Load(map_path)) { std::printf("ERROR: cannot load %s\n", map_path.c_str()); return 1; }
+    // Onboard map (R1.3): what the filter predicts measurements from.
+    const std::string db_path = db_arg.empty() ? map_path : gdn::DataPath(db_arg);
+    gdn::MapDb db;
+    if (!db.Load(db_path)) { std::printf("ERROR: cannot load %s\n", db_path.c_str()); return 1; }
+    db.SetOrigin(world.lat_c(), world.lon_c());
 
     const std::vector<double>& it = imu["t"], ax = imu["ax"], ay = imu["ay"], az = imu["az"],
                                gx = imu["gx"], gy = imu["gy"], gz = imu["gz"];
@@ -175,7 +191,7 @@ int main(int argc_all, char** argv_all) {
     }
     int pass_seeds = 0;
 
-    for (int seed = 0; seed < nseeds; ++seed) {
+    for (int seed = seed0; seed < seed0 + nseeds; ++seed) {
         std::mt19937_64 rng(0x47444eULL + static_cast<uint64_t>(seed));
         std::normal_distribution<double> d_n5(0, 5), d_n2(0, 2),
                                          d_ba(0, 0.05), d_bg(0, 0.02 * gdn::Eskf::kDeg);
@@ -278,7 +294,7 @@ int main(int argc_all, char** argv_all) {
             const gdn::MapQuery wq = world.Query(lx[j], ly[j]);
             if (wq.ok) {
                 const double meas_ideal = wq.h + (diag_mode ? 0.0 : (d_n5(rng) - d_n2(rng)));
-                const gdn::MapQuery mq = world.Query(eskf.pos().x(), eskf.pos().y());
+                const gdn::MapQuery mq = db.Query(eskf.pos().x(), eskf.pos().y());
                 double innov = 0, S = 0;
                 const int kc = eskf.updates() + eskf.rejects();   // bench-equivalent k
                 gdn::Eskf::UpdResult res;
@@ -348,6 +364,12 @@ int main(int argc_all, char** argv_all) {
     }
 
     int in_spec = 0; for (double e : pool) if (e < 100.0) ++in_spec;
+    {
+        const std::string wn = map_path.substr(map_path.find_last_of('/') + 1);
+        const std::string dn = db_path.substr(db_path.find_last_of('/') + 1);
+        std::printf("maps: world %s, onboard %s%s\n", wn.c_str(), dn.c_str(),
+                    db_path == map_path ? " (same map: no map error)" : "");
+    }
     std::printf("MC campaign: %d seeds, model %s, startup %s%s, baro drift %.1f m, window %.0f-%.0f s, pooled n=%zu\n",
                 nseeds, model.c_str(), startup.c_str(),
                 node_startup ? (ground_mode == "imu" ? (mag_mode == "full" ? " (IMU ground, mag full)" : " (IMU ground, mag align)")
