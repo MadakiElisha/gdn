@@ -1,0 +1,16 @@
+# Sensitivity case (R1.6): the placeholder plus the bias drift PX4's Gazebo x500 IMU had
+# before Feb 2025 (gz models commit 1a73e1f removed it): dynamic_bias_stddev
+# 3.8785e-5 rad/s^2/sqrt(Hz) with a 1000 s correlation time (gyro), 0.006 m/s^3/sqrt(Hz)
+# with 300 s (accel). Used as a driving density, as PX4's Gazebo IMU plugin does: the
+# drift settles at 0.050 deg/s and 0.073 m/s^2 (1 sigma). Not a real sensor: it shows
+# how much an unknown drift costs.
+name: sensitivity-bias-drift
+source: placeholder-px4-default plus PX4's pre-2025 Gazebo bias drift
+accel_noise_density: [4.0287e-4, 4.0287e-4, 4.3386e-4]
+gyro_noise_density: [5.5192e-5, 5.5192e-5, 5.5192e-5]
+accel_bias_rw: 0.006
+accel_bias_tau: 300
+gyro_bias_rw: 3.8785e-5
+gyro_bias_tau: 1000
+accel_turn_on_sigma: 0.05
+gyro_turn_on_sigma: 3.4907e-4

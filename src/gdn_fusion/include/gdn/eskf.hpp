@@ -26,6 +26,12 @@ struct EskfConfig {
     double clamp_dva = 0.005;
     double clamp_dvg_deg = 0.05;
     double clamp_dvm = 5.0;      // uT per update (mag bias clamp)
+    // IMU process noise (densities). Tuned values, larger than the placeholder IMU's
+    // white noise because they also cover what the model leaves out (R1.6, TEST-022).
+    double q_accel_nd = 0.02;                   // m/s^2/sqrt(Hz)
+    double q_gyro_nd = 0.02 * M_PI / 180.0;     // rad/s/sqrt(Hz)
+    double q_accel_bias_rw = 5e-4;              // m/s^3/sqrt(Hz)
+    double q_gyro_bias_rw = 0.01 * M_PI / 180.0;  // rad/s^2/sqrt(Hz)
     double still_rate = 0.05;
     int    static_n = 500;
     double max_gyro_mean = 0.02;
@@ -84,10 +90,10 @@ public:
         mag_bias_ = V3::Zero();
         x_.setZero(); P_.setZero(); Qc_.setZero();
         sa_ = sw_ = sa2_ = V3::Zero();
-        Qc_.block<3,3>(3,3).diagonal().setConstant(0.02 * 0.02);
-        Qc_.block<3,3>(6,6).diagonal().setConstant((0.02*kDeg) * (0.02*kDeg));
-        Qc_.block<3,3>(9,9).diagonal().setConstant(5e-4 * 5e-4);
-        Qc_.block<3,3>(12,12).diagonal().setConstant((0.01*kDeg) * (0.01*kDeg));
+        Qc_.block<3,3>(3,3).diagonal().setConstant(cfg_.q_accel_nd * cfg_.q_accel_nd);
+        Qc_.block<3,3>(6,6).diagonal().setConstant(cfg_.q_gyro_nd * cfg_.q_gyro_nd);
+        Qc_.block<3,3>(9,9).diagonal().setConstant(cfg_.q_accel_bias_rw * cfg_.q_accel_bias_rw);
+        Qc_.block<3,3>(12,12).diagonal().setConstant(cfg_.q_gyro_bias_rw * cfg_.q_gyro_bias_rw);
         Qc_(15,15) = cfg_.q_baro_bias;
         Qc_.block<3,3>(16,16).diagonal().setConstant(cfg_.q_mag_bias);
     }

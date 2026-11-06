@@ -1,0 +1,18 @@
+# IMU model fitted by tools/allan_fit.py on 2026-11-06
+# from static_ph.csv: 2.00 h at 100 Hz, 0 gaps.
+# White noise and bias drift from the Allan deviation; turn-on bias NOT from this log
+# (one static log is one power-up), kept from --turn-on-accel / --turn-on-gyro.
+name: fitted-placeholder
+source: Allan fit of static_ph.csv, 2.0 h static
+accel_noise_density: [0.00040554, 0.00040304, 0.00043421]   # m/s^2/sqrt(Hz)
+gyro_noise_density: [5.5029e-05, 5.497e-05, 5.5352e-05]    # rad/s/sqrt(Hz)
+accel_bias_rw: 0     # m/s^3/sqrt(Hz)  (drift not resolved by this log)
+accel_bias_tau: 1
+gyro_bias_rw: 0      # rad/s^2/sqrt(Hz)  (drift not resolved by this log)
+gyro_bias_tau: 46.42
+accel_turn_on_sigma: 0.05
+gyro_turn_on_sigma: 0.00034907
+fit_hours: 2.000
+fit_rate_hz: 100.00
+fit_accel_bias_instability: 2.468e-05   # m/s^2, at tau 720 s
+fit_gyro_bias_instability: 2.617e-06    # rad/s, at tau 720 s

@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+"""Allan-variance fit of a static IMU log into a GDN IMU model file (R1.6).
+
+The model is the one gdn::ImuErrorSim simulates (src/gdn_fusion/include/gdn/imu_model.hpp):
+white noise N per axis plus a first-order Gauss-Markov bias drift (driving density K,
+correlation time tau). For each sensor the overlapping Allan deviation is computed per
+axis, N is fitted per axis and (K, tau) on the mean of the three axes, by weighted least
+squares on the exact Allan variance of that model. The bias instability B (minimum of
+the curve / 0.664) is also printed, to compare with a datasheet.
+
+    # a static log (at least 2 h, see config/imu/README.md):
+    python3 tools/allan_fit.py --bag log/h30wp_static --topic /fmu/out/sensor_combined \\
+        --name h30wp --out config/imu/h30wp.yaml --plot h30wp_allan.png
+    python3 tools/allan_fit.py --bag log/mid360_static --topic /livox/imu --accel-unit g \\
+        --name mid360 --out config/imu/mid360.yaml
+    python3 tools/allan_fit.py --csv log.csv ...       # t[s or us],ax,ay,az,gx,gy,gz
+    python3 tools/allan_fit.py --selfcheck             # recovers known parameters (CI)
+
+One static log can't show the turn-on bias (it is one draw); the output keeps the
+--turn-on-* values (default: the placeholder's) and says so.
+"""
+import argparse
+import csv
+import datetime
+import os
+import sys
+
+import numpy as np
+
+AXES = ("x", "y", "z")
+
+
+# ---------------------------------------------------------------- Allan variance ----
+def adev_curve(x, fs, n_points=60, max_frac=0.1):
+    """Overlapping Allan deviation of samples x at rate fs. Cluster sizes m are log-spaced
+    up to max_frac of the record. Returns tau, adev, number of independent clusters."""
+    x = np.asarray(x, dtype=np.float64)
+    n = x.size
+    c = np.concatenate([[0.0], np.cumsum(x - x.mean())])
+    ms = np.unique(np.logspace(0, np.log10(max(1, int(n * max_frac))), n_points).astype(int))
+    out = []
+    for m in ms:
+        d = c[2 * m:] - 2.0 * c[m:-m] + c[:-2 * m]
+        out.append(np.sqrt(np.mean(d * d) / (2.0 * m * m)))
+    return ms / fs, np.array(out), n / ms
+
+
+def gm_avar(K, tau, t):
+    """Allan variance of a first-order Gauss-Markov process (driving density K)."""
+    t = np.asarray(t, dtype=np.float64)
+    x = t / tau
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        big = K * K * tau * tau / t * (1.0 - (3.0 - 4.0 * np.exp(-x) + np.exp(-2.0 * x)) / (2.0 * x))
+    return np.where(x < 1e-3, K * K * t / 3.0, big)
+
+
+def model_adev(N, K, tau, t):
+    return np.sqrt(N * N / np.asarray(t) + gm_avar(K, tau, t))
+
+
+def fit_white_gm(t, avar, nclust, n_axes_white=None):
+    """Weighted LS of avar ~ N^2/t + K^2 g(t, tau) over a tau grid. Relative residuals,
+    weighted by sqrt(clusters). Returns N, K, tau (K = 0 when drift isn't resolved)."""
+    w = np.sqrt(np.maximum(nclust - 1.0, 1.0))
+    best = None
+    for tau in np.logspace(0, 5, 151):
+        A = np.stack([1.0 / t, gm_avar(1.0, tau, t)], axis=1) / avar[:, None] * w[:, None]
+        b = w
+        sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+        if sol[1] < 0:
+            sol = np.array([np.linalg.lstsq(A[:, :1], b, rcond=None)[0][0], 0.0])
+        if sol[0] < 0:
+            sol = np.array([0.0, np.linalg.lstsq(A[:, 1:], b, rcond=None)[0][0]])
+        r = np.linalg.norm(A @ sol - b)
+        if best is None or r < best[0]:
+            best = (r, sol, tau)
+    _, (n2, k2), tau = best
+    N, K = np.sqrt(max(n2, 0.0)), np.sqrt(max(k2, 0.0))
+    # Drift resolved only if it is a visible part of the curve at the longest tau.
+    tm = t[-1]
+    if K == 0.0 or gm_avar(K, tau, tm) < 0.25 * N * N / tm:
+        K = 0.0
+    return N, K, tau
+
+
+def bias_instability(t, adev):
+    i = int(np.argmin(adev))
+    return adev[i] / 0.664, t[i]
+
+
+# --------------------------------------------------------------------- loading ----
+def load_csv(path):
+    with open(path) as f:
+        r = csv.DictReader(f)
+        cols = {k: [] for k in ("t", "ax", "ay", "az", "gx", "gy", "gz")}
+        for row in r:
+            for k in cols:
+                cols[k].append(float(row[k]))
+    t = np.array(cols["t"])
+    if np.median(np.diff(t)) > 100.0:   # microseconds (GDN CSVs, PX4)
+        t = t * 1e-6
+    return t, np.stack([cols[k] for k in ("ax", "ay", "az")], 1), np.stack([cols[k] for k in ("gx", "gy", "gz")], 1)
+
+
+def load_bag(path, topic):
+    import yaml
+    import rosbag2_py
+    from rclpy.serialization import deserialize_message
+    from rosidl_runtime_py.utilities import get_message
+    sid = "mcap"
+    meta = os.path.join(path, "metadata.yaml")
+    if os.path.exists(meta):
+        info = yaml.safe_load(open(meta)).get("rosbag2_bag_information", {})
+        sid = info.get("storage_identifier", sid) or sid
+    reader = rosbag2_py.SequentialReader()
+    reader.open(rosbag2_py.StorageOptions(uri=path, storage_id=sid), rosbag2_py.ConverterOptions("", ""))
+    types = {m.name: m.type for m in reader.get_all_topics_and_types()}
+    if topic not in types:
+        sys.exit(f"topic {topic} not in bag (has: {', '.join(sorted(types))})")
+    typ = types[topic]
+    cls = get_message(typ)
+    t, a, g = [], [], []
+    while reader.has_next():
+        name, data, stamp = reader.read_next()
+        if name != topic:
+            continue
+        m = deserialize_message(data, cls)
+        if typ == "sensor_msgs/msg/Imu":
+            hs = m.header.stamp.sec + 1e-9 * m.header.stamp.nanosec
+            t.append(hs if hs > 0 else stamp * 1e-9)
+            a.append((m.linear_acceleration.x, m.linear_acceleration.y, m.linear_acceleration.z))
+            g.append((m.angular_velocity.x, m.angular_velocity.y, m.angular_velocity.z))
+        elif typ == "px4_msgs/msg/SensorCombined":
+            t.append(m.timestamp * 1e-6)
+            a.append(tuple(m.accelerometer_m_s2))
+            g.append(tuple(m.gyro_rad))
+        else:
+            sys.exit(f"{topic} is {typ}; supported: sensor_msgs/msg/Imu, px4_msgs/msg/SensorCombined")
+    return np.array(t), np.array(a), np.array(g)
+
+
+# ------------------------------------------------------------------------- fit ----
+def fit_log(t, acc, gyr, skip_s=0.0):
+    keep = t >= t[0] + skip_s
+    t, acc, gyr = t[keep], acc[keep], gyr[keep]
+    dt = np.diff(t)
+    fs = 1.0 / np.median(dt)
+    gaps = int(np.sum(dt > 1.5 / fs))
+    res = {"fs": fs, "hours": (t[-1] - t[0]) / 3600.0, "gaps": gaps, "n": t.size}
+    for key, data in (("accel", acc), ("gyro", gyr)):
+        curves = [adev_curve(data[:, i], fs) for i in range(3)]
+        tau = curves[0][0]
+        nclust = curves[0][2]
+        # Fit from 10 samples up: below that, sensor anti-alias filters bend the curve.
+        sel = tau >= 10.0 / fs
+        Ns = []
+        for c in curves:
+            N_i, _, _ = fit_white_gm(tau[sel], c[1][sel] ** 2, nclust[sel])
+            Ns.append(N_i)
+        mean_avar = np.mean([c[1] ** 2 for c in curves], axis=0)
+        N_m, K, tc = fit_white_gm(tau[sel], mean_avar[sel], nclust[sel])
+        if K > 0:   # refit each axis's N with the common drift held fixed
+            G = gm_avar(K, tc, tau[sel])
+            Ns = [_white_given_drift(tau[sel], c[1][sel] ** 2, G, nclust[sel]) for c in curves]
+        B, tB = bias_instability(tau, np.sqrt(mean_avar))
+        res[key] = {"tau": tau, "adev": [c[1] for c in curves], "N": np.array(Ns), "K": K, "tc": tc,
+                    "B": B, "tB": tB}
+    return res
+
+
+def _white_given_drift(t, avar, G, nclust):
+    """N for one axis with the drift part G of the Allan variance fixed: relative-weighted
+    LS of avar = N^2 / t + G (linear in N^2)."""
+    w = np.sqrt(np.maximum(nclust - 1.0, 1.0))
+    A = (1.0 / t) / avar * w
+    b = (avar - G) / avar * w
+    return float(np.sqrt(max(np.dot(A, b) / np.dot(A, A), 0.0)))
+
+
+def write_model(path, name, res, src, turn_on_a, turn_on_g):
+    a, g = res["accel"], res["gyro"]
+    with open(path, "w") as f:
+        f.write(f"# IMU model fitted by tools/allan_fit.py on {datetime.date.today().isoformat()}\n")
+        f.write(f"# from {os.path.basename(src.rstrip('/'))}: {res['hours']:.2f} h at {res['fs']:.0f} Hz, {res['gaps']} gaps.\n")
+        f.write("# White noise and bias drift from the Allan deviation; turn-on bias NOT from this log\n")
+        f.write("# (one static log is one power-up), kept from --turn-on-accel / --turn-on-gyro.\n")
+        f.write(f"name: {name}\n")
+        f.write(f"source: Allan fit of {os.path.basename(src.rstrip('/'))}, {res['hours']:.1f} h static\n")
+        f.write("accel_noise_density: [" + ", ".join(f"{v:.5g}" for v in a["N"]) + "]   # m/s^2/sqrt(Hz)\n")
+        f.write("gyro_noise_density: [" + ", ".join(f"{v:.5g}" for v in g["N"]) + "]    # rad/s/sqrt(Hz)\n")
+        f.write(f"accel_bias_rw: {a['K']:.5g}     # m/s^3/sqrt(Hz){'  (drift not resolved by this log)' if a['K'] == 0 else ''}\n")
+        f.write(f"accel_bias_tau: {a['tc']:.4g}\n")
+        f.write(f"gyro_bias_rw: {g['K']:.5g}      # rad/s^2/sqrt(Hz){'  (drift not resolved by this log)' if g['K'] == 0 else ''}\n")
+        f.write(f"gyro_bias_tau: {g['tc']:.4g}\n")
+        f.write(f"accel_turn_on_sigma: {turn_on_a:.5g}\n")
+        f.write(f"gyro_turn_on_sigma: {turn_on_g:.5g}\n")
+        f.write(f"fit_hours: {res['hours']:.3f}\n")
+        f.write(f"fit_rate_hz: {res['fs']:.2f}\n")
+        f.write(f"fit_accel_bias_instability: {a['B']:.4g}   # m/s^2, at tau {a['tB']:.3g} s\n")
+        f.write(f"fit_gyro_bias_instability: {g['B']:.4g}    # rad/s, at tau {g['tB']:.3g} s\n")
+
+
+def write_adev_csv(path, res):
+    with open(path, "w") as f:
+        f.write("sensor,tau,adev_x,adev_y,adev_z\n")
+        for key in ("accel", "gyro"):
+            r = res[key]
+            for i, t in enumerate(r["tau"]):
+                f.write(f"{key},{t:.6g},{r['adev'][0][i]:.6g},{r['adev'][1][i]:.6g},{r['adev'][2][i]:.6g}\n")
+
+
+def report(res):
+    print(f"log: {res['hours']:.2f} h at {res['fs']:.1f} Hz, {res['n']} samples, {res['gaps']} gaps")
+    for key, unit, rw in (("accel", "m/s^2/sqrt(Hz)", "m/s^3/sqrt(Hz)"), ("gyro", "rad/s/sqrt(Hz)", "rad/s^2/sqrt(Hz)")):
+        r = res[key]
+        drift = (f"drift K {r['K']:.3g} {rw}, tau {r['tc']:.0f} s (settles at {r['K'] * np.sqrt(r['tc'] / 2):.3g})"
+                 if r["K"] > 0 else "drift not resolved")
+        print(f"{key:5s}: N = " + ", ".join(f"{v:.3g}" for v in r["N"]) + f" {unit}; {drift}; "
+              f"bias instability {r['B']:.3g} at {r['tB']:.3g} s")
+    if res["hours"] < 1.99:
+        print("WARNING: shorter than the 2 h R1.6 asks for; drift terms are poorly constrained")
+
+
+def plot(path, res, title):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    C = ("#2a78d6", "#eb6834", "#1baf7a")
+    INK2, GRID, SURF = "#52514e", "#d9d8d4", "#fcfcfb"
+    fig, axs = plt.subplots(1, 2, figsize=(12, 4.6), facecolor=SURF)
+    for ax, key, unit in ((axs[0], "accel", "m/s^2"), (axs[1], "gyro", "rad/s")):
+        r = res[key]
+        for i in range(3):
+            ax.loglog(r["tau"], r["adev"][i], "o", ms=3.5, color=C[i], label=f"{AXES[i]} axis")
+        tt = np.logspace(np.log10(r["tau"][0]), np.log10(r["tau"][-1]), 200)
+        ax.loglog(tt, model_adev(np.mean(r["N"]), r["K"], r["tc"], tt), "-", color="#0b0b0b", lw=1.5,
+                  label="fitted model")
+        ax.set_xlabel("averaging time tau [s]"); ax.set_ylabel(f"Allan deviation [{unit}]")
+        ax.grid(True, which="both", color=GRID, lw=0.5); ax.set_title(key, loc="left")
+        ax.legend(fontsize=8.5)
+    fig.suptitle(title, x=0.01, ha="left", color=INK2)
+    fig.savefig(path, dpi=120, facecolor=SURF, bbox_inches="tight")
+
+
+# ------------------------------------------------------------------- selfcheck ----
+def selfcheck():
+    """Synthetic 2 h logs with known parameters (the placeholder and the bias-drift
+    sensitivity case of config/imu/): the fit must recover them."""
+    from scipy.signal import lfilter
+    rng = np.random.default_rng(7)
+    fs, hours = 100.0, 2.0
+    n = int(hours * 3600 * fs)
+    t = np.arange(n) / fs
+    cases = (("placeholder", 4.03e-4, 0.0, 300.0, 5.52e-5, 0.0, 1000.0),
+             ("bias drift", 4.03e-4, 0.006, 300.0, 5.52e-5, 3.8785e-5, 1000.0))
+    ok = True
+
+    def sim(N, K, tc):
+        x = N * np.sqrt(fs) * rng.standard_normal((n, 3))
+        if K > 0:
+            dt = 1.0 / fs
+            phi = np.exp(-dt / tc)
+            sd = np.sqrt(-K * K * tc / 2.0 * np.expm1(-2.0 * dt / tc))
+            x += lfilter([sd], [1.0, -phi], rng.standard_normal((n, 3)), axis=0)
+        return x
+
+    for name, Na, Ka, ta, Ng, Kg, tg in cases:
+        res = fit_log(t, sim(Na, Ka, ta), sim(Ng, Kg, tg))
+        for key, N, K, tc in (("accel", Na, Ka, ta), ("gyro", Ng, Kg, tg)):
+            r = res[key]
+            eN = np.max(np.abs(r["N"] / N - 1.0))
+            if K > 0:
+                s_true, s_fit = K * np.sqrt(tc / 2), r["K"] * np.sqrt(r["tc"] / 2)
+                good = eN < 0.05 and r["K"] > 0 and abs(s_fit / s_true - 1.0) < 0.35
+                msg = f"drift settles at {s_fit:.3g} (true {s_true:.3g}), tau {r['tc']:.0f} s (true {tc:.0f})"
+            else:
+                good = eN < 0.05 and r["K"] == 0.0
+                msg = "no drift found" if r["K"] == 0 else f"found drift K={r['K']:.3g} that isn't there"
+            print(f"{'PASS' if good else 'FAIL'}  allan: {name:11s} {key:5s} N off by {100 * eN:.1f}%, {msg}")
+            ok &= good
+    print("ALLAN SELFCHECK PASSED" if ok else "ALLAN SELFCHECK FAILED")
+    return ok
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--csv", help="CSV with t (s or us), ax, ay, az, gx, gy, gz")
+    src.add_argument("--bag", help="rosbag2 directory (needs --topic)")
+    src.add_argument("--selfcheck", action="store_true", help="fit synthetic logs with known parameters")
+    ap.add_argument("--topic", help="sensor_msgs/msg/Imu or px4_msgs/msg/SensorCombined topic in --bag")
+    ap.add_argument("--accel-unit", choices=("mps2", "g"), default="mps2", help="Livox drivers publish g")
+    ap.add_argument("--gyro-unit", choices=("rads", "dps"), default="rads")
+    ap.add_argument("--skip", type=float, default=0.0, help="seconds to drop at the start (warm-up)")
+    ap.add_argument("--name", default="fitted-imu", help="model name, printed with every result that uses it")
+    ap.add_argument("--out", help="write the model file (config/imu/NAME.yaml)")
+    ap.add_argument("--adev-csv", help="write the Allan deviation curves")
+    ap.add_argument("--plot", help="write a PNG of the curves and the fit")
+    ap.add_argument("--turn-on-accel", type=float, default=0.05, help="m/s^2 (not observable in one log)")
+    ap.add_argument("--turn-on-gyro", type=float, default=0.02 * np.pi / 180, help="rad/s (not observable in one log)")
+    a = ap.parse_args()
+    if a.selfcheck:
+        sys.exit(0 if selfcheck() else 1)
+    if a.bag and not a.topic:
+        ap.error("--bag needs --topic")
+    t, acc, gyr = load_csv(a.csv) if a.csv else load_bag(a.bag, a.topic)
+    if a.accel_unit == "g":
+        acc = acc * 9.80665
+    if a.gyro_unit == "dps":
+        gyr = np.deg2rad(gyr)
+    g = np.linalg.norm(acc.mean(axis=0))
+    if not 9.0 < g < 10.6:
+        print(f"WARNING: mean specific force {g:.2f} m/s^2, not about 9.81: check --accel-unit")
+    spread_a, peak_w = np.std(np.linalg.norm(acc, axis=1)), np.max(np.abs(gyr - gyr.mean(axis=0)))
+    if spread_a > 0.2 or peak_w > 0.1:
+        print(f"WARNING: not a static log (|a| spread {spread_a:.2f} m/s^2, gyro peak {peak_w:.2f} rad/s): "
+              "the fit describes motion, not sensor noise")
+    res = fit_log(t, acc, gyr, a.skip)
+    report(res)
+    src_name = a.csv or a.bag
+    if a.out:
+        write_model(a.out, a.name, res, src_name, a.turn_on_accel, a.turn_on_gyro)
+        print(f"wrote {a.out}")
+    if a.adev_csv:
+        write_adev_csv(a.adev_csv, res)
+    if a.plot:
+        plot(a.plot, res, f"{a.name}: Allan deviation of {os.path.basename(src_name.rstrip('/'))}")
+        print(f"wrote {a.plot}")
+
+
+if __name__ == "__main__":
+    main()

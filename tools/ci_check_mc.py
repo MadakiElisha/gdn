@@ -3,6 +3,7 @@
 
     python3 tools/ci_check_mc.py mc.txt --max-cep50 20 --min-passing 17
     python3 tools/ci_check_mc.py mc.txt --max-over-3sigma 1 --max-nees-median 2.8
+    python3 tools/ci_check_mc.py mc.txt --expect-imu placeholder-px4-default
 
 Reads the summary lines printed by mc_campaign. The thresholds are regression
 guards around today's baseline, not the requirements in docs/requirements.md.
@@ -23,6 +24,9 @@ ap.add_argument("--max-nees-median", type=float,
                 help="fail if the horizontal NEES median is above this (consistent: 1.39)")
 ap.add_argument("--max-nis-over9", type=float,
                 help="fail if more than this %% of TRN/AGL updates have NIS > 9 (consistent: 0.27)")
+# R1.6: results are labelled with the IMU model they used ("imu: NAME ..." line).
+ap.add_argument("--expect-imu",
+                help="fail unless the report's imu: line names this model (e.g. placeholder-px4-default, recorded)")
 a = ap.parse_args()
 
 text = open(a.report).read()
@@ -43,6 +47,10 @@ n_pass, n_all = int(passing.group(1)), int(passing.group(2))
 print(f"CEP50 {cep50:.1f} m, CEP95 {cep95:.1f} m, passing {n_pass}/{n_all}")
 
 failures = []
+imu = re.search(r"^imu: (\S+)", text, re.M)
+print("imu: " + (imu.group(1) if imu else "(no imu: line)"))
+if a.expect_imu is not None and (not imu or imu.group(1) != a.expect_imu):
+    failures.append(f"IMU model {imu.group(1) if imu else 'not stated'}, expected {a.expect_imu}")
 if a.max_cep50 is not None and cep50 > a.max_cep50:
     failures.append(f"CEP50 {cep50:.1f} m > {a.max_cep50} m")
 if a.max_cep95 is not None and cep95 > a.max_cep95:

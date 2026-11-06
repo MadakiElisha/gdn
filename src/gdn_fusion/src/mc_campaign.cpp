@@ -16,6 +16,7 @@
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
 #include "gdn/consistency.hpp"
+#include "gdn/imu_model.hpp"
 #include "gdn/ground_monitor.hpp"
 #include "gdn/paths.hpp"
 
@@ -110,9 +111,23 @@ int main(int argc_all, char** argv_all) {
     //                  simulated mag assumes level flight along the velocity vector, true
     //                  for the synthetic Zermatt flight but not for a real recording such
     //                  as flight001 (bank, crab), whose CSVs carry no attitude truth.
+    //   --imu=auto|recorded|placeholder|FILE  IMU errors (R1.6). recorded: imu.csv as
+    //                  logged plus one constant offset per flight (the pre-R1.6 MC).
+    //                  placeholder: the generic MEMS placeholder (PX4's default IMU noise,
+    //                  config/imu/placeholder_px4_default.yaml) applied to the flight's
+    //                  error-free imu_truth.csv. FILE: any config/imu/ model. auto
+    //                  (default): placeholder when imu_truth.csv exists (synthetic
+    //                  flights), else recorded (a real log's IMU errors are the real ones).
+    //                  The "imu:" line of the report names what was used.
+    //   --q-ba=K, --q-bg=K  filter accel-bias (m/s^3/sqrt(Hz)) and gyro-bias
+    //                  (deg/s^2/sqrt(Hz)) random walk, for sweeps.
+    //   --q-imu=match  set the filter's IMU process noise from the IMU model (white
+    //                  noise; bias random walk where the model has drift) instead of the
+    //                  tuned EskfConfig values.
     // Relative paths resolve against $GDN_ROOT (exported by env.sh).
     std::vector<char*> pos_args;
     std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "auto", trace_path, db_arg;
+    std::string imu_arg = "auto", q_imu;
     double baro_drift = 0.0, clearance = 30.0, w0 = 60.0, w1 = 300.0;
     int seed0 = 0;
     double hard_iron = 0.15;
@@ -125,6 +140,8 @@ int main(int argc_all, char** argv_all) {
         else if (s.rfind("--mag=", 0) == 0) mag_mode = s.substr(6);
         else if (s.rfind("--trace=", 0) == 0) trace_path = s.substr(8);
         else if (s.rfind("--db-map=", 0) == 0) db_arg = s.substr(9);
+        else if (s.rfind("--imu=", 0) == 0) imu_arg = s.substr(6);
+        else if (s.rfind("--q-imu=", 0) == 0) q_imu = s.substr(8);
         else if (s.rfind("--seed0=", 0) == 0) seed0 = std::atoi(s.c_str() + 8);
         else if (s.rfind("--hard-iron=", 0) == 0) hard_iron = std::atof(s.c_str() + 12);
         else if (s.rfind("--baro-drift=", 0) == 0) baro_drift = std::atof(s.c_str() + 13);
@@ -133,6 +150,8 @@ int main(int argc_all, char** argv_all) {
         else if (s.rfind("--q-baro=", 0) == 0) cfg.q_baro_bias = std::atof(s.c_str() + 9);
         else if (s.rfind("--r-agl=", 0) == 0) cfg.r_agl = std::atof(s.c_str() + 8);
         else if (s.rfind("--r-trn=", 0) == 0) cfg.r_trn = std::atof(s.c_str() + 8);
+        else if (s.rfind("--q-ba=", 0) == 0) cfg.q_accel_bias_rw = std::atof(s.c_str() + 7);
+        else if (s.rfind("--q-bg=", 0) == 0) cfg.q_gyro_bias_rw = std::atof(s.c_str() + 7) * gdn::Eskf::kDeg;
         else if (s.rfind("--", 0) == 0) { std::printf("ERROR: unknown option %s\n", s.c_str()); return 1; }
         else pos_args.push_back(argv_all[a]);
     }
@@ -151,8 +170,42 @@ int main(int argc_all, char** argv_all) {
     const std::string csv_dir = gdn::DataPath(argc > 2 ? argv[2] : "data/flight001_csv");
     const std::string map_path = gdn::DataPath(argc > 3 ? argv[3] : gdn::kDefaultMap);
 
+    // IMU errors (R1.6).
+    const bool have_truth_imu = static_cast<bool>(std::ifstream(csv_dir + "/imu_truth.csv"));
+    if (imu_arg == "auto") imu_arg = have_truth_imu ? "placeholder" : "recorded";
+    const bool use_imu_model = imu_arg != "recorded";
+    gdn::ImuNoiseModel imu_model;
+    if (imu_arg == "placeholder") {
+        imu_model = gdn::ImuPlaceholder();
+    } else if (use_imu_model) {
+        std::string err;
+        if (!gdn::LoadImuModel(gdn::DataPath(imu_arg), &imu_model, &err)) {
+            std::printf("ERROR: --imu: %s\n", err.c_str()); return 1;
+        }
+    }
+    if (use_imu_model && !have_truth_imu) {
+        std::printf("ERROR: --imu=%s needs an error-free IMU (imu_truth.csv) in %s. A recorded flight's\n"
+                    "  IMU already carries the real sensor's errors: use --imu=recorded.\n",
+                    imu_arg.c_str(), csv_dir.c_str());
+        return 1;
+    }
+    if (!q_imu.empty() && (q_imu != "match" || !use_imu_model)) {
+        std::printf("ERROR: --q-imu=match is the only value, and needs an IMU model (--imu)\n"); return 1;
+    }
+    if (q_imu == "match") {
+        cfg.q_accel_nd = imu_model.accel_noise_density.maxCoeff();
+        cfg.q_gyro_nd = imu_model.gyro_noise_density.maxCoeff();
+        if (imu_model.accel_bias_rw > 0) cfg.q_accel_bias_rw = imu_model.accel_bias_rw;
+        if (imu_model.gyro_bias_rw > 0) cfg.q_gyro_bias_rw = imu_model.gyro_bias_rw;
+    }
+    if (use_imu_model)
+        std::printf("imu: %s (%s) on imu_truth.csv%s\n", imu_model.name.c_str(), imu_model.source.c_str(),
+                    q_imu == "match" ? "; filter process noise matched to it" : "");
+    else
+        std::printf("imu: recorded (imu.csv as logged, plus a per-flight offset of 0.05 m/s^2 and 0.02 deg/s)\n");
+
     Table imu, lpos;
-    if (!imu.Load(csv_dir + "/imu.csv") || !lpos.Load(csv_dir + "/lpos.csv")) {
+    if (!imu.Load(csv_dir + (use_imu_model ? "/imu_truth.csv" : "/imu.csv")) || !lpos.Load(csv_dir + "/lpos.csv")) {
         std::printf("ERROR: cannot load imu.csv/lpos.csv from %s\n"
                     "  (flight001: tools/fetch_data.sh; zermatt: tools/make_data.sh)\n", csv_dir.c_str()); return 1;
     }
@@ -210,6 +263,14 @@ int main(int argc_all, char** argv_all) {
         const Eigen::Vector3d bg_off = zero_bias ? Eigen::Vector3d::Zero()
                                : Eigen::Vector3d(d_bg(rng), d_bg(rng), d_bg(rng));
 
+        // Placeholder / file model: the same per-flight turn-on draws, scaled to the
+        // model's sigma, so the other random streams are unchanged; noise and drift from
+        // a stream of their own.
+        gdn::ImuErrorSim imu_sim(imu_model, 0x494d55ULL + static_cast<uint64_t>(seed));
+        if (use_imu_model)
+            imu_sim.SetTurnOn(ba_off * (imu_model.accel_turn_on_sigma / 0.05),
+                              bg_off * (imu_model.gyro_turn_on_sigma / (0.02 * gdn::Eskf::kDeg)));
+
         gdn::Eskf eskf(cfg);                 // default config == bench config
         double prev_t = -1.0, se = 0.0, smax = 0.0; int sn = 0, last_k = -1;
         bool yaw_done = false; size_t j = 0;
@@ -231,8 +292,13 @@ int main(int argc_all, char** argv_all) {
 
         for (size_t i = 0; i < it.size(); ++i) {
             const double t = (it[i] - t0) * 1e-6;
-            const Eigen::Vector3d a_m(ax[i] + ba_off.x(), ay[i] + ba_off.y(), az[i] + ba_off.z());
-            const Eigen::Vector3d w_m(gx[i] + bg_off.x(), gy[i] + bg_off.y(), gz[i] + bg_off.z());
+            Eigen::Vector3d a_m(ax[i], ay[i], az[i]), w_m(gx[i], gy[i], gz[i]);
+            if (use_imu_model) {
+                const size_t i0 = i > 0 ? i - 1 : 0, i1 = i > 0 ? i : 1;
+                imu_sim.Corrupt(&a_m, &w_m, (it[i1] - it[i0]) * 1e-6);
+            } else {
+                a_m += ba_off; w_m += bg_off;
+            }
             if (!eskf.aligned()) {
             if (eskf.FeedStatic(a_m, w_m)) {
                 ground.Start(eskf.RestSpecificForce(), eskf.gyro_bias());

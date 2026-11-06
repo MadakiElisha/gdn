@@ -60,6 +60,14 @@ Reproduce with `tools/sim_run.sh`, then `tools/sim_replay.sh` on the bag
 it records. Note that bag replays of the same flight vary by roughly 40% between
 runs because playback timing isn't deterministic.
 
+### OI-013: filter accel-bias random walk not yet set from a real IMU (open)
+`EskfConfig::q_accel_bias_rw` (5e-4 m/s^3/sqrt(Hz)) is a tuned value. TEST-022 shows it
+is the IMU setting GDN is most sensitive to. With PX4's pre-2025 Gazebo bias drift
+(0.006, tau 300 s) the filter falls to 94/100 Zermatt flights and 8.7% over 3 sigma.
+4e-3 restores 100/100 and 0.43%, and improves the real flight001 IMU (CEP95 61.5 to
+55.7 m), but costs a little on SRTM-like onboard maps (96 to 94 flights). Set it from
+the H30WP Allan fit (R1.6, `config/imu/README.md`) and re-run the TEST-022 sweep.
+
 ## Closed
 
 ### OI-002: vertical channel unobservable (closed)

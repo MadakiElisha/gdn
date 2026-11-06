@@ -38,6 +38,11 @@ add_executable(mc_campaign src/mc_campaign.cpp)
 target_link_libraries(mc_campaign Eigen3::Eigen)
 target_include_directories(mc_campaign PRIVATE include)
 
+# Simulated static IMU log from a model file (ROS-free, R1.6)
+add_executable(imu_sim src/imu_sim.cpp)
+target_link_libraries(imu_sim Eigen3::Eigen)
+target_include_directories(imu_sim PRIVATE include)
+
 # Selftest (ROS-free)
 add_executable(gdn_selftest src/selftest.cpp)
 target_link_libraries(gdn_selftest Eigen3::Eigen)
@@ -53,12 +58,14 @@ install(TARGETS eskf_node_component
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
-install(TARGETS eskf_node gdn_selftest mc_campaign map_viz_node
+install(TARGETS eskf_node gdn_selftest mc_campaign imu_sim map_viz_node
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 
 # `colcon test --packages-select gdn_fusion` runs the ROS-free selftest.
 if(BUILD_TESTING)
   add_test(NAME gdn_selftest COMMAND gdn_selftest)
+  # TEST-022 reads config/imu/*.yaml from the repo root.
+  set_tests_properties(gdn_selftest PROPERTIES ENVIRONMENT "GDN_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/../..")
 endif()
 
 ament_package()
