@@ -47,6 +47,27 @@ apart (not a whole number of cells): with a shared origin they agree to 0.71 m (
 bilinear sampling difference) and their gradients match; with each map's own centre
 they disagree by 165 m. The control fails as expected; the shared frame passes.
 
+## What the maps look like
+
+![Truth map, SRTM-like onboard map, and their difference](test020_maps.png)
+
+Left: the ground the simulated aircraft flies over. Middle: the onboard map GDN
+navigates with, three times coarser and with error added. Right: onboard minus truth
+on the same frame. Grey is no error, red means the onboard map is too high, blue too
+low. The error comes in patches a few hundred metres wide, with up to 58 m on sharp
+ridges where the coarse cells average a peak away. The black line is the flight.
+
+## Results at a glance
+
+![Flights passing and REQ-INT-001 per onboard map, and the spread across maps](test020_results.png)
+
+Top left: share of flights staying under 100 m for each kind of onboard map. Top
+right: share of time the truth was outside GDN's claimed 3-sigma circle (log scale;
+below the dashed 1% line is honest, REQ-INT-001). Bottom: each dot is one onboard map
+with 20 flights over it. The wide spread, most of all at 10 m of noise, is why every
+result here pools 10 maps. Drawn by `tools/plot_map_error.py` from the ensemble outputs
+in `test020_data/`.
+
 ## Results: Zermatt, AGL model, node start-up
 
 Each row pools 10 onboard maps (different error patterns) x 20 flights = 200 flights,
@@ -154,4 +175,9 @@ python3 tools/mc_map_ensemble.py --world data/maps/zermatt.bin --csv data/flight
     --recipe "--noise 5 --corr 150" --maps 10 --per-map 20 -- --model=agl --startup=node
 GDN_BAG=data/flight_zermatt GDN_MAP=data/maps/zermatt.bin \
     GDN_DB_MAP=data/maps/zermatt_db_srtm.bin tools/bench.sh
+python3 tools/plot_map_error.py      # redraws both figures from test020_data/
 ```
+
+The files in `test020_data/` are the `mc_map_ensemble.py` outputs behind the tables:
+`z_*` for Zermatt (`--model=agl --startup=node`) and `f1_*` for flight001
+(`--model=agl --baro-drift=5`), each 10 maps x 20 flights, recipes as in the tables.

@@ -1,0 +1,15 @@
+map  0: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 19/20
+map  1: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 15/20
+map  2: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 18/20
+map  3: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 18/20
+map  4: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 18/20
+map  5: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 15/20
+map  6: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 20/20
+map  7: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 19/20
+map  8: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 17/20
+map  9: mean -0.2 m, RMS 2.3 m, max 16.5 m | (<100 m): 17/20
+map ensemble: 10 maps x 20 flights, recipe '--coarsen 3', mc: --model=agl --baro-drift=5, pooled n=96200
+CEP50: 49.4 m  CEP95: 758.9 m  MAX: 4204.7 m  in-spec(<100 m): 79.3%
+per-seed RMS: median 64.0 m  p95 1587.0 m  worst 2215.3 m  passing(<100 m): 176/200
+consistency: NEES mean 467.25 median 1.83 (consistent: 2, 1.39), outside 3-sigma ellipse 13.2% (1.1%)
+consistency: error > 3 x published sigma 10.16% (REQ-INT-001: at most 1%)
