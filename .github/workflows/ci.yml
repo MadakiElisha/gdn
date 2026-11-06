@@ -66,23 +66,29 @@ jobs:
       - name: Data checksums and map rebuild
         run: tools/make_data.sh --verify-maps
 
+      # R1.6: the Zermatt flight has an error-free IMU (imu_truth.csv), so its MC runs use
+      # the generic MEMS placeholder (PX4's default IMU noise) and say so; flight001 is a
+      # real log and keeps its recorded IMU. --expect-imu fails a step whose label differs.
+      - name: IMU model and Allan fit self-check (R1.6)
+        run: python3 tools/allan_fit.py --selfcheck
+
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin | tee mc.txt
-          python3 tools/ci_check_mc.py mc.txt --max-cep50 20 --min-passing 17
+          python3 tools/ci_check_mc.py mc.txt --max-cep50 20 --min-passing 17 --expect-imu placeholder-px4-default
 
       - name: Monte Carlo, Zermatt, 24 seeds (AGL model, R1.1)
         run: |
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl | tee mc_zermatt_agl.txt
-          python3 tools/ci_check_mc.py mc_zermatt_agl.txt --max-cep50 25 --min-passing 15
+          python3 tools/ci_check_mc.py mc_zermatt_agl.txt --max-cep50 25 --min-passing 15 --expect-imu placeholder-px4-default
 
       - name: Monte Carlo, Zermatt, 24 seeds (AGL model, node start-up path, R1.2)
         run: |
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl --startup=node | tee mc_zermatt_node.txt
-          python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-cep50 15 --min-passing 19
+          python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-cep50 15 --min-passing 19 --expect-imu placeholder-px4-default
 
       # R1.5/R1.4: REQ-INT-001 (error > 3 x published sigma in at most 1% of samples)
       # on Zermatt, node start-up. Blocking since R1.4 (TEST-021: 0.00% on these 24
@@ -99,7 +105,7 @@ jobs:
           python3 tools/mc_map_ensemble.py --world data/maps/zermatt.bin --csv data/flight_zermatt_csv \
             --recipe "--coarsen 3 --noise 6 --corr 200 --bias 3" --maps 5 --per-map 20 --tag ci_srtm \
             -- --model=agl --startup=node | tee mc_zermatt_dbmap.txt
-          python3 tools/ci_check_mc.py mc_zermatt_dbmap.txt --max-cep50 35 --min-passing 80
+          python3 tools/ci_check_mc.py mc_zermatt_dbmap.txt --max-cep50 35 --min-passing 80 --expect-imu placeholder-px4-default
 
       - name: Fetch flight001 (release data-v1)
         run: tools/fetch_data.sh
@@ -109,7 +115,7 @@ jobs:
           source env.sh
           tools/mc_run.sh 100 data/flight001_csv data/maps/terrain_db_sigma4.bin --model=agl --baro-drift=5 | tee mc_flight001_agl.txt
           python3 tools/ci_check_mc.py mc_flight001_agl.txt --max-cep50 32 --max-cep95 80 --min-passing 97 \
-            --max-over-3sigma 1 --max-nees-median 2.8 --max-nis-over9 1
+            --max-over-3sigma 1 --max-nees-median 2.8 --max-nis-over9 1 --expect-imu recorded
 
       - name: Keep MC report
         if: always()

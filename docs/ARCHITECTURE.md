@@ -166,6 +166,17 @@ int32 nx, int32 ny, float64 lat0, lon0, dlat, dlon, float32 alt[ny*nx]  (row-maj
 
 All simulators use fixed seeds for replay parity.
 
+**IMU error model (R1.6, TEST-022).** `gdn/imu_model.hpp` defines the model: white noise
+per axis, Gauss-Markov bias drift and turn-on bias. It reads model files from
+`config/imu/` and applies them (`ImuErrorSim`). The Monte Carlo uses it on flights that
+have an error-free IMU (`imu_truth.csv`, written by `gen_zermatt_flight.py`); real logs
+keep their recorded IMU (`mc_campaign --imu`). Until the H30WP, Mid-360S and OAK-D Lite
+have been fitted (`tools/allan_fit.py`), the model is the generic MEMS placeholder,
+PX4 v1.16's default simulated IMU, and every MC report names it on its `imu:` line. The
+filter's IMU process noise is in `EskfConfig` (`q_accel_nd`, `q_gyro_nd`,
+`q_accel_bias_rw`, `q_gyro_bias_rw`). The Gazebo x500 already carries PX4's white noise;
+model files for Gazebo arrive with R2.4.
+
 ## Validation ledger
 
 - **Selftest** (31 checks; `tools/run_selftest.sh` runs them at -O2 and -O3,

@@ -44,6 +44,7 @@ out_dir = ROOT / "data/maps/ensemble"
 out_dir.mkdir(parents=True, exist_ok=True)
 env = {"GDN_ROOT": str(ROOT), "PATH": "/usr/bin:/bin"}
 
+imu_line = ""
 per_seed = defaultdict(lambda: {"err": [], "over": [], "nees": [], "t": []})
 for k in range(a.maps):
     db = out_dir / f"{a.tag}_{k:02d}.bin"
@@ -55,6 +56,7 @@ for k in range(a.maps):
           f"--trace={trace}", f"--window={a.window}", *a.mc_args]
     res = subprocess.run(mc, check=True, capture_output=True, text=True, cwd=ROOT, env=env).stdout
     line = next((l for l in res.splitlines() if l.startswith("per-seed RMS")), "")
+    imu_line = next((l for l in res.splitlines() if l.startswith("imu:")), imu_line if k else "")
     print(f"map {k:2d}: {info.split('vs truth: ')[-1]} | {line.split('passing')[-1].strip()}")
     with open(trace) as f:
         for r in csv.DictReader(f):
@@ -69,6 +71,7 @@ over = np.concatenate([np.array(d["over"]) for d in per_seed.values()])
 nees = np.concatenate([np.array(d["nees"]) for d in per_seed.values()])
 rms = np.array([np.sqrt(np.mean(np.square(d["err"]))) for d in per_seed.values()])
 n = len(rms); n_pass = int((rms < 100.0).sum())
+print(imu_line)   # R1.6: which IMU model the results are for
 print(f"map ensemble: {a.maps} maps x {a.per_map} flights, recipe '{a.recipe}', "
       f"mc: {' '.join(a.mc_args)}, pooled n={len(pool)}")
 print(f"CEP50: {np.percentile(pool, 50):.1f} m  CEP95: {np.percentile(pool, 95):.1f} m  "

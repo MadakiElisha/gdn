@@ -10,6 +10,8 @@
 #include "gdn/eskf.hpp"
 #include "gdn/consistency.hpp"
 #include "gdn/ground_monitor.hpp"
+#include "gdn/imu_model.hpp"
+#include "gdn/paths.hpp"
 
 using namespace gdn;
 static int g_fail = 0;
@@ -649,6 +651,128 @@ int main() {
             std::printf("      heading-only, no bias: mag bias estimate |b| = %.2f uT, worst heading error %.1f sigma\n",
                         e.mag_bias().norm(), worst_z);
             CHECK(e.mag_bias().norm() < 0.5 && worst_z < 4.0, "eskf: heading-only mag doesn't invent a hard-iron bias");
+        }
+    }
+
+    // TEST-022 (R1.6): the simulated IMU. Before R1.6 the Monte Carlo added one constant
+    // offset per flight to a recorded IMU, so its error had no white noise or drift of
+    // its own and no stated source. The placeholder model must produce the statistics it
+    // claims, because the Allan fit of the real IMUs will be checked the same way.
+    {
+        using V3 = Eigen::Vector3d;
+        // (a) White noise density, placeholder, 100 Hz, 200 s.
+        {
+            const ImuNoiseModel m = ImuPlaceholder();
+            ImuErrorSim sim(m, 1);
+            sim.SetTurnOn(V3::Zero(), V3::Zero());
+            const double dt = 0.01; const int n = 20000;
+            V3 sa = V3::Zero(), sa2 = V3::Zero(), sg = V3::Zero(), sg2 = V3::Zero();
+            for (int k = 0; k < n; ++k) {
+                V3 a = V3::Zero(), w = V3::Zero();
+                sim.Corrupt(&a, &w, dt);
+                sa += a; sa2 += a.cwiseAbs2(); sg += w; sg2 += w.cwiseAbs2();
+            }
+            double worst = 0.0;
+            for (int i = 0; i < 3; ++i) {
+                const double na = std::sqrt((sa2[i] - sa[i] * sa[i] / n) / (n - 1) * dt);
+                const double ng = std::sqrt((sg2[i] - sg[i] * sg[i] / n) / (n - 1) * dt);
+                worst = std::max({worst, std::abs(na / m.accel_noise_density[i] - 1.0),
+                                  std::abs(ng / m.gyro_noise_density[i] - 1.0)});
+            }
+            std::printf("      white noise density, worst axis off by %.1f%%\n", 100.0 * worst);
+            CHECK(worst < 0.03, "imu: TEST-022 white noise density matches the model");
+        }
+        // (b) Bias drift: spread of the drift after 600 s over 300 power-ups against the
+        // Gauss-Markov variance K^2 tau/2 (1 - exp(-2T/tau)).
+        ImuNoiseModel sens;
+        std::string err;
+        const bool loaded = LoadImuModel(DataPath("config/imu/sensitivity_bias_drift.yaml"), &sens, &err);
+        if (!loaded) std::printf("      %s\n", err.c_str());
+        CHECK(loaded, "imu: TEST-022 sensitivity model file loads");
+        if (loaded) {
+            const double T = 600.0, dt = 0.1;
+            double va = 0.0, vg = 0.0; int nn = 0;
+            for (int r = 0; r < 300; ++r) {
+                ImuErrorSim sim(sens, 100 + r);
+                sim.SetTurnOn(V3::Zero(), V3::Zero());
+                for (int k = 0; k < static_cast<int>(T / dt); ++k) {
+                    V3 a = V3::Zero(), w = V3::Zero(); sim.Corrupt(&a, &w, dt);
+                }
+                va += sim.accel_bias().squaredNorm(); vg += sim.gyro_bias().squaredNorm(); nn += 3;
+            }
+            auto gm = [&](double K, double tau) { return K * K * tau / 2.0 * (1.0 - std::exp(-2.0 * T / tau)); };
+            const double ra = std::sqrt(va / nn / gm(sens.accel_bias_rw, sens.accel_bias_tau));
+            const double rg = std::sqrt(vg / nn / gm(sens.gyro_bias_rw, sens.gyro_bias_tau));
+            std::printf("      drift after %.0f s: accel %.2f x model, gyro %.2f x model\n", T, ra, rg);
+            CHECK(std::abs(ra - 1.0) < 0.08 && std::abs(rg - 1.0) < 0.08, "imu: TEST-022 bias drift matches Gauss-Markov");
+        }
+        // (c) Turn-on bias spread over 3000 power-ups.
+        {
+            const ImuNoiseModel m = ImuPlaceholder();
+            double sa = 0.0, sg = 0.0; const int n = 3000;
+            for (int r = 0; r < n; ++r) {
+                ImuErrorSim sim(m, 5000 + r);
+                sa += sim.accel_bias().squaredNorm(); sg += sim.gyro_bias().squaredNorm();
+            }
+            const double ra = std::sqrt(sa / (3 * n)) / m.accel_turn_on_sigma;
+            const double rg = std::sqrt(sg / (3 * n)) / m.gyro_turn_on_sigma;
+            CHECK(std::abs(ra - 1.0) < 0.05 && std::abs(rg - 1.0) < 0.05, "imu: TEST-022 turn-on bias spread matches");
+        }
+        // (d) The placeholder file says what ImuPlaceholder() says; a missing or misspelt
+        // key is an error, not a zero.
+        {
+            ImuNoiseModel f;
+            const bool ok = LoadImuModel(DataPath("config/imu/placeholder_px4_default.yaml"), &f, &err);
+            const ImuNoiseModel b = ImuPlaceholder();
+            auto rel = [](double x, double y) { return std::abs(x - y) <= 1e-4 * std::max(std::abs(y), 1e-12); };
+            bool same = ok && f.name == b.name && rel(f.accel_turn_on_sigma, b.accel_turn_on_sigma) &&
+                        rel(f.gyro_turn_on_sigma, b.gyro_turn_on_sigma) && f.accel_bias_rw == b.accel_bias_rw &&
+                        f.gyro_bias_rw == b.gyro_bias_rw;
+            for (int i = 0; i < 3; ++i)
+                same = same && rel(f.accel_noise_density[i], b.accel_noise_density[i]) &&
+                       rel(f.gyro_noise_density[i], b.gyro_noise_density[i]);
+            CHECK(same, "imu: TEST-022 placeholder file matches ImuPlaceholder()");
+            const std::string bad = "/tmp/gdn_imu_bad.yaml";
+            { std::ofstream o(bad); o << "name: x\naccel_noise_density: 1e-4\ngyro_noise_density: 1e-5\n"
+                                         "accel_bias_rw: 0\naccel_bias_tau: 300\ngyro_bias_rw: 0\n"
+                                         "accel_turn_on_sigma: 0\ngyro_turn_on_sigma: 0\n"; }
+            const bool missing = !LoadImuModel(bad, &f, &err);
+            { std::ofstream o(bad, std::ios::app); o << "gyro_bias_tau: 1000\ngyro_bias_rw_typo: 1\n"; }
+            const bool unknown = !LoadImuModel(bad, &f, &err);
+            std::remove(bad.c_str());
+            CHECK(missing && unknown, "imu: TEST-022 model file rejects missing and unknown keys");
+        }
+        // (e) Allan deviation of a simulated 2 h static log (100 Hz) against the model's
+        // curve at 1 s, 10 s, 100 s and 600 s: the check tools/allan_fit.py relies on.
+        if (loaded) {
+            ImuErrorSim sim(sens, 77);
+            sim.SetTurnOn(V3::Zero(), V3::Zero());
+            const double dt = 0.01; const int n = 720000;
+            std::vector<double> cg(n + 1, 0.0), ca(n + 1, 0.0);   // cumulative sums, x axis
+            for (int k = 0; k < n; ++k) {
+                V3 a = V3::Zero(), w = V3::Zero(); sim.Corrupt(&a, &w, dt);
+                ca[k + 1] = ca[k] + a.x(); cg[k + 1] = cg[k] + w.x();
+            }
+            auto adev = [&](const std::vector<double>& c, int mm) {   // overlapping
+                double s = 0.0; int cnt = 0;
+                for (int k = 0; k + 2 * mm <= n; ++k) {
+                    const double d = (c[k + 2 * mm] - 2.0 * c[k + mm] + c[k]) / mm;
+                    s += d * d; ++cnt;
+                }
+                return std::sqrt(s / (2.0 * cnt));
+            };
+            double worst = 0.0;
+            for (const int mm : {100, 1000, 10000, 60000}) {
+                const double t = mm * dt;
+                const double ea = ImuNoiseModel::Adev(sens.accel_noise_density.x(), sens.accel_bias_rw, sens.accel_bias_tau, t);
+                const double eg = ImuNoiseModel::Adev(sens.gyro_noise_density.x(), sens.gyro_bias_rw, sens.gyro_bias_tau, t);
+                const double fa = adev(ca, mm) / ea, fg = adev(cg, mm) / eg;
+                std::printf("      Allan deviation at %5.0f s: accel %.2f x model, gyro %.2f x model\n", t, fa, fg);
+                // One 2 h log: few independent clusters at long t, so the tolerance widens.
+                const double tol = t < 50 ? 0.10 : 0.45;
+                worst = std::max(worst, std::max(std::abs(fa - 1.0), std::abs(fg - 1.0)) / tol);
+            }
+            CHECK(worst < 1.0, "imu: TEST-022 Allan deviation of a simulated log matches the model");
         }
     }
 

@@ -1,0 +1,11 @@
+case,label,filter_q,scenario,imu,cep50,cep95,passing,over3sigma_pct
+recorded,legacy synthetic imu.csv (pre-R1.6),tuned,zermatt_truth_map,recorded,7.5,27.4,100,0.46
+recorded,legacy synthetic imu.csv (pre-R1.6),tuned,zermatt_srtm_maps,recorded,20.0,81.0,97,5.50
+placeholder,placeholder (PX4 default noise),tuned,zermatt_truth_map,placeholder-px4-default,7.3,28.1,100,0.52
+placeholder,placeholder (PX4 default noise),tuned,zermatt_srtm_maps,placeholder-px4-default,20.3,90.6,96,6.70
+placeholder_fitted,"placeholder, fitted from a 2 h log",tuned,zermatt_truth_map,fitted-placeholder,7.3,28.1,100,0.52
+placeholder_qmatch,placeholder,matched to the IMU,zermatt_truth_map,placeholder-px4-default,7.3,27.1,100,0.41
+drift,+ PX4's pre-2025 bias drift,tuned,zermatt_truth_map,sensitivity-bias-drift,13.9,102.4,94,8.71
+drift,+ PX4's pre-2025 bias drift,tuned,zermatt_srtm_maps,sensitivity-bias-drift,25.5,421.5,88,14.15
+drift_fitted,"+ drift, fitted from a 2 h log",tuned,zermatt_truth_map,fitted-bias-drift,14.3,137.2,93,9.74
+drift_qmatch,+ drift,matched to the IMU,zermatt_truth_map,sensitivity-bias-drift,8.7,31.4,100,0.97

@@ -1,0 +1,20 @@
+# Generic MEMS placeholder IMU (R1.6). Used by the Monte Carlo (and, from R2.4, the
+# Gazebo IMU) until the real IMUs have been logged and fitted. Results that use it say
+# "imu: placeholder-px4-default". Same numbers as gdn::ImuPlaceholder().
+#
+# White noise: PX4 v1.16 Gazebo x500 IMU, Tools/simulation/gz/models/x500_base/model.sdf
+# ("noise modeled after IIM42653"): per-sample stddev at 250 Hz of 0.0008726646 rad/s
+# (gyro), 0.00637 m/s^2 (accel x, y) and 0.00686 m/s^2 (accel z), divided by sqrt(250).
+# Bias drift: none. PX4 removed it in Feb 2025 (gz models commit 1a73e1f).
+# Turn-on bias: not PX4's. The per-flight residual after calibration and start-up that
+# the GDN Monte Carlo has always drawn (0.05 m/s^2, 0.02 deg/s).
+name: placeholder-px4-default
+source: PX4 v1.16 Gazebo x500 IMU noise (IIM-42653, white only); turn-on bias from the GDN MC
+accel_noise_density: [4.0287e-4, 4.0287e-4, 4.3386e-4]   # m/s^2/sqrt(Hz)
+gyro_noise_density: [5.5192e-5, 5.5192e-5, 5.5192e-5]    # rad/s/sqrt(Hz)
+accel_bias_rw: 0          # m/s^3/sqrt(Hz)
+accel_bias_tau: 300       # s
+gyro_bias_rw: 0           # rad/s^2/sqrt(Hz)
+gyro_bias_tau: 1000       # s
+accel_turn_on_sigma: 0.05         # m/s^2
+gyro_turn_on_sigma: 3.4907e-4     # rad/s (0.02 deg/s)

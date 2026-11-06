@@ -79,6 +79,9 @@ def series(tt):
 psi_i, pd_i, spd_i, ax_i = series(ti)
 az = np.full_like(ti, -9.81); gx = np.zeros_like(ti); gy = np.zeros_like(ti)
 ay_i = spd_i * pd_i; gz_i = pd_i
+# Error-free IMU (R1.6): the Monte Carlo corrupts it with an IMU model
+# (config/imu/). imu.csv below keeps its historical errors (bag, bench, CI).
+imu_truth = (ax_i.copy(), ay_i.copy(), az.copy(), gx.copy(), gy.copy(), gz_i.copy())
 np.random.seed(42)
 ax_i = ax_i + 0.05 + np.random.normal(0, 0.1, ti.size)
 ay_i = ay_i - 0.02 + np.random.normal(0, 0.1, ti.size)
@@ -97,6 +100,10 @@ with open(OUT/'imu.csv', 'w') as f:
     f.write("t,ax,ay,az,gx,gy,gz\n")
     for i in range(ti.size):
         f.write(f"{ti[i]*1e6:.0f},{ax_i[i]:.6f},{ay_i[i]:.6f},{az[i]:.6f},{gx[i]:.6f},{gy[i]:.6f},{gz_i[i]:.6f}\n")
+with open(OUT/'imu_truth.csv', 'w') as f:
+    f.write("t,ax,ay,az,gx,gy,gz\n")
+    for i in range(ti.size):
+        f.write(f"{ti[i]*1e6:.0f}," + ",".join(f"{c[i]:.6f}" for c in imu_truth) + "\n")
 with open(OUT/'lpos.csv', 'w') as f:
     f.write("t,x,y,vx,vy\n")
     for i in range(tl.size):

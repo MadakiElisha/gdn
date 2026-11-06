@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EIGEN_INC="${EIGEN_INC:-$(pkg-config --cflags-only-I eigen3 2>/dev/null | sed 's/^-I//;s/ *$//')}"
 EIGEN_INC="${EIGEN_INC:-/usr/include/eigen3}"
 [ -f "$EIGEN_INC/Eigen/Dense" ] || { echo "Eigen not found (apt install libeigen3-dev, or set EIGEN_INC)"; exit 1; }
+export GDN_ROOT="${GDN_ROOT:-$ROOT}"
 OUT="${TMPDIR:-/tmp}/gdn_selftest"; mkdir -p "$OUT"
 rc=0
 for opt in -O2 -O3; do
