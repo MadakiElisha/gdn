@@ -24,6 +24,8 @@ statistics match the chi-square values, and errors twice the reported sigma are 
 - `mc_campaign` prints four `consistency:` lines over the scoring window, including a
   split between passing and failing seeds (per-seed RMS under or over 100 m).
 - `ci_check_mc.py`: `--max-over-3sigma`, `--max-nees-median`, `--max-nis-over9`.
+- `mc_campaign --trace=FILE` writes every scored sample of every seed, and
+  `tools/plot_consistency.py` draws it (figure below).
 - CI: flight001 gates on REQ-INT-001 (at most 1%), NEES median at most 2.8 (twice the
   consistent value) and NIS > 9 in at most 1%. It passes all three today. On Zermatt
   the same REQ-INT-001 check runs as a non-blocking step: it fails, and it's the
@@ -37,6 +39,17 @@ statistics match the chi-square values, and errors twice the reported sigma are 
 | Twice the reported sigma | 8.01 | 32.6% | 11.4% | 4.01 |
 
 ## Results: the filter today (100 seeds, scored 60 to 300 s)
+
+![Good and bad flight, claimed 3-sigma circle against truth, and every flight](test019_consistency.png)
+
+Top: a typical good flight (seed 21) and a typical bad one (seed 29), with the 3-sigma
+circle the filter claimed every 10 s and a thin line from its estimate to the truth.
+Middle: the error against that circle's radius. In the good flight the error stays far
+inside the shaded band; in the bad one it leaves the band at about 75 s and never comes
+back, while the band stays around 100 m. Bottom: every flight. Honest flights sit bottom
+left; the 13 failing flights all sit top right, wrong by hundreds of metres and outside
+their circle 80 to 100% of the time. Drawn by `tools/plot_consistency.py` from
+`mc_campaign --trace`.
 
 | Run | Error > 3 x sigma (REQ-INT-001) | NEES median | NIS > 9 |
 |---|---|---|---|
@@ -78,4 +91,6 @@ tools/run_selftest.sh
 tools/mc_run.sh 100 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl --startup=node
 tools/mc_run.sh 100 data/flight001_csv data/maps/terrain_db_sigma4.bin --model=agl --baro-drift=5
 python3 tools/ci_check_mc.py /tmp/mc_report.txt --max-over-3sigma 1 --max-nees-median 2.8
+tools/mc_run.sh 100 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl --startup=node --trace=trace.csv
+python3 tools/plot_consistency.py --trace trace.csv     # writes consistency.png
 ```

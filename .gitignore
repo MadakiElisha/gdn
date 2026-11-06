@@ -19,3 +19,9 @@ data/maps/*
 !data/SHA256SUMS
 *.mcap
 *.db3
+
+# Plot and trace outputs written to the repo root by the plotting tools
+/trace.csv
+/consistency.png
+/viz_trace.log
+/zermatt_track.png

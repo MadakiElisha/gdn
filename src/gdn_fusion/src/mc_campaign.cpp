@@ -89,6 +89,9 @@ int main(int argc_all, char** argv_all) {
     //                  R^T m_ref + hard iron (2,-1,1) uT + N(0, 2 uT), 10 Hz.
     //   --ground=imu|gnss  node start-up only: IMU ground monitor (default), or the
     //                  pre-R1.2 rule (ZUPT until GNSS speed > 2 m/s) for comparison
+    //   --trace=FILE   write every scored sample of every seed (0.5 s grid, from yaw
+    //                  alignment on) as CSV: seed,t,x,y,tx,ty,err,sigma,nees.
+    //                  tools/plot_consistency.py draws it.
     //   --mag=full|align  node start-up only, as the node's mag_fusion parameter: 3-axis
     //                  mag updates throughout (default), or initial heading only. The
     //                  simulated mag assumes level flight along the velocity vector, true
@@ -96,7 +99,7 @@ int main(int argc_all, char** argv_all) {
     //                  as flight001 (bank, crab), whose CSVs carry no attitude truth.
     // Relative paths resolve against $GDN_ROOT (exported by env.sh).
     std::vector<char*> pos_args;
-    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "full";
+    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "full", trace_path;
     double baro_drift = 0.0, clearance = 30.0, w0 = 60.0, w1 = 300.0;
     gdn::EskfConfig cfg;   // defaults == node defaults
     for (int a = 0; a < argc_all; ++a) {
@@ -105,6 +108,7 @@ int main(int argc_all, char** argv_all) {
         else if (s.rfind("--startup=", 0) == 0) startup = s.substr(10);
         else if (s.rfind("--ground=", 0) == 0) ground_mode = s.substr(9);
         else if (s.rfind("--mag=", 0) == 0) mag_mode = s.substr(6);
+        else if (s.rfind("--trace=", 0) == 0) trace_path = s.substr(8);
         else if (s.rfind("--baro-drift=", 0) == 0) baro_drift = std::atof(s.c_str() + 13);
         else if (s.rfind("--clearance=", 0) == 0) clearance = std::atof(s.c_str() + 12);
         else if (s.rfind("--window=", 0) == 0) std::sscanf(s.c_str() + 9, "%lf,%lf", &w0, &w1);
@@ -163,6 +167,12 @@ int main(int argc_all, char** argv_all) {
 
     std::vector<double> pool, vpool, seed_rms, seed_max, latch_t;
     gdn::ConsistencyStats cons_all, cons_pass, cons_fail;   // R1.5
+    std::ofstream trace;
+    if (!trace_path.empty()) {
+        trace.open(trace_path);
+        if (!trace) { std::printf("ERROR: cannot write %s\n", trace_path.c_str()); return 1; }
+        trace << "seed,t,x,y,tx,ty,err,sigma,nees\n";
+    }
     int pass_seeds = 0;
 
     for (int seed = 0; seed < nseeds; ++seed) {
@@ -309,6 +319,15 @@ int main(int argc_all, char** argv_all) {
             }
             }
             const double e = std::hypot(eskf.pos().x() - lx[j], eskf.pos().y() - ly[j]);
+            if (trace.is_open()) {
+                const Eigen::Vector2d ev(eskf.pos().x() - lx[j], eskf.pos().y() - ly[j]);
+                const Eigen::Matrix2d Ph = eskf.P_horiz();
+                const double nees = Ph.determinant() > 0 ? ev.dot(Ph.ldlt().solve(ev)) : 1e12;
+                char row[256];
+                std::snprintf(row, sizeof row, "%d,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.3f,%.4g\n", seed, t,
+                              eskf.pos().x(), eskf.pos().y(), lx[j], ly[j], e, eskf.sigma_pos(), nees);
+                trace << row;
+            }
             if (diag_mode && t >= 25.0 && std::fmod(t, 1.0) < 0.5)
                 std::printf("t=%3.0f err=%7.1f pos=(%7.1f,%7.1f) truth=(%7.1f,%7.1f) sp=%5.1f\n",
                             t, e, eskf.pos().x(), eskf.pos().y(), lx[j], ly[j],
