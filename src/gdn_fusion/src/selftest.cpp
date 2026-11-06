@@ -492,6 +492,166 @@ int main() {
               "map_db: grid centre kept, origin moved");
     }
 
+    // TEST-021 (R1.4): covariance consistency. Each check states what an honest filter
+    // must do; each failed before the fix.
+    {
+        auto aligned = [&](Eskf& e) {
+            bool ok = false;
+            for (int i = 0; i < 700 && !ok; ++i) ok = e.FeedStatic(a0, w0);
+            return ok;
+        };
+        // (a) Map gradient = slope of the surface the map actually returns (bilinear).
+        // Central differences at the cell corner disagree with the interpolated height,
+        // so the filter's H doesn't match its own prediction.
+        {
+            const std::string pg = "/tmp/gdn_selftest_geo_grad.bin";
+            WriteGeoMap(pg, 45.9632, 7.6440);
+            MapDb g; g.Load(pg);
+            double worst = 0.0, scale = 0.0;
+            for (int i = 8; i < 56; i += 3)
+                for (int j = 8; j < 56; j += 3) {
+                    const double n = g.NorthOf(i) + 0.37 * (g.NorthOf(i + 1) - g.NorthOf(i));
+                    const double e = g.EastOf(j) + 0.61 * (g.EastOf(j + 1) - g.EastOf(j));
+                    const MapQuery q = g.Query(n, e);
+                    const double fdn = (g.Query(n + 0.05, e).h - g.Query(n - 0.05, e).h) / 0.1;
+                    const double fde = (g.Query(n, e + 0.05).h - g.Query(n, e - 0.05).h) / 0.1;
+                    worst = std::max(worst, std::hypot(q.dn - fdn, q.de - fde));
+                    scale = std::max(scale, std::hypot(fdn, fde));
+                }
+            std::printf("      map gradient vs slope of the interpolated height: worst mismatch %.4f (slopes up to %.2f)\n",
+                        worst, scale);
+            CHECK(worst < 1e-3, "map_db: TEST-021 gradient matches the bilinear surface");
+        }
+        // (b) An update must not shrink the variance of a state whose correction it
+        // throws away. ApplyTrn discards baro and mag-bias corrections; ApplyBaro
+        // discards mag bias.
+        {
+            const std::string ps = "/tmp/gdn_selftest_map_slope.bin";
+            WritePlaneMap(ps, 0.2, 500.0, 0.1);
+            MapDb sm; sm.Load(ps);
+            EskfConfig c; c.r_agl = 4.0;
+            Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
+            e.SetAltitudeDatum(1000.0, 5.0); e.InitBaroBias(2.0, 1.5);
+            for (int k = 0; k < 20; ++k) {        // AGL couples position, altitude and baro bias
+                e.Propagate(a0, w0, 0.1);
+                e.ApplyAgl(1000.0 - 500.0 + 1.0, sm.Query(e.pos().x(), e.pos().y()));
+                e.ApplyBaro(2.0);
+            }
+            const Eskf::M19 P0 = e.P();
+            e.ApplyTrn(500.0 + 3.0, sm.Query(e.pos().x(), e.pos().y()));
+            const Eskf::M19 P1 = e.P();
+            const double d_trn = std::abs(P1(15, 15) - P0(15, 15)) + (P1.block<3,3>(16,16) - P0.block<3,3>(16,16)).norm();
+            e.ApplyBaro(2.5);
+            const Eskf::M19 P2 = e.P();
+            const double d_baro = (P2.block<3,3>(16,16) - P1.block<3,3>(16,16)).norm();
+            std::printf("      variance change of uncorrected states: TRN on baro/mag bias %.2e, baro on mag bias %.2e\n",
+                        d_trn, d_baro);
+            CHECK(std::abs(P0(15, 0)) + std::abs(P0(15, 1)) > 1e-6, "eskf: (test is meaningful) baro bias correlated with position");
+            CHECK(d_trn < 1e-12 && d_baro < 1e-12, "eskf: updates leave the variance of states they don't correct");
+        }
+        // (c) A clamped correction must leave a covariance that knows the rest of the
+        // error. 5 m/s of velocity error, one ZUPT, 0.5 m/s velocity clamp.
+        {
+            Eskf e; aligned(e); e.TransferAlignYaw(0.0);   // heading known: P_vel is just the inflation
+            for (int k = 0; k < 50; ++k) e.Propagate(a0 + V3(1.0, 0, 0), w0, 0.1);   // 5 m/s of drift
+            e.InflateForGap(0.0, 5.0);
+            e.ApplyZupt();
+            const double v = e.vel().norm(), sv = std::sqrt(e.P()(3, 3) + e.P()(4, 4) + e.P()(5, 5));
+            std::printf("      after one clamped ZUPT: velocity error %.2f m/s, claimed sigma %.3f m/s (%.0f sigma)\n",
+                        v, sv, v / sv);
+            CHECK(v > 1.0, "eskf: (test is meaningful) the clamp left most of the error");
+            CHECK(v < 3.0 * sv, "eskf: clamped update keeps the covariance honest");
+        }
+        // (d) Magnetometer, heading only (OI-012). A body-fixed disturbance on the
+        // vertical axis (motor current on a multirotor) must not tilt the attitude. Level
+        // and still; 60 s of clean field, then 6 uT on body z for 60 s.
+        auto tilt_after = [&](bool heading_only) {
+            EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
+            const V3 m(21.5, 1.3, 42.3);
+            for (int k = 0; k < 1200; ++k) {
+                e.Propagate(a0, w0, 0.1);
+                const V3 z = m + (k >= 600 ? V3(0, 0, 6.0) : V3::Zero());
+                if (heading_only) e.ApplyMagHeading(z); else e.ApplyMag(z);
+            }
+            const V3 down_b = e.q().conjugate() * V3::UnitZ();       // body view of "down"
+            return std::acos(std::clamp(down_b.z(), -1.0, 1.0)) / Eskf::kDeg;
+        };
+        int auto_false = -1;
+        auto tilt_auto = [&]() {
+            EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
+            std::mt19937 rng(23); std::normal_distribution<double> nm(0.0, 2.0);
+            const V3 m(21.5, 1.3, 42.3);
+            for (int k = 0; k < 1200; ++k) {
+                e.Propagate(a0, w0, 0.1);
+                e.ApplyMagAuto(m + (k >= 600 ? V3(0, 0, 6.0) : V3::Zero()) + V3(nm(rng), nm(rng), nm(rng)));
+                if (k == 599) auto_false = e.mag_heading_updates();   // switches on a clean field
+            }
+            const V3 down_b = e.q().conjugate() * V3::UnitZ();
+            std::printf("      auto: %d 3-axis and %d heading-only updates\n", e.mag_full_updates(), e.mag_heading_updates());
+            return std::acos(std::clamp(down_b.z(), -1.0, 1.0)) / Eskf::kDeg;
+        };
+        const double tilt_full = tilt_after(false), tilt_head = tilt_after(true), tilt_au = tilt_auto();
+        std::printf("      tilt after a 6 uT vertical disturbance: 3-axis %.2f deg, heading-only %.2f deg\n",
+                    tilt_full, tilt_head);
+        CHECK(tilt_full > 1.0, "eskf: (control) 3-axis mag update tilts the attitude");
+        CHECK(tilt_head < 0.2, "eskf: heading-only mag leaves the tilt alone");
+        // Auto needs about 1 s of averaging to see a 6 uT step (the per-sample noise is
+        // 2 uT), and the 3-axis updates in that window tilt the attitude. So it cuts the
+        // disturbance tilt rather than removing it: the check asks for at least 30% less
+        // than 3-axis, and no switching on a clean field.
+        std::printf("      auto (3-axis while the field looks clean): tilt %.2f deg, %d switches on the clean field\n",
+                    tilt_au, auto_false);
+        CHECK(tilt_au < 0.7 * tilt_full && auto_false == 0,
+              "eskf: auto mag cuts disturbance tilt, keeps 3-axis on a clean field");
+        // (e) Heading-only still finds heading: 10 deg initial error, a calibrated compass
+        // (0.3 uT residual hard iron, unknown to the filter), turning 360 deg in 60 s,
+        // 2 uT noise. Heading-only fusion assumes calibration (see ApplyMagHeading).
+        {
+            EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            Eskf e(c); aligned(e); e.TransferAlignYaw(10.0 * Eskf::kDeg);
+            std::mt19937 rng(21); std::normal_distribution<double> nm(0.0, 2.0);
+            const double rate = 2.0 * M_PI / 60.0;
+            const V3 m(21.5, 1.3, 42.3), b(0.2, -0.2, 0.1);
+            double err = 0.0;
+            for (int k = 0; k < 1200; ++k) {
+                e.Propagate(a0, V3(0, 0, rate), 0.1);
+                const double psi = rate * 0.1 * (k + 1);
+                const Eigen::Matrix3d Rz = Eigen::AngleAxisd(psi, V3::UnitZ()).toRotationMatrix();
+                e.ApplyMagHeading(Rz.transpose() * m + b + V3(nm(rng), nm(rng), nm(rng)));
+                const V3 f = e.q() * V3::UnitX();
+                err = std::abs(std::remainder(std::atan2(f.y(), f.x()) - psi, 2 * M_PI)) / Eskf::kDeg;
+            }
+            std::printf("      heading-only, turning, calibrated compass: final heading error %.2f deg\n", err);
+            CHECK(err < 2.0, "eskf: heading-only mag converges heading");
+        }
+        // (f) Heading only sees the field's direction, never its strength, so it can't
+        // estimate the hard-iron bias: a bias as large as the field "explains" any
+        // reading. Zero true bias, straight then turning, 120 s: the bias estimate must
+        // stay put and the heading must stay honest.
+        {
+            EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
+            std::mt19937 rng(22); std::normal_distribution<double> nm(0.0, 2.0);
+            const V3 m(21.5, 1.3, 42.3);
+            double psi = 0.0, worst_z = 0.0;
+            for (int k = 0; k < 1200; ++k) {
+                const double rate = (k > 600 && k < 900) ? 0.1 : 0.0;
+                e.Propagate(a0, V3(0, 0, rate), 0.1);
+                psi += rate * 0.1;
+                const Eigen::Matrix3d Rz = Eigen::AngleAxisd(psi, V3::UnitZ()).toRotationMatrix();
+                e.ApplyMagHeading(Rz.transpose() * m + V3(nm(rng), nm(rng), nm(rng)));
+                const V3 f = e.q() * V3::UnitX();
+                const double err = std::remainder(std::atan2(f.y(), f.x()) - psi, 2 * M_PI);
+                worst_z = std::max(worst_z, std::abs(err) / std::sqrt(e.P()(8, 8)));
+            }
+            std::printf("      heading-only, no bias: mag bias estimate |b| = %.2f uT, worst heading error %.1f sigma\n",
+                        e.mag_bias().norm(), worst_z);
+            CHECK(e.mag_bias().norm() < 0.5 && worst_z < 4.0, "eskf: heading-only mag doesn't invent a hard-iron bias");
+        }
+    }
+
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

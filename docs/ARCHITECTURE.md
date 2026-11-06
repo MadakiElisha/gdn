@@ -92,12 +92,18 @@ core; the node drops IMU gaps above 0.25 s. Covariance: P ← ΦPΦᵀ + Qc·h, 
 3. **Yaw alignment**: `AlignYawFromMag` (node) does a one-shot heading from the
    magnetometer. `TransferAlignYaw` (heading from GNSS velocity) is still used by
    `mc_campaign`'s default `--startup=truth`; `--startup=node` uses the mag as the node does.
-4. **Magnetometer** (`ApplyMag`): 3-axis field against a fixed reference vector.
-   Updates attitude and mag bias.
-5. **TRN scalar elevation** (`ApplyTrn`): H = [∂h/∂n, ∂h/∂e, 0 …] from the map gradient.
+4. **Magnetometer**, by `mag_fusion` (R1.4, TEST-021). `auto` (default,
+   `ApplyMagAuto`): the 3-axis update while the field's strength and dip, averaged over
+   about 1 s, match the reference; heading only otherwise. `full` (`ApplyMag`): 3-axis
+   field against the reference vector, updating attitude and mag bias. `heading`
+   (`ApplyMagHeading`): heading from the levelled field only, attitude gain projected on
+   the body vertical so it can't tilt; assumes a calibrated compass and leaves the mag
+   bias alone. `align`: initial yaw only.
+5. **TRN scalar elevation** (`ApplyTrn`): H = [∂h/∂n, ∂h/∂e, 0 …] from the map gradient,
+   which is the slope of the same bilinear surface the height comes from (R1.4).
    The update is gated by slope observability (`slope_min`) and innovation size
-   (`gate_sigma`, `gate_abs_m`), with per-state injection clamps, Joseph form and a
-   quaternion error reset.
+   (`gate_sigma`, `gate_abs_m`), with per-block gain limits (`LimitGain`, so the
+   covariance matches the applied correction), Joseph form and a quaternion error reset.
 6. **Height above ground** (`ApplyAgl`, R1.1): agl = (h0 - p_z) - h_map(n, e), so
    H = [-∂h/∂n, -∂h/∂e, -1, 0 ...]. h0 is the altitude datum (AMSL height of p_z = 0),
    set once from the map height under the vehicle plus the first AGL reading
@@ -154,7 +160,7 @@ int32 nx, int32 ny, float64 lat0, lon0, dlat, dlon, float32 alt[ny*nx]  (row-maj
 - **`trn_sensor_sim.py`**: publishes `h_map(truth x, y)` + noise on a 0.5 s grid, plus
   `/gdn/truth` for the scorer.
 - **`baro_sim.py`**: `z_true + 5 m bias + N(0, 1.5 m)` at 10 Hz.
-- **`mag_sim.py`**: `Rᵀ·m_ref + hard-iron (2, -1, 1) uT + N(0, 2 uT)` at 20 Hz.
+- **`mag_sim.py`**: `Rᵀ·m_ref + hard-iron + N(0, 2 uT)` at 20 Hz. The hard iron is the residual after compass calibration, 0.15 × (2, -1, 1) uT by default; `GDN_MAG_HARDIRON=1` gives the uncalibrated (2, -1, 1) uT used before R1.4.
 - **`make_zermatt_bag.py`**: the synthetic Zermatt flight as a PX4-style bag, for bench
   smoke tests.
 
@@ -211,5 +217,7 @@ These are the main things standing between this and a fielded GNSS-denied stack.
   onboard map) arrives with the Gazebo worlds (R2.2). Correlated map noise is not
   modelled in the filter, so it makes the filter overconfident (TEST-020).
 - **No integrity monitoring:** a lost filter can report a small sigma.
-- **Consistency:** `ApplyTrn` zeroes some state corrections but still contracts their
-  covariance; the clamps do the same.
+- **Consistency:** fixed in R1.4 (TEST-021) for the known causes: slope and height
+  from the same map surface, zeroed gain rows, gain limiting instead of correction
+  clamps. Still missing: a model of correlated map error (5.5% over 3 sigma on
+  SRTM-like onboard maps, TEST-020/021).

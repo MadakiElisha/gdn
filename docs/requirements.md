@@ -109,6 +109,6 @@ None of these can be properly measured yet. Here's what we have:
   REQ-NAV-010. With 15 m of drift over 5 minutes it's 9.9 m, which fails, though the
   filter no longer diverges (97 of 100 seeds stay under 100 m RMS).
 - **Map error (REQ-DB-002).** Testable since R1.3 (TEST-020) with synthetic onboard-map error. With an SRTM-like onboard map (about 7 to 10 m RMS against truth) Zermatt passes 181 of 200 flights and flight001 171 of 200, and both fail REQ-INT-001 (13.1% and 10.8%). An independent DEM source comes with R2.2.
-- **Integrity.** REQ-INT-001 is measured by the MC since R1.5 (TEST-019), with error > 3 x published sigma as the check. flight001 passes (0.04%); Zermatt fails (12.8%), all of it from false-lock seeds. REQ-INT-002 to 005 need integrity monitoring (R4.4) and are failed by definition until then.
+- **Integrity.** REQ-INT-001 is measured by the MC since R1.5 (TEST-019), with error > 3 x published sigma as the check. Since R1.4 (TEST-021) both flights pass with a perfect onboard map (flight001 0.00%, Zermatt 0.46%, from 12.8%); with SRTM-like onboard maps Zermatt still fails (5.5%). REQ-INT-002 to 005 need integrity monitoring (R4.4) and are failed by definition until then.
 - **Multirotor and quadplane.** Not testable until the closed-loop SITL (Phase 2) and
   the odometry layer (Phase 3).

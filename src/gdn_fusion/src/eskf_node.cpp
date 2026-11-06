@@ -42,9 +42,14 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
     // "agl": real altimeter model, /gdn/agl_meas + baro (R1.1, default).
     // "ideal": legacy oracle, /gdn/trn_meas is terrain height directly.
     trn_model_ = declare_parameter("trn_model", std::string("agl"));
-    // mag_fusion: "full" (3-axis update, default) or "align" (initial yaw only). A
+    // mag_fusion (R1.4): "auto" (default): 3-axis update while the field's strength and
+    // dip match the reference, heading-only while they don't (OI-012, TEST-021);
+    // "heading": heading only, immune to field disturbances but no tilt information;
+    // "full": 3-axis, the pre-R1.4 default; "align": initial yaw only. A
     // diagnostic switch for separating magnetometer effects from the rest.
-    mag_fusion_ = declare_parameter("mag_fusion", std::string("full"));
+    mag_fusion_ = declare_parameter("mag_fusion", std::string("auto"));
+    if (mag_fusion_ != "auto" && mag_fusion_ != "heading" && mag_fusion_ != "full" && mag_fusion_ != "align")
+        throw std::runtime_error("mag_fusion must be 'auto', 'heading', 'full' or 'align'");
     datum_sigma_ = declare_parameter("datum_sigma_m", 5.0);
     if (trn_model_ != "agl" && trn_model_ != "ideal")
         throw std::runtime_error("trn_model must be 'agl' or 'ideal'");
@@ -204,7 +209,9 @@ void MagCb(const geometry_msgs::msg::Vector3::SharedPtr msg) {
         RCLCPP_INFO(get_logger(), "OI-003: Instantaneous Mag Yaw Aligned at t=%.1f", t_cur_);
         return;
     }
-    if (mag_fusion_ == "full") eskf_->ApplyMag(z_meas);
+    if (mag_fusion_ == "auto") eskf_->ApplyMagAuto(z_meas);
+    else if (mag_fusion_ == "heading") eskf_->ApplyMagHeading(z_meas);
+    else if (mag_fusion_ == "full") eskf_->ApplyMag(z_meas);
 }
 
 void TrnCb(const std_msgs::msg::Float64::SharedPtr msg) {
@@ -296,7 +303,7 @@ uint64_t last_t_ = 0;
 double t_cur_ = 0.0;
 int n_stall_ = 0;
 int n_undercover_ = 0;
-std::string mag_fusion_ = "full";
+std::string mag_fusion_ = "auto";
     int n_drop_ = 0;
     int mag_cb_ = 0;
 bool z_initialized_ = false;

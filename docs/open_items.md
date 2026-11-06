@@ -51,6 +51,11 @@ too weak, where the fixed wing got away with it. Velocity aiding (Phase 3) is th
 real fix. The new IMU-coverage check also shows the `flight001` recording covers only
 50% of the IMU time (4 ms integrals every 8 ms), so the fixed-wing baseline was
 earned on half the IMU data; future recordings should set `IMU_INTEG_RATE`.
+R1.4 (TEST-021) adds heading-only fusion and makes `mag_fusion:=auto` the default:
+3-axis while the field looks like the Earth field, heading only otherwise. A 6 uT
+body-z disturbance now tilts a still vehicle by 1.55 degrees (3-axis: 2.52, heading
+only: 0.00); auto's tolerances should be tuned on these SITL runs. Not yet re-run on
+the x500.
 Reproduce with `tools/sim_run.sh`, then `tools/sim_replay.sh` on the bag
 it records. Note that bag replays of the same flight vary by roughly 40% between
 runs because playback timing isn't deterministic.

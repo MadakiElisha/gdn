@@ -56,8 +56,12 @@ public:
         const int i = static_cast<int>(fi), j = static_cast<int>(fj);
         const double ti = fi - i, tj = fj - j;
         q.h  = (1-ti)*((1-tj)*A(i,j)   + tj*A(i,j+1)) + ti*((1-tj)*A(i+1,j)   + tj*A(i+1,j+1));
-        q.dn = (A(i+1,j) - A(i-1,j)) / (2.0 * dlat_ * kMPerDegLat);
-        q.de = (A(i,j+1) - A(i,j-1)) / (2.0 * dlon_ * m_per_deg_lon_);
+        // Gradient = slope of this same bilinear surface at (ti, tj) (R1.4). Central
+        // differences at the cell corner disagreed with h by up to 2 degrees of slope
+        // on Zermatt-like terrain, so the filter's H didn't match its own prediction.
+        // This slope is piecewise linear and jumps at cell edges, as the surface does.
+        q.dn = ((1-tj)*(A(i+1,j) - A(i,j)) + tj*(A(i+1,j+1) - A(i,j+1))) / (dlat_ * kMPerDegLat);
+        q.de = ((1-ti)*(A(i,j+1) - A(i,j)) + ti*(A(i+1,j+1) - A(i+1,j))) / (dlon_ * m_per_deg_lon_);
         q.ok = true;
         return q;
     }
