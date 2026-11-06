@@ -109,7 +109,7 @@ Estimator:
   - Remove the per-update clamps, or inflate the covariance when one fires.
   - Fuse the magnetometer as heading only.
   - Make the map gradient consistent with bilinear interpolation.
-- [ ] **R1.5 Consistency metrics in the MC.** Report NEES/NIS and "error over 3 sigma" percentages, and fail the run when they're out of bounds.
+- [x] **R1.5 Consistency metrics in the MC.** Report NEES/NIS and "error over 3 sigma" percentages, and fail the run when they're out of bounds. Done: TEST-019. `gdn/consistency.hpp`; `ci_check_mc.py --max-over-3sigma/--max-nees-median/--max-nis-over9`. flight001 passes REQ-INT-001 (0.04%) and gates on it in CI. Zermatt fails it (12.8%): 87 passing seeds are honest (NEES median 0.8), the 13 failing seeds are confidently wrong (90% of samples outside 3 sigma). That CI step is non-blocking until R1.4.
 - [ ] **R1.6 IMU error model** (bench, waits for the H30WP). Until then the MC and Gazebo use a generic MEMS placeholder (PX4's default IMU noise), and results are labelled with it. Record a static H30WP log of 2 hours or more and fit an Allan variance. Do the same for the Mid-360S and OAK-D IMUs. The results feed the process noise, the MC's simulated IMU and the Gazebo IMU models (R2.4).
 - [ ] **R1.7 Start-uncertainty and GNSS-loss scenarios.** MC options for a start error of 0, 60, 150 and 500 m, and for GNSS loss mid-flight with a covariance handover. Synthetic flights long enough to score 5 and 10 minutes without GNSS (the Zermatt flight is only 177 s), and an MC scoring window that starts when GNSS is lost rather than the fixed 60 to 300 s.
 

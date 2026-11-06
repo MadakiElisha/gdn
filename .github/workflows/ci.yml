@@ -84,6 +84,13 @@ jobs:
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl --startup=node | tee mc_zermatt_node.txt
           python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-cep50 15 --min-passing 19
 
+      # R1.5: REQ-INT-001 (error > 3 x published sigma in at most 1% of samples) on
+      # Zermatt. Fails today (about 14%: false locks with a small sigma, audit A-02).
+      # Non-blocking until R1.4 fixes it; then drop continue-on-error.
+      - name: Consistency, Zermatt node start-up (REQ-INT-001, expected to fail until R1.4)
+        continue-on-error: true
+        run: python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-over-3sigma 1 --max-nees-median 2.8
+
       - name: Fetch flight001 (release data-v1)
         run: tools/fetch_data.sh
 
@@ -91,7 +98,8 @@ jobs:
         run: |
           source env.sh
           tools/mc_run.sh 100 data/flight001_csv data/maps/terrain_db_sigma4.bin --model=agl --baro-drift=5 | tee mc_flight001_agl.txt
-          python3 tools/ci_check_mc.py mc_flight001_agl.txt --max-cep50 32 --max-cep95 80 --min-passing 97
+          python3 tools/ci_check_mc.py mc_flight001_agl.txt --max-cep50 32 --max-cep95 80 --min-passing 97 \
+            --max-over-3sigma 1 --max-nees-median 2.8 --max-nis-over9 1
 
       - name: Keep MC report
         if: always()
