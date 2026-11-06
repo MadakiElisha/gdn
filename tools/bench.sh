@@ -5,7 +5,10 @@
 # Env knobs:
 #   BENCH_NO_BARO=1   disable the baro sim (A/B isolation of OI-002 coupling)
 #   GDN_BAG=path      bag to replay        (default data/flight001)
-#   GDN_MAP=path      terrain DB for node + sim (default data/maps/terrain_db_sigma4.bin)
+#   GDN_MAP=path      truth terrain for the sims, and the node's map unless GDN_DB_MAP is
+#                     set (default data/maps/terrain_db_sigma4.bin)
+#   GDN_DB_MAP=path   onboard map for the node only (R1.3), e.g. a degraded map from
+#                     tools/make_data.sh --db-maps; the node is put in GDN_MAP's frame
 #   GDN_LOG_DIR=dir   where logs go        (default /tmp/gdn_bench)
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
@@ -24,12 +27,28 @@ if [ ! -f "$BAG/.px4_msgs_version" ] && [ "${GDN_SKIP_BAG_CHECK:-0}" != "1" ]; t
   exit 1
 fi
 [ -f "$GDN_MAP" ] || { echo "map not found: $GDN_MAP  (run tools/make_data.sh)"; exit 1; }
+DB_MAP="${GDN_DB_MAP:-$GDN_MAP}"
+[ -f "$DB_MAP" ] || { echo "onboard map not found: $DB_MAP  (run tools/make_data.sh --db-maps)"; exit 1; }
+# Origin of the truth map's frame, so the node's onboard map uses the same coordinates.
+ORIGIN="$(python3 -c "import sys; sys.path.insert(0, '$ROOT/tools'); from gdn_paths import load_map; h = load_map('$GDN_MAP')[1]; print(repr(h['lat_c']), repr(h['lon_c']))")"
+read -r ORIGIN_LAT ORIGIN_LON <<< "$ORIGIN"
+echo "maps: world $(basename "$GDN_MAP"), onboard $(basename "$DB_MAP")"
 command -v ros2 >/dev/null || { echo "ros2 not on PATH - source env.sh"; exit 1; }
 
 # Stop GDN bench processes. Binaries match by exact process name (-x) and scripts by
 # path, so this never hits the shell that launched the bench (pkill -f eskf_node did,
 # whenever that shell's command line mentioned eskf_node). The C++ node runs as a child
 # of the `ros2 run` wrapper; killing only the wrapper's PID left it running.
+# One bench at a time: both share the ROS graph and topics, and gdn_stop below would
+# kill the other run's processes. The lock lives in the workspace (log/ is ignored), so
+# every shell and user on this machine sees it.
+mkdir -p "$ROOT/log"
+exec 9>"$ROOT/log/bench.lock"
+if ! flock -n 9; then
+  echo "another GDN bench is already running on this machine (lock: $ROOT/log/bench.lock)."
+  echo "Wait for it to finish; starting now would kill its processes."
+  exit 1
+fi
 gdn_stop() {
   local sig="${1:--TERM}"
   pkill "$sig" -x eskf_node; pkill "$sig" -x map_viz_node
@@ -40,14 +59,15 @@ gdn_stop() {
 }
 gdn_stop -9; sleep 2
 
-ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/node.log" 2>&1 & NPID=$!
-python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 & SPID=$!
+ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$DB_MAP" \
+  -p origin_lat:="$ORIGIN_LAT" -p origin_lon:="$ORIGIN_LON" > "$LOG/node.log" 2>&1 9>&- & NPID=$!
+python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 9>&- & SPID=$!
 BPID=
 if [ "${BENCH_NO_BARO:-0}" != "1" ]; then
-  python3 tools/baro_sim.py > "$LOG/baro.log" 2>&1 & BPID=$!
+  python3 tools/baro_sim.py > "$LOG/baro.log" 2>&1 9>&- & BPID=$!
 fi
-python3 tools/mag_sim.py > "$LOG/mag.log" 2>&1 & MPID=$!
-python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & CPID=$!
+python3 tools/mag_sim.py > "$LOG/mag.log" 2>&1 9>&- & MPID=$!
+python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 9>&- & CPID=$!
 
 for _ in $(seq 1 30); do
   [ "$(ros2 node list 2>/dev/null | grep -c '/gdn_')" -ge 4 ] && break
@@ -55,7 +75,7 @@ for _ in $(seq 1 30); do
 done
 ros2 node list
 
-ros2 bag play "$BAG"
+ros2 bag play "$BAG" 9>&-
 
 kill -INT $CPID 2>/dev/null; sleep 2
 kill $NPID $SPID $BPID $MPID 2>/dev/null

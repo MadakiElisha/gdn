@@ -17,6 +17,16 @@ command -v rviz2 >/dev/null || { echo "rviz2 missing: sudo apt install ros-jazzy
 # path, so this never hits the shell that launched the bench (pkill -f eskf_node did,
 # whenever that shell's command line mentioned eskf_node). The C++ node runs as a child
 # of the `ros2 run` wrapper; killing only the wrapper's PID left it running.
+# One bench at a time: both share the ROS graph and topics, and gdn_stop below would
+# kill the other run's processes. The lock lives in the workspace (log/ is ignored), so
+# every shell and user on this machine sees it.
+mkdir -p "$ROOT/log"
+exec 9>"$ROOT/log/bench.lock"
+if ! flock -n 9; then
+  echo "another GDN bench is already running on this machine (lock: $ROOT/log/bench.lock)."
+  echo "Wait for it to finish; starting now would kill its processes."
+  exit 1
+fi
 gdn_stop() {
   local sig="${1:--TERM}"
   pkill "$sig" -x eskf_node; pkill "$sig" -x map_viz_node
@@ -27,11 +37,11 @@ gdn_stop() {
 }
 gdn_stop; sleep 2
 
-ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/node.log" 2>&1 & NPID=$!
-python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 & SPID=$!
-python3 tools/mag_sim.py > "$LOG/mag.log" 2>&1 & MPID=$!
-python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & CPID=$!
-ros2 run gdn_fusion map_viz_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/viz.log" 2>&1 & VPID=$!
+ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/node.log" 2>&1 9>&- & NPID=$!
+python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 9>&- & SPID=$!
+python3 tools/mag_sim.py > "$LOG/mag.log" 2>&1 9>&- & MPID=$!
+python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 9>&- & CPID=$!
+ros2 run gdn_fusion map_viz_node --ros-args -p map_path:="$GDN_MAP" > "$LOG/viz.log" 2>&1 9>&- & VPID=$!
 
 for _ in $(seq 1 30); do
   [ "$(ros2 node list 2>/dev/null | grep -c '/gdn_')" -ge 5 ] && break
@@ -39,9 +49,9 @@ for _ in $(seq 1 30); do
 done
 
 echo "Nodes running, starting RViz..."
-rviz2 -d "$ROOT/tools/gdn.rviz" & RVIZ_PID=$!
+rviz2 -d "$ROOT/tools/gdn.rviz" 9>&- & RVIZ_PID=$!
 
-ros2 bag play "$BAG"
+ros2 bag play "$BAG" 9>&-
 
 kill $RVIZ_PID 2>/dev/null
 kill -INT $CPID 2>/dev/null; sleep 2

@@ -1,6 +1,9 @@
 #pragma once
 // Binary terrain database (REQ-DB-001): 40-byte header + row-major float32 grid.
-// Frame convention: local NED metres around the grid centre (from the header).
+// Frame convention: local NED metres around an origin, by default the grid centre
+// (from the header). SetOrigin() puts two maps in one frame (R1.3): a truth world map
+// and an onboard map cut, sampled or sourced differently have different centres, and
+// without a shared origin the same local coordinate names different places.
 #include <cstdint>
 #include <cmath>
 #include <fstream>
@@ -31,11 +34,18 @@ public:
         nx_ = nx; ny_ = ny;
         alt_.resize(static_cast<size_t>(nx_) * ny_);
         f.read(reinterpret_cast<char*>(alt_.data()), 4LL * nx_ * ny_);
-        lat_c_ = lat0_ + 0.5 * ny_ * dlat_;
-        lon_c_ = lon0_ + 0.5 * nx_ * dlon_;
-        m_per_deg_lon_ = 111320.0 * std::cos(lat_c_ * 3.141592653589793 / 180.0);
+        SetOrigin(lat0_ + 0.5 * ny_ * dlat_, lon0_ + 0.5 * nx_ * dlon_);
         return f.good();
     }
+
+    // Local-frame origin (degrees). The flat-earth scale comes from the origin's
+    // latitude, so two maps with the same origin share the exact same projection.
+    void SetOrigin(double lat_deg, double lon_deg) {
+        lat_c_ = lat_deg; lon_c_ = lon_deg;
+        m_per_deg_lon_ = kMPerDegLat * std::cos(lat_c_ * 3.141592653589793 / 180.0);
+    }
+    double grid_centre_lat() const { return lat0_ + 0.5 * ny_ * dlat_; }
+    double grid_centre_lon() const { return lon0_ + 0.5 * nx_ * dlon_; }
 
     // Bilinear altitude [m] + central-difference gradient [m/m] at NED meters.
     MapQuery Query(double north_m, double east_m) const {
@@ -46,7 +56,7 @@ public:
         const int i = static_cast<int>(fi), j = static_cast<int>(fj);
         const double ti = fi - i, tj = fj - j;
         q.h  = (1-ti)*((1-tj)*A(i,j)   + tj*A(i,j+1)) + ti*((1-tj)*A(i+1,j)   + tj*A(i+1,j+1));
-        q.dn = (A(i+1,j) - A(i-1,j)) / (2.0 * dlat_ * 111320.0);
+        q.dn = (A(i+1,j) - A(i-1,j)) / (2.0 * dlat_ * kMPerDegLat);
         q.de = (A(i,j+1) - A(i,j-1)) / (2.0 * dlon_ * m_per_deg_lon_);
         q.ok = true;
         return q;
