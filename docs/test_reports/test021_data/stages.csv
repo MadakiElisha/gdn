@@ -1,0 +1,16 @@
+stage,label,scenario,cep50,cep95,passing,flights,over3sigma_pct,nees_median
+0,before R1.4,zermatt_truth_map,10.8,288.3,87,100,12.83,1.01
+1,+ map slope matches the surface,zermatt_truth_map,8.1,35.4,100,100,1.03,0.68
+2,+ no gain on states not corrected,zermatt_truth_map,7.9,36.7,100,100,0.90,0.63
+3,+ limit the gain not the correction,zermatt_truth_map,7.7,32.0,100,100,0.52,0.59
+4,+ auto magnetometer (calibrated compass),zermatt_truth_map,7.5,27.4,100,100,0.46,0.55
+0,before R1.4,zermatt_srtm_maps,25.6,178.7,91,100,12.24,4.10
+1,+ map slope matches the surface,zermatt_srtm_maps,20.4,92.4,95,100,7.25,3.02
+2,+ no gain on states not corrected,zermatt_srtm_maps,20.4,112.0,94,100,8.32,3.01
+3,+ limit the gain not the correction,zermatt_srtm_maps,20.0,85.0,96,100,6.03,2.84
+4,+ auto magnetometer (calibrated compass),zermatt_srtm_maps,20.0,81.0,97,100,5.50,
+0,before R1.4,flight001,25.6,65.2,100,100,0.04,0.91
+1,+ map slope matches the surface,flight001,25.1,61.5,100,100,0.00,0.94
+2,+ no gain on states not corrected,flight001,25.1,61.5,100,100,0.00,0.94
+3,+ limit the gain not the correction,flight001,25.0,61.5,100,100,0.00,0.92
+4,+ auto magnetometer (calibrated compass),flight001,25.0,61.5,100,100,0.00,0.92

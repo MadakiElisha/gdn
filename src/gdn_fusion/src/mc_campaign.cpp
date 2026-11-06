@@ -97,19 +97,25 @@ int main(int argc_all, char** argv_all) {
     //   --seed0=N      first seed number (default 0): seeds N .. N+nseeds-1. Lets several
     //                  runs (e.g. one per onboard map, tools/mc_map_ensemble.py) use
     //                  distinct flight-noise draws.
+    //   --hard-iron=S  node start-up only: scale on the simulated hard-iron bias (2,-1,1) uT.
+    //                  Default 0.15 (about 0.35 uT): a calibrated compass, as mag_sim.py
+    //                  (R1.4). 1 is the uncalibrated value used before R1.4.
     //   --trace=FILE   write every scored sample of every seed (0.5 s grid, from yaw
     //                  alignment on) as CSV: seed,t,x,y,tx,ty,err,sigma,nees.
     //                  tools/plot_consistency.py draws it.
-    //   --mag=full|align  node start-up only, as the node's mag_fusion parameter: 3-axis
-    //                  mag updates throughout (default), or initial heading only. The
+    //   --mag=auto|heading|full|align  node start-up only, as the node's mag_fusion
+    //                  parameter: auto (default, R1.4: 3-axis while the field looks
+    //                  clean, else heading only), heading-only, 3-axis (the pre-R1.4
+    //                  default), or initial heading only. The
     //                  simulated mag assumes level flight along the velocity vector, true
     //                  for the synthetic Zermatt flight but not for a real recording such
     //                  as flight001 (bank, crab), whose CSVs carry no attitude truth.
     // Relative paths resolve against $GDN_ROOT (exported by env.sh).
     std::vector<char*> pos_args;
-    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "full", trace_path, db_arg;
+    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "auto", trace_path, db_arg;
     double baro_drift = 0.0, clearance = 30.0, w0 = 60.0, w1 = 300.0;
     int seed0 = 0;
+    double hard_iron = 0.15;
     gdn::EskfConfig cfg;   // defaults == node defaults
     for (int a = 0; a < argc_all; ++a) {
         const std::string s = argv_all[a];
@@ -120,6 +126,7 @@ int main(int argc_all, char** argv_all) {
         else if (s.rfind("--trace=", 0) == 0) trace_path = s.substr(8);
         else if (s.rfind("--db-map=", 0) == 0) db_arg = s.substr(9);
         else if (s.rfind("--seed0=", 0) == 0) seed0 = std::atoi(s.c_str() + 8);
+        else if (s.rfind("--hard-iron=", 0) == 0) hard_iron = std::atof(s.c_str() + 12);
         else if (s.rfind("--baro-drift=", 0) == 0) baro_drift = std::atof(s.c_str() + 13);
         else if (s.rfind("--clearance=", 0) == 0) clearance = std::atof(s.c_str() + 12);
         else if (s.rfind("--window=", 0) == 0) std::sscanf(s.c_str() + 9, "%lf,%lf", &w0, &w1);
@@ -133,8 +140,8 @@ int main(int argc_all, char** argv_all) {
         std::printf("ERROR: --model must be ideal, naive or agl\n"); return 1;
     }
     if ((startup != "truth" && startup != "node") || (ground_mode != "imu" && ground_mode != "gnss") ||
-        (mag_mode != "full" && mag_mode != "align")) {
-        std::printf("ERROR: --startup must be truth or node, --ground imu or gnss, --mag full or align\n");
+        (mag_mode != "heading" && mag_mode != "full" && mag_mode != "align" && mag_mode != "auto")) {
+        std::printf("ERROR: --startup must be truth or node, --ground imu or gnss, --mag auto, heading, full or align\n");
         return 1;
     }
     const bool node_startup = startup == "node";
@@ -179,7 +186,7 @@ int main(int argc_all, char** argv_all) {
     for (size_t q = 0; q < lt.size(); ++q)
         if (std::hypot(lvx[q], lvy[q]) > 0.5) { yaw_park = std::atan2(lvy[q], lvx[q]); break; }
     const Eigen::Vector3d m_ref(cfg.mag_ref_north, cfg.mag_ref_east, cfg.mag_ref_down);
-    const Eigen::Vector3d b_hardiron(2.0, -1.0, 1.0);
+    const Eigen::Vector3d b_hardiron = hard_iron * Eigen::Vector3d(2.0, -1.0, 1.0);
 
     std::vector<double> pool, vpool, seed_rms, seed_max, latch_t;
     gdn::ConsistencyStats cons_all, cons_pass, cons_fail;   // R1.5
@@ -269,6 +276,10 @@ int main(int argc_all, char** argv_all) {
                     if (!eskf.yaw_aligned()) {
                         eskf.AlignYawFromMag(zm);
                         if (diag_mode) std::printf("YAW t=%.1f mag align\n", t);
+                    } else if (mag_mode == "heading") {
+                        eskf.ApplyMagHeading(zm);
+                    } else if (mag_mode == "auto") {
+                        eskf.ApplyMagAuto(zm);
                     } else if (mag_mode == "full") {
                         eskf.ApplyMag(zm);
                     }
@@ -372,8 +383,8 @@ int main(int argc_all, char** argv_all) {
     }
     std::printf("MC campaign: %d seeds, model %s, startup %s%s, baro drift %.1f m, window %.0f-%.0f s, pooled n=%zu\n",
                 nseeds, model.c_str(), startup.c_str(),
-                node_startup ? (ground_mode == "imu" ? (mag_mode == "full" ? " (IMU ground, mag full)" : " (IMU ground, mag align)")
-                                                     : (mag_mode == "full" ? " (GNSS-speed ground, mag full)" : " (GNSS-speed ground, mag align)")) : "",
+                node_startup ? ((ground_mode == "imu" ? std::string(" (IMU ground, mag ") : std::string(" (GNSS-speed ground, mag "))
+                                + mag_mode + ")").c_str() : "",
                 baro_drift, w0, w1, pool.size());
     if (node_startup && !latch_t.empty())
         std::printf("airborne latch: %zu/%d seeds, t median %.2f s\n", latch_t.size(), nseeds,

@@ -55,7 +55,10 @@ for s, d in seeds.items():
 passing = sorted((s for s in score if score[s][0] < 100.0), key=lambda s: score[s][0])
 failing = sorted((s for s in score if score[s][0] >= 100.0), key=lambda s: score[s][0])
 good = a.good if a.good is not None else (passing[len(passing) // 2] if passing else None)
-bad = a.bad if a.bad is not None else (failing[len(failing) // 2] if failing else None)
+# No failing flight (as after R1.4): show the worst one instead, labelled as such.
+worst = max(score, key=lambda s: score[s][0]) if score else None
+bad = a.bad if a.bad is not None else (failing[len(failing) // 2] if failing else worst)
+bad_label = "A bad flight" if (a.bad is not None or failing) else "The worst flight"
 
 with open(a.map, "rb") as f:
     nx, ny = struct.unpack("<ii", f.read(8))
@@ -117,7 +120,7 @@ if good is not None:
     map_panel(fig.add_subplot(gs[0, 0]), good, GOOD, "A good flight")
     error_panel(fig.add_subplot(gs[1, 0]), good, GOOD)
 if bad is not None:
-    map_panel(fig.add_subplot(gs[0, 1]), bad, BAD, "A bad flight")
+    map_panel(fig.add_subplot(gs[0, 1]), bad, BAD, bad_label)
     error_panel(fig.add_subplot(gs[1, 1]), bad, BAD)
 
 ax = fig.add_subplot(gs[2, :])
@@ -129,7 +132,7 @@ ax.axvline(100, color=INK2, ls="--", lw=1)
 ax.axhline(1, color=INK2, ls=":", lw=1)
 ax.text(104, 96, "100 m limit", color=INK2, fontsize=9, va="top")
 ax.text(2900, 2.5, "REQ-INT-001: at most 1% outside", color=INK2, fontsize=9, ha="right")
-for s, label, off in ((good, "good flight above", (-20, 45)), (bad, "bad flight above", (14, -28))):
+for s, label, off in ((good, "good flight above", (-20, 45)), (bad, bad_label.lower().replace("a ", "", 1).replace("the ", "", 1) + " above", (14, -28))):
     if s is not None:
         ax.annotate(label, score[s], xytext=off, textcoords="offset points", fontsize=9, color=INK,
                     arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))

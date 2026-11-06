@@ -84,11 +84,10 @@ jobs:
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl --startup=node | tee mc_zermatt_node.txt
           python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-cep50 15 --min-passing 19
 
-      # R1.5: REQ-INT-001 (error > 3 x published sigma in at most 1% of samples) on
-      # Zermatt. Fails today (about 14%: false locks with a small sigma, audit A-02).
-      # Non-blocking until R1.4 fixes it; then drop continue-on-error.
-      - name: Consistency, Zermatt node start-up (REQ-INT-001, expected to fail until R1.4)
-        continue-on-error: true
+      # R1.5/R1.4: REQ-INT-001 (error > 3 x published sigma in at most 1% of samples)
+      # on Zermatt, node start-up. Blocking since R1.4 (TEST-021: 0.00% on these 24
+      # seeds, 0.46% on 100; it was about 14% before).
+      - name: Consistency, Zermatt node start-up (REQ-INT-001)
         run: python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-over-3sigma 1 --max-nees-median 2.8
 
       # R1.3: onboard map differs from the truth world (REQ-DB-002). An SRTM-like map

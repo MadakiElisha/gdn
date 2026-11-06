@@ -1,0 +1,5 @@
+mode,label,tilt_6uT_deg,zermatt_truth_map_passing,zermatt_truth_map_over3sigma_pct,zermatt_truth_map_cep95,srtm_maps_passing,srtm_maps_over3sigma_pct,srtm_maps_cep95,uncalibrated_truth_map_passing,uncalibrated_truth_map_over3sigma_pct
+full,3-axis,2.52,100,0.39,27.0,97,5.55,81.5,100,0.52
+auto,auto (default),1.55,100,0.46,27.4,97,5.50,81.0,,
+heading,heading only,0.00,100,0.04,25.2,89,9.89,421.7,98,3.92
+align,start-up only,,97,1.97,41.1,80,14.07,450.4,97,1.78

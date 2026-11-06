@@ -44,6 +44,23 @@ struct EskfConfig {
     double p0_mag_bias = 100.0;   // uT^2 : initial mag bias variance (sigma=10uT)
     double r_mag = 4.0;           // uT^2 : mag measurement noise (sigma=2uT)
     double gate_mag_sigma = 5.0;  // 5-sigma innovation gate for mag (Mahalanobis)
+    // Heading-only fusion (R1.4) assumes a calibrated compass; this is the residual hard
+    // iron after calibration, uT (1 sigma), treated as measurement noise.
+    double mag_heading_cal_sigma = 0.5;
+    // ApplyMagAuto (R1.4): 3-axis update only while the measured field looks like the
+    // Earth field, averaged over about 1 s (time constant mag_auto_tau, in updates):
+    // strength within mag_auto_norm_tol uT and dip within mag_auto_dip_tol_deg of the
+    // reference. Otherwise heading only.
+    double mag_auto_norm_tol = 2.0;
+    double mag_auto_dip_tol_deg = 2.0;
+    double mag_auto_tau = 10.0;
+    // Hysteresis: after a disturbance, stay heading-only until the field has looked clean
+    // for this many updates. Off by default: at these tolerances auto doesn't flap, and a
+    // 30-update hold cost the Zermatt MC (99/100 and 1.77% over 3 sigma, against 100/100
+    // and 0.46%) because manoeuvres trip the check briefly. With tighter tolerances noise
+    // lets single 3-axis updates through a disturbance, each kicking the tilt (up to 13 deg
+    // in the TEST-021 sweep); set a hold of about 30 then.
+    int mag_auto_hold = 0;
     double mag_ref_north = 21.5;  // WMM Zurich  // uT : reference field N
     double mag_ref_east = 1.3;   // WMM Zurich    // uT : reference field E
     double mag_ref_down = 42.3;  // WMM Zurich   // uT : reference field D
@@ -156,13 +173,13 @@ public:
         if (s_out) *s_out = S;
         if (S <= 0 || std::abs(innov) / std::sqrt(S) > cfg_.gate_sigma ||
             std::abs(innov) > cfg_.gate_abs_m) { n_rej_++; n_rej_trn_++; return UpdResult::kInnovGate; }
-        const V19 K = (P_ * H.transpose()) / S;
+        V19 K = (P_ * H.transpose()) / S;
+        // Terrain height says nothing about the baro or mag bias. Zero their gain rows
+        // before the update (R1.4), so the Joseph form below neither corrects them nor
+        // shrinks their variance. Zeroing dx afterwards (as before) still contracted P.
+        K(15) = 0.0; K.segment<3>(16).setZero();
+        LimitGain(K, innov);
         V19 dx = K * innov;
-        dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
-        dx.segment<3>(6)  = Clamp(dx.segment<3>(6),  cfg_.clamp_dtheta_deg * kDeg);
-        dx.segment<3>(9)  = Clamp(dx.segment<3>(9),  cfg_.clamp_dva);
-        dx.segment<3>(12) = Clamp(dx.segment<3>(12), cfg_.clamp_dvg_deg * kDeg);
-        dx(15) = 0.0; dx.segment<3>(16).setZero();
         x_ += dx;
         const M19 IKH = M19::Identity() - K * H;
         P_ = Repair(IKH * P_ * IKH.transpose() + cfg_.r_trn * K * K.transpose());
@@ -234,11 +251,8 @@ public:
         // is valid for any gain, so the covariance stays consistent with what was
         // actually applied (unlike zeroing dx after the fact).
         K.segment<3>(16).setZero();                  // mag bias
+        LimitGain(K, innov);
         V19 dx = K * innov;
-        dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
-        dx.segment<3>(6)  = Clamp(dx.segment<3>(6),  cfg_.clamp_dtheta_deg * kDeg);
-        dx.segment<3>(9)  = Clamp(dx.segment<3>(9),  cfg_.clamp_dva);
-        dx.segment<3>(12) = Clamp(dx.segment<3>(12), cfg_.clamp_dvg_deg * kDeg);
         x_ += dx;
         const M19 IKH = M19::Identity() - K * H;
         P_ = Repair(IKH * P_ * IKH.transpose() + cfg_.r_agl * K * K.transpose());
@@ -290,13 +304,9 @@ public:
             K.block<3,3>(12, 0) = Pu * K.block<3,3>(12, 0);
             K.block<4,3>(15, 0).setZero();          // baro bias, mag bias
         }
+        LimitGain<3>(K, y, false);
         V19 dx = K * y;
 
-        dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
-        dx.segment<3>(6)  = Clamp(dx.segment<3>(6),  cfg_.clamp_dtheta_deg * kDeg);
-        dx.segment<3>(9)  = Clamp(dx.segment<3>(9),  cfg_.clamp_dva);
-        dx.segment<3>(12) = Clamp(dx.segment<3>(12), cfg_.clamp_dvg_deg * kDeg);
-        
         x_ += dx;
         const M19 IKH = M19::Identity() - K * H;
         P_ = Repair(IKH * P_ * IKH.transpose() + K * R * K.transpose());
@@ -329,13 +339,10 @@ public:
         if (std::abs(innov) / std::sqrt(S) > cfg_.gate_baro_sigma) {
             n_rej_++; n_rej_baro_++; return UpdResult::kInnovGate;
         }
-        const V19 K = (P_ * H.transpose()) / S;
+        V19 K = (P_ * H.transpose()) / S;
+        K.segment<3>(16).setZero();        // baro says nothing about mag bias (R1.4)
+        LimitGain(K, innov);
         V19 dx = K * innov;
-        dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
-        dx.segment<3>(6)  = Clamp(dx.segment<3>(6),  cfg_.clamp_dtheta_deg * kDeg);
-        dx.segment<3>(9)  = Clamp(dx.segment<3>(9),  cfg_.clamp_dva);
-        dx.segment<3>(12) = Clamp(dx.segment<3>(12), cfg_.clamp_dvg_deg * kDeg);
-        dx.segment<3>(16).setZero();
         x_ += dx;
         const M19 IKH = M19::Identity() - K * H;
         P_ = Repair(IKH * P_ * IKH.transpose() + cfg_.r_baro * K * K.transpose());
@@ -378,14 +385,9 @@ public:
             n_rej_++; n_rej_mag_++; return UpdResult::kInnovGate;
         }
         
-        const Eigen::Matrix<double, 19, 3> K = P_ * H.transpose() * S_inv;
+        Eigen::Matrix<double, 19, 3> K = P_ * H.transpose() * S_inv;
+        LimitGain<3>(K, y, true);
         V19 dx = K * y;
-        
-        dx.segment<3>(3)  = Clamp(dx.segment<3>(3),  cfg_.clamp_dv);
-        dx.segment<3>(6)  = Clamp(dx.segment<3>(6),  cfg_.clamp_dtheta_deg * kDeg);
-        dx.segment<3>(9)  = Clamp(dx.segment<3>(9),  cfg_.clamp_dva);
-        dx.segment<3>(12) = Clamp(dx.segment<3>(12), cfg_.clamp_dvg_deg * kDeg);
-        dx.segment<3>(16) = Clamp(dx.segment<3>(16), cfg_.clamp_dvm);
         
         x_ += dx;
         
@@ -412,6 +414,91 @@ public:
     // Accelerometer reading expected at rest with the current attitude and bias:
     // R^T (-g) + b_a. Right after FeedStatic this is the parked mean exactly.
     V3 RestSpecificForce() const { return q_.conjugate() * (-g_) + ba_; }
+
+    // Magnetometer as heading only (R1.4, OI-012). The 3-axis update (ApplyMag) explains
+    // any field error with attitude, so a body-fixed disturbance (motor current, a nearby
+    // steel structure) tilts roll and pitch: 2.5 deg from 6 uT on body z in TEST-021.
+    // Here the measured field is levelled with the current attitude, and only the angle
+    // of its horizontal part is compared with the reference:
+    //   m_n = R (z - b_mag),   e = atan2(m_ref_E, m_ref_N) - atan2(m_n_E, m_n_N)
+    // e is the heading error (nav frame). Error state: q_true = q * Exp(dtheta), so a
+    // heading error is e3^T R dtheta. The attitude gain is projected onto the body
+    // vertical, so the update can't tilt the attitude even through correlations.
+    // Hard iron: a heading sees the field's direction, never its strength, so it can't
+    // estimate the mag bias. Left free, the estimate ran away to 120 uT with no bias at
+    // all (TEST-021 f). So this update assumes a calibrated compass: it uses the current
+    // bias estimate as the calibration, never changes it, and counts the calibration's
+    // residual (mag_heading_cal_sigma, uT) as noise next to the sensor noise. Noise in
+    // radians = those over the horizontal field strength.
+    UpdResult ApplyMagHeading(const Eigen::Vector3d& z_meas) {
+        if (!aligned_ || !yaw_aligned_) return UpdResult::kSlopeGate;
+        const Eigen::Matrix3d R = q_.toRotationMatrix();
+        const V3 m_ref(cfg_.mag_ref_north, cfg_.mag_ref_east, cfg_.mag_ref_down);
+        mag_innov_rms_ = 0.98 * mag_innov_rms_ + 0.02 * (z_meas - (R.transpose() * m_ref + mag_bias_)).norm();
+        const V3 m_n = R * (z_meas - mag_bias_);
+        const double h2 = m_n.head<2>().squaredNorm();
+        if (h2 < 1.0) return UpdResult::kSlopeGate;            // under 1 uT horizontal: no heading
+        const double innov = std::remainder(std::atan2(m_ref.y(), m_ref.x()) -
+                                            std::atan2(m_n.y(), m_n.x()), 2.0 * M_PI);
+        H19 H = H19::Zero();
+        H.block<1, 3>(0, 6) = R.row(2);
+        const double r = (cfg_.r_mag + cfg_.mag_heading_cal_sigma * cfg_.mag_heading_cal_sigma) / h2;
+        const double S = (H * P_ * H.transpose())(0, 0) + r;
+        if (!(S > 0.0) || std::isnan(innov) || std::abs(innov) / std::sqrt(S) > cfg_.gate_mag_sigma) {
+            n_rej_++; n_rej_mag_++; return UpdResult::kInnovGate;
+        }
+        V19 K = (P_ * H.transpose()) / S;
+        const V3 u = q_.conjugate() * V3::UnitZ();             // body-frame vertical
+        K.segment<3>(6) = u * u.dot(K.segment<3>(6));          // heading only, no tilt
+        K(15) = 0.0;                                           // nothing to say about baro
+        K.segment<3>(16).setZero();                            // nor about the mag bias
+        LimitGain(K, innov);
+        const V19 dx = K * innov;
+        x_ += dx;
+        const M19 IKH = M19::Identity() - K * H;
+        P_ = Repair(IKH * P_ * IKH.transpose() + r * K * K.transpose());
+        pos_ += x_.segment<3>(0); vel_ += x_.segment<3>(3);
+        const double da = x_.segment<3>(6).norm();
+        if (da > 1e-9)
+            q_ = (q_ * Eigen::Quaterniond(Eigen::AngleAxisd(da, x_.segment<3>(6).normalized()))).normalized();
+        ba_ += x_.segment<3>(9); bg_ += x_.segment<3>(12);
+        mag_bias_ += x_.segment<3>(16);
+        M19 J = M19::Identity();
+        J.block<3,3>(6,6) = Eigen::Matrix3d::Identity() - Skew(x_.segment<3>(6));
+        P_ = Repair(J * P_ * J.transpose());
+        x_.setZero();
+        n_upd_++;
+        return UpdResult::kApplied;
+    }
+    const M19& P() const { return P_; }
+
+    // Magnetometer, chosen per sample (R1.4). The 3-axis update also observes tilt, which
+    // is worth having when the field is clean (TEST-021: it carries the degraded-map
+    // Monte Carlo), but any disturbance tilts the attitude (OI-012). So: 3-axis while the
+    // field's strength and dip agree with the reference (each averaged, as the per-sample
+    // noise alone is 2 uT and 2.4 deg), heading only when they don't, and for
+    // mag_auto_hold updates after they agree again.
+    UpdResult ApplyMagAuto(const Eigen::Vector3d& z_meas) {
+        if (!aligned_ || !yaw_aligned_) return UpdResult::kSlopeGate;
+        const V3 m_ref(cfg_.mag_ref_north, cfg_.mag_ref_east, cfg_.mag_ref_down);
+        const V3 v = q_.toRotationMatrix() * (z_meas - mag_bias_);
+        const double dnorm = v.norm() - m_ref.norm();
+        const double ddip = std::asin(std::clamp(v.z() / std::max(v.norm(), 1e-6), -1.0, 1.0)) -
+                            std::asin(m_ref.z() / m_ref.norm());
+        const double a = 1.0 / std::max(1.0, cfg_.mag_auto_tau);
+        mag_dnorm_ = (1 - a) * mag_dnorm_ + a * dnorm;
+        mag_ddip_ = (1 - a) * mag_ddip_ + a * ddip;
+        const bool clean = std::abs(mag_dnorm_) < cfg_.mag_auto_norm_tol &&
+                           std::abs(mag_ddip_) < cfg_.mag_auto_dip_tol_deg * kDeg;
+        mag_clean_run_ = clean ? mag_clean_run_ + 1 : 0;
+        if (!clean) mag_disturbed_ = true;
+        else if (mag_disturbed_ && mag_clean_run_ >= cfg_.mag_auto_hold) mag_disturbed_ = false;
+        if (!mag_disturbed_) { n_mag_full_++; return ApplyMag(z_meas); }
+        n_mag_head_++;
+        return ApplyMagHeading(z_meas);
+    }
+    int mag_full_updates() const { return n_mag_full_; }
+    int mag_heading_updates() const { return n_mag_head_; }
 
     void SetInitialZ(double z_ned) {
         if (aligned_) { pos_.z() = z_ned; x_.setZero(); }
@@ -497,6 +584,30 @@ private:
     }
     static Eigen::Matrix3d Skew(const V3& v) {
         Eigen::Matrix3d S; S << 0, -v.z(), v.y(), v.z(), 0, -v.x(), -v.y(), v.x(), 0; return S; }
+    // Per-update correction limits (R1.4). Old approach: clamp dx after computing it,
+    // then update P with the full gain, so P shrank as if the whole correction had been
+    // applied (one clamped ZUPT left 4.5 m/s of error behind a 0.087 m/s sigma). Here the
+    // gain rows of a block are scaled down until its correction fits the limit. The
+    // Joseph update is valid for any gain, so P matches what was actually applied.
+    template <int M>
+    void LimitGain(Eigen::Matrix<double, 19, M>& K, const Eigen::Matrix<double, M, 1>& y,
+                   bool with_mag_bias) {
+        const struct { int i; double lim; } blocks[] = {
+            {3, cfg_.clamp_dv}, {6, cfg_.clamp_dtheta_deg * kDeg}, {9, cfg_.clamp_dva},
+            {12, cfg_.clamp_dvg_deg * kDeg}, {16, with_mag_bias ? cfg_.clamp_dvm : -1.0}};
+        for (const auto& b : blocks) {
+            if (b.lim <= 0.0) continue;
+            const double n = (K.template block<3, M>(b.i, 0) * y).norm();
+            if (n > b.lim) { K.template block<3, M>(b.i, 0) *= b.lim / n; n_clamp_++; }
+        }
+    }
+    void LimitGain(V19& K, double y) {
+        Eigen::Matrix<double, 1, 1> yy; yy(0) = y;
+        LimitGain<1>(K, yy, false);
+    }
+public:
+    int clamps() const { return n_clamp_; }   // gain-limit events (R1.4)
+private:
     static V3 Clamp(const V3& v, double lim) {
         const double n = v.norm(); return (n > lim) ? v * (lim / n) : v; }
     static M19 Repair(const M19& P) {
@@ -516,6 +627,11 @@ private:
     int n_rej_trn_ = 0, n_rej_baro_ = 0, n_rej_mag_ = 0;
     int n_rej_agl_ = 0, n_agl_ = 0;
     int n_gap_ = 0;
+    int n_clamp_ = 0;
+    int n_mag_full_ = 0, n_mag_head_ = 0;
+    double mag_dnorm_ = 0.0, mag_ddip_ = 0.0;
+    int mag_clean_run_ = 0;
+    bool mag_disturbed_ = false;
     double h0_ = 0.0;
     bool datum_set_ = false;
     double mag_innov_rms_ = 0.0;

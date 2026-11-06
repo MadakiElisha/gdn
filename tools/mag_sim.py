@@ -2,6 +2,7 @@
 """Simulated magnetometer (Pure Python, no scipy/numpy dependencies).
 /gdn/mag_meas = R^T * m_ref + b_true + noise"""
 import math
+import os
 import random
 import rclpy
 from rclpy.node import Node
@@ -12,7 +13,12 @@ from geometry_msgs.msg import Vector3
 # WMM field for 47.398N, 8.546E (PX4 SITL spawn, Zurich)
 # Declination=+3.5deg, Inclination=+63deg, Total=47.5uT
 M_REF = [21.5, 1.3, 42.3]  # uT (N, E, D)
-B_TRUE = [2.0, -1.0, 1.0]  # uT (hard-iron)
+# Hard iron left after compass calibration, uT. A real compass is calibrated before
+# flight (PX4 applies its calibration in sensor_mag), and heading-only fusion (R1.4)
+# relies on that. Default: 0.15 x (2, -1, 1), about 0.35 uT. GDN_MAG_HARDIRON=1 gives
+# the uncalibrated (2, -1, 1) uT used before R1.4, as a stress test.
+_HI = float(os.environ.get("GDN_MAG_HARDIRON", "0.15"))
+B_TRUE = [2.0 * _HI, -1.0 * _HI, 1.0 * _HI]  # uT (hard-iron)
 SIGMA = 2.0                # uT (noise, sigma=2)
 DT_US = 50_000             # 0.05 s -> 20 Hz
 
