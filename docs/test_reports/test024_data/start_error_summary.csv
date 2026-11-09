@@ -1,0 +1,13 @@
+flight,start_error_m,under_100m_at_120s,flights
+Zermatt 177 s,0,100,100
+Zermatt 177 s,60,100,100
+Zermatt 177 s,150,71,100
+Zermatt 177 s,500,7,100
+Zermatt 15 min,0,100,100
+Zermatt 15 min,60,99,100
+Zermatt 15 min,150,55,100
+Zermatt 15 min,500,3,100
+flight001,0,100,100
+flight001,60,73,100
+flight001,150,18,100
+flight001,500,3,100

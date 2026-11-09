@@ -201,30 +201,36 @@ The setting matters more than anything else:
 - Keep the temperature steady. An air conditioner cycling on and off, or sun moving across the room, both show up in the data.
 - Once it's started, don't touch the IMU or its cable.
 
-Start the driver and give the IMU 15 minutes to warm up. Then, in a second terminal:
+Record straight from the serial port, without the driver running. The factory output
+has no sample timestamp, so the driver can only stamp messages on arrival, and USB
+delivers them in bursts. `tools/h30wp_log.py` times each frame from the IMU's own
+frame numbers instead:
 
 ```bash
-source env.sh
-mkdir -p log
-ros2 bag record -s mcap -o log/h30wp_static /imu/data /imu/mag /imu/temperature
+systemd-inhibit --what=sleep:idle python3 tools/h30wp_log.py --hours 2.25 --out log/h30wp_static
 ```
 
-Leave it at least two hours, again longer is better. Stop the recording with
-Ctrl-C, then stop the driver. Then run the fit:
+It prints a status line every minute (frames, lost, |a|, gyro). `lost` should stay at
+0 and |a| within about 0.001 of where it started. `systemd-inhibit` keeps the PC from
+sleeping. The 2.25 hours include 15 minutes of warm-up, dropped by the fit. Ctrl-C
+stops early and keeps everything so far. Then run the fit:
 
 ```bash
-python3 tools/allan_fit.py --bag log/h30wp_static --topic /imu/data --skip 900 \
+python3 tools/allan_fit.py --csv log/h30wp_static/allan.csv --skip 900 \
     --name h30wp --out config/imu/h30wp.yaml --plot h30wp_allan.png
 ```
 
-The `--skip 900` drops the first 15 minutes, in case the IMU was still settling.
+The `--skip 900` drops the first 15 minutes, in case the IMU was still settling. The
+first log (9 November 2026, TEST-024) is in `config/imu/h30wp.yaml`. The room warmed
+during it, so a second log at a steady temperature is still wanted.
 
 A good result reports `0 gaps`, and on the plot the measured points follow the
 fitted line. If the plot has a bump the line can't follow, the recording was
 disturbed and needs doing again. [config/imu/README.md](../../config/imu/README.md)
 covers what happens with the fit after that.
 
-Keep the bag. It's our raw evidence for the IMU model.
+Keep `raw.csv`. It's our raw evidence for the IMU model (`h30wp_log.py --finalize DIR`
+rebuilds `allan.csv` from it).
 
 ## Not necessary for now
 

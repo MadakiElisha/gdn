@@ -54,23 +54,26 @@ Reproduce with `tools/sim_run.sh`, then `tools/sim_replay.sh` on the bag
 it records. Note that bag replays of the same flight vary by roughly 40% between
 runs because playback timing isn't deterministic.
 
-### OI-013: filter IMU process noise not yet set from a real IMU (open)
-`EskfConfig::q_accel_bias_rw` (5e-4 m/s^3/sqrt(Hz)) and `q_accel_nd` (0.02 m/s^2/sqrt(Hz))
-are tuned values.
-- **Bias random walk (TEST-022).** With PX4's pre-2025 Gazebo bias drift (0.006, tau
-  300 s) the filter falls to 94/100 Zermatt flights and 8.7% over 3 sigma. 4e-3 restores
-  100/100 and 0.43%, and improves the real flight001 IMU (CEP95 61.5 to 55.7 m), but costs
-  a little on SRTM-like onboard maps (96 to 94 flights).
-- **White noise (TEST-023).** After a GNSS handover on flight001's real IMU, the filter
-  is overconfident for the first minute: 8.6% over 3 sigma in the first 5 minutes,
-  83% in the first 30 s. `q_accel_nd` 0.1 brings that to 0.51% (0.2: 0.09%) and improves
-  CEP95 (73 to 62 m); the bias setting alone doesn't (3.1% at 2e-2). It barely changes
-  Zermatt. Scored from take-off, flight001 goes from 0.00% to 1.00% over 3 sigma and
-  100 to 99 flights.
+### OI-013: filter IMU white noise not yet set from in-flight data (open, bias part settled)
+The H30WP's bench fit (TEST-024, `config/imu/h30wp.yaml`) settled the bias random walks.
+The accel white noise still needs the IMU in flight.
+- **Bias random walks (settled, TEST-024).** Against the H30WP, `q_accel_bias_rw` 5e-4
+  is 5.3x and stays. `q_gyro_bias_rw` was 0.01 deg/s/sqrt(s), 44x, and is now 0.001
+  (4.4x): Zermatt 10 minutes after GNSS loss goes from CEP95 32 to 22 m, max 1468 to 77 m
+  and 0.93% to 0.00% over 3 sigma; SRTM-like maps from 202 to 81 m. The selftest keeps
+  both at or above the H30WP's and within 10x. (TEST-022's stress case, PX4's pre-2025
+  Gazebo drift, would need `q_accel_bias_rw` 4e-3; the H30WP drifts far less.)
+- **Accel white noise (open, TEST-023 and TEST-024).** After a GNSS handover on
+  flight001's real IMU the filter is overconfident for the first minutes. With the new
+  gyro setting it is more accurate but less honest: CEP95 73 to 63 m, 8.6% to 13.1% over
+  3 sigma in the first 5 minutes (10 minutes: 4.5% to 6.6%). `q_accel_nd` 0.2 brings
+  that to 0.09% but fails Zermatt (2.35% over 3 sigma, 98/100 flights); 0.1 costs
+  SRTM-like maps (CEP95 53 to 104 m). The bench H30WP is 33x below the current 0.02, so
+  what's missing is vibration and flight conditions, not the sensor.
 
-Set both from the H30WP Allan fit (R1.6, `config/imu/README.md`) plus in-flight data,
-then re-run the TEST-022 and TEST-023 sweeps. The CI's flight001 GNSS-loss step is a
-regression guard until then.
+Set `q_accel_nd` from H30WP flight data (Phase 6), then re-run the TEST-024 sweep. The
+CI's flight001 GNSS-loss step is a regression guard until then (15% over 3 sigma in the
+first 5 minutes; 13.09% on its 24 flights).
 
 ## Closed
 

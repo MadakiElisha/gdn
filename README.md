@@ -389,7 +389,7 @@ the roadmap.
   old oracle that hid this. A 15 m baro drift over 5 minutes now degrades rather than
   diverges (97 of 100 seeds under 100 m), but it still costs accuracy.
 - **The filter starts where the vehicle really is.** There's no acquisition mode, and
-  start errors above about 60 m fail (TEST-023: half or more fail from 150 m, nearly all from 500 m).
+  start errors above about 60 m fail (TEST-024: 29 to 82 flights in 100 fail from 150 m, 93 or more from 500 m).
 - **The Monte Carlo uses one map as both world and onboard database,** so map error
   isn't modelled.
 - **The node still reads GNSS-derived data** for ZUPT, take-off detection and the
