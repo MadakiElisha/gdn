@@ -8,9 +8,17 @@ axis, N is fitted per axis and (K, tau) on the mean of the three axes, by weight
 squares on the exact Allan variance of that model. The bias instability B (minimum of
 the curve / 0.664) is also printed, to compare with a datasheet.
 
+One drift term can't follow every sensor: a flat stretch followed by a rise (usually
+temperature) gets fitted to the flat part, and the model then falls below the measured
+curve over minutes. Where that is more than 25% below anywhere from 30 s to 10 min (the
+GNSS-free windows, MISSION_BAND), the drift is refitted as the smallest one that stays
+at or above the curve there, and the output says so (TEST-024).
+
     # a static log (at least 2 h, see config/imu/README.md):
-    python3 tools/allan_fit.py --bag log/h30wp_static --topic /fmu/out/sensor_combined \\
-        --name h30wp --out config/imu/h30wp.yaml --plot h30wp_allan.png
+    python3 tools/allan_fit.py --csv log/h30wp_static/allan.csv --skip 900 \\
+        --name h30wp --out config/imu/h30wp.yaml --plot h30wp_allan.png    # tools/h30wp_log.py
+    python3 tools/allan_fit.py --bag log/px4_static --topic /fmu/out/sensor_combined \\
+        --name px4 --out config/imu/px4.yaml
     python3 tools/allan_fit.py --bag log/mid360_static --topic /livox/imu --accel-unit g \\
         --name mid360 --out config/imu/mid360.yaml
     python3 tools/allan_fit.py --csv log.csv ...       # t[s or us],ax,ay,az,gx,gy,gz
@@ -28,6 +36,13 @@ import sys
 import numpy as np
 
 AXES = ("x", "y", "z")
+# Averaging times the drift must be right over: the 5 and 10 minute GNSS-free windows of
+# REQ-NAV-003, from 30 s up. Shorter logs cap the top at a tenth of their length.
+MISSION_BAND = (30.0, 600.0)
+# The least-squares fit is replaced by an upper envelope over that band when it is below
+# the measured curve by more than this anywhere in it (25% is the scatter of a 2 h log's
+# Allan deviation near 10 min, so a model that is right but unlucky doesn't trigger).
+ENVELOPE_TRIGGER = 0.75
 
 
 # ---------------------------------------------------------------- Allan variance ----
@@ -81,6 +96,22 @@ def fit_white_gm(t, avar, nclust, n_axes_white=None):
     if K == 0.0 or gm_avar(K, tau, tm) < 0.25 * N * N / tm:
         K = 0.0
     return N, K, tau
+
+
+def envelope_drift(t, avar, N):
+    """The drift (K, tau) whose model never falls below the measured Allan variance over
+    t (white noise N held), and exceeds it least (sum of log ratios). Used when the least-
+    squares fit is too optimistic there, e.g. a flat floor followed by a temperature-driven
+    rise that one Gauss-Markov term can't follow: the model then errs on the safe side."""
+    best = None
+    need = np.maximum(avar - N * N / t, 0.0)
+    for tau in np.logspace(0, 5, 151):
+        g = gm_avar(1.0, tau, t)
+        k2 = float(np.max(need / g))
+        excess = float(np.sum(np.log((N * N / t + k2 * g) / avar)))
+        if best is None or excess < best[0]:
+            best = (excess, np.sqrt(k2), tau)
+    return best[1], best[2]
 
 
 def bias_instability(t, adev):
@@ -159,12 +190,21 @@ def fit_log(t, acc, gyr, skip_s=0.0):
             Ns.append(N_i)
         mean_avar = np.mean([c[1] ** 2 for c in curves], axis=0)
         N_m, K, tc = fit_white_gm(tau[sel], mean_avar[sel], nclust[sel])
+        band = (MISSION_BAND[0], min(MISSION_BAND[1], tau[-1]))
+        inb = (tau >= band[0]) & (tau <= band[1])
+        low = np.sqrt(N_m * N_m / tau + gm_avar(K, tc, tau)) / np.sqrt(mean_avar) if K > 0 \
+            else N_m / np.sqrt(tau * mean_avar)
+        envelope = None
+        if inb.sum() >= 3 and low[inb].min() < ENVELOPE_TRIGGER:
+            i = np.flatnonzero(inb)[np.argmin(low[inb])]
+            K, tc = envelope_drift(tau[inb], mean_avar[inb], N_m)
+            envelope = {"band": band, "was": float(low[i]), "at": float(tau[i])}
         if K > 0:   # refit each axis's N with the common drift held fixed
             G = gm_avar(K, tc, tau[sel])
             Ns = [_white_given_drift(tau[sel], c[1][sel] ** 2, G, nclust[sel]) for c in curves]
         B, tB = bias_instability(tau, np.sqrt(mean_avar))
         res[key] = {"tau": tau, "adev": [c[1] for c in curves], "N": np.array(Ns), "K": K, "tc": tc,
-                    "B": B, "tB": tB}
+                    "B": B, "tB": tB, "envelope": envelope}
     return res
 
 
@@ -177,7 +217,7 @@ def _white_given_drift(t, avar, G, nclust):
     return float(np.sqrt(max(np.dot(A, b) / np.dot(A, A), 0.0)))
 
 
-def write_model(path, name, res, src, turn_on_a, turn_on_g):
+def write_model(path, name, res, src, turn_on_a, turn_on_g, source=None):
     a, g = res["accel"], res["gyro"]
     with open(path, "w") as f:
         f.write(f"# IMU model fitted by tools/allan_fit.py on {datetime.date.today().isoformat()}\n")
@@ -185,7 +225,7 @@ def write_model(path, name, res, src, turn_on_a, turn_on_g):
         f.write("# White noise and bias drift from the Allan deviation; turn-on bias NOT from this log\n")
         f.write("# (one static log is one power-up), kept from --turn-on-accel / --turn-on-gyro.\n")
         f.write(f"name: {name}\n")
-        f.write(f"source: Allan fit of {os.path.basename(src.rstrip('/'))}, {res['hours']:.1f} h static\n")
+        f.write(f"source: {source or 'Allan fit of ' + os.path.basename(src.rstrip('/'))}, {res['hours']:.1f} h static\n")
         f.write("accel_noise_density: [" + ", ".join(f"{v:.5g}" for v in a["N"]) + "]   # m/s^2/sqrt(Hz)\n")
         f.write("gyro_noise_density: [" + ", ".join(f"{v:.5g}" for v in g["N"]) + "]    # rad/s/sqrt(Hz)\n")
         f.write(f"accel_bias_rw: {a['K']:.5g}     # m/s^3/sqrt(Hz){'  (drift not resolved by this log)' if a['K'] == 0 else ''}\n")
@@ -198,6 +238,10 @@ def write_model(path, name, res, src, turn_on_a, turn_on_g):
         f.write(f"fit_rate_hz: {res['fs']:.2f}\n")
         f.write(f"fit_accel_bias_instability: {a['B']:.4g}   # m/s^2, at tau {a['tB']:.3g} s\n")
         f.write(f"fit_gyro_bias_instability: {g['B']:.4g}    # rad/s, at tau {g['tB']:.3g} s\n")
+        for key, r in (("accel", a), ("gyro", g)):
+            e = r["envelope"]
+            f.write(f"fit_{key}_drift: " + (f"upper envelope over {e['band'][0]:.0f}-{e['band'][1]:.0f} s "
+                    f"(least squares was {1 / e['was']:.1f}x low at {e['at']:.0f} s)" if e else "least squares") + "\n")
 
 
 def write_adev_csv(path, res):
@@ -217,6 +261,10 @@ def report(res):
                  if r["K"] > 0 else "drift not resolved")
         print(f"{key:5s}: N = " + ", ".join(f"{v:.3g}" for v in r["N"]) + f" {unit}; {drift}; "
               f"bias instability {r['B']:.3g} at {r['tB']:.3g} s")
+        e = r["envelope"]
+        if e:
+            print(f"       {key} drift: the least-squares fit was {1 / e['was']:.1f}x below the measured curve at "
+                  f"{e['at']:.0f} s, so the drift is the upper envelope over {e['band'][0]:.0f}-{e['band'][1]:.0f} s")
     if res["hours"] < 1.99:
         print("WARNING: shorter than the 2 h R1.6 asks for; drift terms are poorly constrained")
 
@@ -236,6 +284,8 @@ def plot(path, res, title):
         ax.loglog(tt, model_adev(np.mean(r["N"]), r["K"], r["tc"], tt), "-", color="#0b0b0b", lw=1.5,
                   label="fitted model")
         ax.set_xlabel("averaging time tau [s]"); ax.set_ylabel(f"Allan deviation [{unit}]")
+        ax.axvspan(MISSION_BAND[0], min(MISSION_BAND[1], r["tau"][-1]), color=GRID, alpha=0.45, lw=0,
+                   label="30 s to 10 min" + (" (envelope fit)" if r["envelope"] else ""))
         ax.grid(True, which="both", color=GRID, lw=0.5); ax.set_title(key, loc="left")
         ax.legend(fontsize=8.5)
     fig.suptitle(title, x=0.01, ha="left", color=INK2)
@@ -278,6 +328,22 @@ def selfcheck():
                 msg = "no drift found" if r["K"] == 0 else f"found drift K={r['K']:.3g} that isn't there"
             print(f"{'PASS' if good else 'FAIL'}  allan: {name:11s} {key:5s} N off by {100 * eN:.1f}%, {msg}")
             ok &= good
+    # A sensor the single-drift model can't describe (like the H30WP, TEST-024): a short
+    # Gauss-Markov drift (the flat floor near a minute) plus a slow random walk (the rise
+    # after it). However it fits, the model must not claim the sensor is better than it
+    # is over the 30 s to 10 min the GNSS-free windows are scored on.
+    Kw, tw, Kr = 2.7e-4, 6.0, 3.3e-5
+    acc = sim(5.3e-4, Kw, tw) + sim(0.0, Kr, 1e9)
+    res = fit_log(t, acc, sim(5.52e-5, 0.0, 1.0))
+    r = res["accel"]
+    tb = np.logspace(np.log10(MISSION_BAND[0]), np.log10(MISSION_BAND[1]), 25)
+    truth = np.sqrt(5.3e-4 ** 2 / tb + gm_avar(Kw, tw, tb) + gm_avar(Kr, 1e9, tb))
+    ratio = model_adev(np.mean(r["N"]), r["K"], r["tc"], tb) / truth
+    good = ratio.min() > 0.75 and ratio.max() < 2.5
+    print(f"{'PASS' if good else 'FAIL'}  allan: two drifts  accel model / true Allan deviation over "
+          f"{MISSION_BAND[0]:.0f}-{MISSION_BAND[1]:.0f} s: {ratio.min():.2f} to {ratio.max():.2f} "
+          "(must stay within 0.75 to 2.5)")
+    ok &= good
     print("ALLAN SELFCHECK PASSED" if ok else "ALLAN SELFCHECK FAILED")
     return ok
 
@@ -296,6 +362,7 @@ def main():
     ap.add_argument("--out", help="write the model file (config/imu/NAME.yaml)")
     ap.add_argument("--adev-csv", help="write the Allan deviation curves")
     ap.add_argument("--plot", help="write a PNG of the curves and the fit")
+    ap.add_argument("--source", help="source: line of the model file (default: the log's name)")
     ap.add_argument("--turn-on-accel", type=float, default=0.05, help="m/s^2 (not observable in one log)")
     ap.add_argument("--turn-on-gyro", type=float, default=0.02 * np.pi / 180, help="rad/s (not observable in one log)")
     a = ap.parse_args()
@@ -311,15 +378,23 @@ def main():
     g = np.linalg.norm(acc.mean(axis=0))
     if not 9.0 < g < 10.6:
         print(f"WARNING: mean specific force {g:.2f} m/s^2, not about 9.81: check --accel-unit")
-    spread_a, peak_w = np.std(np.linalg.norm(acc, axis=1)), np.max(np.abs(gyr - gyr.mean(axis=0)))
+    spread_a = np.std(np.linalg.norm(acc, axis=1))
+    dw = np.linalg.norm(gyr - np.median(gyr, axis=0), axis=1)
+    peak_w = np.percentile(dw, 99.9)   # sustained motion, not one knock
     if spread_a > 0.2 or peak_w > 0.1:
-        print(f"WARNING: not a static log (|a| spread {spread_a:.2f} m/s^2, gyro peak {peak_w:.2f} rad/s): "
-              "the fit describes motion, not sensor noise")
+        print(f"WARNING: not a static log (|a| spread {spread_a:.2f} m/s^2, gyro 99.9th percentile "
+              f"{peak_w:.2f} rad/s): the fit describes motion, not sensor noise")
+    knocks = np.flatnonzero(dw > 0.02)
+    if knocks.size:
+        ev = np.split(knocks, np.flatnonzero(np.diff(t[knocks]) > 1.0) + 1)   # 1 s apart = separate
+        print(f"note: {len(ev)} short knock(s) over 0.02 rad/s, at " +
+              ", ".join(f"{t[e[0]] - t[0]:.0f} s ({e.size} samples)" for e in ev[:5]) +
+              ("" if len(ev) <= 5 else ", ...") + "; check the fit doesn't change without them")
     res = fit_log(t, acc, gyr, a.skip)
     report(res)
     src_name = a.csv or a.bag
     if a.out:
-        write_model(a.out, a.name, res, src_name, a.turn_on_accel, a.turn_on_gyro)
+        write_model(a.out, a.name, res, src_name, a.turn_on_accel, a.turn_on_gyro, a.source)
         print(f"wrote {a.out}")
     if a.adev_csv:
         write_adev_csv(a.adev_csv, res)

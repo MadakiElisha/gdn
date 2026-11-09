@@ -26,12 +26,14 @@ struct EskfConfig {
     double clamp_dva = 0.005;
     double clamp_dvg_deg = 0.05;
     double clamp_dvm = 5.0;      // uT per update (mag bias clamp)
-    // IMU process noise (densities). Tuned values, larger than the placeholder IMU's
-    // white noise because they also cover what the model leaves out (R1.6, TEST-022).
+    // IMU process noise (densities), against the H30WP's Allan fit (config/imu/h30wp.yaml,
+    // TEST-024): white noise 33x (accel) and 3.7x (gyro) the bench values, since flight
+    // adds vibration (q_accel_nd is still open, OI-013); bias random walks 5.3x and 4.4x,
+    // never below the sensor and never so loose that attitude wanders (selftest TEST-024).
     double q_accel_nd = 0.02;                   // m/s^2/sqrt(Hz)
     double q_gyro_nd = 0.02 * M_PI / 180.0;     // rad/s/sqrt(Hz)
     double q_accel_bias_rw = 5e-4;              // m/s^3/sqrt(Hz)
-    double q_gyro_bias_rw = 0.01 * M_PI / 180.0;  // rad/s^2/sqrt(Hz)
+    double q_gyro_bias_rw = 0.001 * M_PI / 180.0;  // rad/s^2/sqrt(Hz); 0.01 deg before R1.6 hardware
     double still_rate = 0.05;
     int    static_n = 500;
     double max_gyro_mean = 0.02;

@@ -1,0 +1,5 @@
+sensor,fit,N_mean,K,tau_s,worst_ratio_in_band,at_tau_s
+accel,least squares,0.00054586,0.00026771,6.3096,0.135,589
+accel,envelope (model file),0.0005463,9.4534e-05,184.78,,
+gyro,least squares,8.6868e-05,2.1157e-06,1e+05,0.538,589
+gyro,envelope (model file),8.623e-05,3.9497e-06,1e+05,,

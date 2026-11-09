@@ -566,9 +566,14 @@ int main() {
         }
         // (d) Magnetometer, heading only (OI-012). A body-fixed disturbance on the
         // vertical axis (motor current on a multirotor) must not tilt the attitude. Level
-        // and still; 60 s of clean field, then 6 uT on body z for 60 s.
+        // and still; 60 s of clean field, then 6 uT on body z for 60 s. These run with the
+        // pre-R1.6-hardware gyro-bias random walk (0.01 deg/s/sqrt(s)): the looser attitude
+        // makes the 3-axis tilt large enough to show (2.5 deg; 0.12 deg at the TEST-024
+        // default), and heading-only must hold even then.
+        const double loose_bg = 0.01 * Eskf::kDeg;
         auto tilt_after = [&](bool heading_only) {
             EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            c.q_gyro_bias_rw = loose_bg;
             Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
             const V3 m(21.5, 1.3, 42.3);
             for (int k = 0; k < 1200; ++k) {
@@ -582,6 +587,7 @@ int main() {
         int auto_false = -1;
         auto tilt_auto = [&]() {
             EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            c.q_gyro_bias_rw = loose_bg;
             Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
             std::mt19937 rng(23); std::normal_distribution<double> nm(0.0, 2.0);
             const V3 m(21.5, 1.3, 42.3);
@@ -845,6 +851,32 @@ int main() {
               std::abs(e.P()(0, 0) - 250000.0) < 1e-6 && std::abs(e.P()(1, 1) - 250000.0) < 1e-6 &&
               cross == 0.0 && rest == 0.0 && e.p_mineig() > 0.0,
               "eskf: TEST-023 start error sets position and its stated uncertainty only");
+    }
+
+    // TEST-024 (R1.6, hardware): the H30WP model from a 2 h static log, and the filter's
+    // default process noise against it. The filter must not assume a better IMU than the
+    // fit (that is overconfidence), and its bias random walks must not be so loose that
+    // attitude wanders: with the gyro one 44x the H30WP's, Zermatt lost 7 of 100 flights
+    // to false locks 10 minutes after GNSS loss; within 10x, none (TEST-024 report).
+    {
+        ImuNoiseModel h;
+        std::string err;
+        const bool loaded = LoadImuModel(DataPath("config/imu/h30wp.yaml"), &h, &err);
+        if (!loaded) std::printf("      %s\n", err.c_str());
+        CHECK(loaded && h.name == "h30wp" && h.accel_noise_density.minCoeff() > 1e-4 &&
+              h.accel_noise_density.maxCoeff() < 5e-3 && h.gyro_noise_density.minCoeff() > 1e-5 &&
+              h.gyro_noise_density.maxCoeff() < 1e-3 && h.accel_bias_rw > 0.0 && h.gyro_bias_rw > 0.0,
+              "imu: TEST-024 H30WP model loads, with white noise and drift from the fit");
+        const EskfConfig c;
+        const double ra = c.q_accel_bias_rw / h.accel_bias_rw, rg = c.q_gyro_bias_rw / h.gyro_bias_rw;
+        std::printf("      filter / H30WP: accel white %.1fx, gyro white %.1fx, accel bias rw %.1fx, gyro bias rw %.1fx\n",
+                    c.q_accel_nd / h.accel_noise_density.maxCoeff(), c.q_gyro_nd / h.gyro_noise_density.maxCoeff(),
+                    ra, rg);
+        CHECK(loaded && c.q_accel_nd >= h.accel_noise_density.maxCoeff() &&
+              c.q_gyro_nd >= h.gyro_noise_density.maxCoeff() && ra >= 1.0 && rg >= 1.0,
+              "eskf: TEST-024 default process noise is not below the H30WP's (not overconfident)");
+        CHECK(loaded && ra <= 10.0 && rg <= 10.0,
+              "eskf: TEST-024 default bias random walks are within 10x of the H30WP's");
     }
 
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);

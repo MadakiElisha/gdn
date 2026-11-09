@@ -166,15 +166,17 @@ int32 nx, int32 ny, float64 lat0, lon0, dlat, dlon, float32 alt[ny*nx]  (row-maj
 
 All simulators use fixed seeds for replay parity.
 
-**IMU error model (R1.6, TEST-022).** `gdn/imu_model.hpp` defines the model: white noise
+**IMU error model (R1.6, TEST-022 and TEST-024).** `gdn/imu_model.hpp` defines the model: white noise
 per axis, Gauss-Markov bias drift and turn-on bias. It reads model files from
 `config/imu/` and applies them (`ImuErrorSim`). The Monte Carlo uses it on flights that
 have an error-free IMU (`imu_truth.csv`, written by `gen_zermatt_flight.py`); real logs
-keep their recorded IMU (`mc_campaign --imu`). Until the H30WP, Mid-360S and OAK-D Lite
-have been fitted (`tools/allan_fit.py`), the model is the generic MEMS placeholder,
-PX4 v1.16's default simulated IMU, and every MC report names it on its `imu:` line. The
-filter's IMU process noise is in `EskfConfig` (`q_accel_nd`, `q_gyro_nd`,
-`q_accel_bias_rw`, `q_gyro_bias_rw`). The Gazebo x500 already carries PX4's white noise;
+keep their recorded IMU (`mc_campaign --imu`). The default model is the H30WP's Allan
+fit (`config/imu/h30wp.yaml`, from a 2 h bench log; `tools/allan_fit.py` fits the drift
+as an upper envelope over 30 s to 10 min, so it doesn't promise a better IMU than was
+measured where the GNSS-free windows are scored). Every MC report names the model on
+its `imu:` line. The filter's IMU process noise is in `EskfConfig` (`q_accel_nd`,
+`q_gyro_nd`, `q_accel_bias_rw`, `q_gyro_bias_rw`); the selftest (TEST-024) keeps it at
+or above the H30WP's, with the bias random walks within 10x of it. The Gazebo x500 already carries PX4's white noise;
 model files for Gazebo arrive with R2.4.
 
 **Scenarios: GNSS loss and start error (R1.7, TEST-023).** The requirements score time
@@ -233,7 +235,7 @@ These are the main things standing between this and a fielded GNSS-denied stack.
   slopes (TEST-017), and baro drift faster than the bias random walk still costs
   accuracy.
 - **The filter starts at the true position** (initial position sigma of about 10 m) and has no acquisition mode.
-  Start errors above about 60 m fail (TEST-023: half or more fail from 150 m, nearly all from 500 m).
+  Start errors above about 60 m fail (TEST-024: 29 to 82 flights in 100 fail from 150 m, 93 or more from 500 m).
 - **Map error is synthetic.** Since R1.3 the MC (`--db-map`) and bench (`GDN_DB_MAP`)
   fly over a truth map and navigate with a different onboard map, built by
   `tools/make_db_map.py` (noise, bias, coarser cells). Both maps come from the same

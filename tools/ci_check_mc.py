@@ -3,7 +3,7 @@
 
     python3 tools/ci_check_mc.py mc.txt --max-cep50 20 --min-passing 17
     python3 tools/ci_check_mc.py mc.txt --max-over-3sigma 1 --max-nees-median 2.8
-    python3 tools/ci_check_mc.py mc.txt --expect-imu placeholder-px4-default
+    python3 tools/ci_check_mc.py mc.txt --expect-imu h30wp
     python3 tools/ci_check_mc.py mc.txt --gnss-free-max-cep95 300=35 --gnss-free-max-over-3sigma 300=1
     python3 tools/ci_check_mc.py mc.txt --min-acquired 22
 
@@ -28,7 +28,7 @@ ap.add_argument("--max-nis-over9", type=float,
                 help="fail if more than this %% of TRN/AGL updates have NIS > 9 (consistent: 0.27)")
 # R1.6: results are labelled with the IMU model they used ("imu: NAME ..." line).
 ap.add_argument("--expect-imu",
-                help="fail unless the report's imu: line names this model (e.g. placeholder-px4-default, recorded)")
+                help="fail unless the report's imu: line names this model (e.g. h30wp, placeholder-px4-default, recorded)")
 # R1.7: "GNSS-free D s: ..." lines (mc_campaign --gnss-loss) and the acquisition line
 # (--start-error). Each GNSS-free option takes D=VALUE and can be repeated.
 ap.add_argument("--gnss-free-max-cep95", action="append", default=[], metavar="D=M",

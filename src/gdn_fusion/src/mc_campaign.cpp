@@ -116,8 +116,9 @@ int main(int argc_all, char** argv_all) {
     //                  placeholder: the generic MEMS placeholder (PX4's default IMU noise,
     //                  config/imu/placeholder_px4_default.yaml) applied to the flight's
     //                  error-free imu_truth.csv. FILE: any config/imu/ model. auto
-    //                  (default): placeholder when imu_truth.csv exists (synthetic
-    //                  flights), else recorded (a real log's IMU errors are the real ones).
+    //                  (default): config/imu/h30wp.yaml (the H30WP's Allan fit, TEST-024)
+    //                  when imu_truth.csv exists (synthetic flights), else recorded (a
+    //                  real log's IMU errors are the real ones).
     //                  The "imu:" line of the report names what was used.
     //   --q-ba=K, --q-bg=K  filter accel-bias (m/s^3/sqrt(Hz)) and gyro-bias
     //                  (deg/s^2/sqrt(Hz)) random walk, for sweeps.
@@ -209,7 +210,7 @@ int main(int argc_all, char** argv_all) {
 
     // IMU errors (R1.6).
     const bool have_truth_imu = static_cast<bool>(std::ifstream(csv_dir + "/imu_truth.csv"));
-    if (imu_arg == "auto") imu_arg = have_truth_imu ? "placeholder" : "recorded";
+    if (imu_arg == "auto") imu_arg = have_truth_imu ? "config/imu/h30wp.yaml" : "recorded";
     const bool use_imu_model = imu_arg != "recorded";
     gdn::ImuNoiseModel imu_model;
     if (imu_arg == "placeholder") {
