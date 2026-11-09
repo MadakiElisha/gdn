@@ -1,11 +1,10 @@
 # Setting up the H30WP IMU
 
-This is how we get the Yesense / WHEELTEC H30WP talking to a PC, publishing on ROS 2,
-and recording the static log we need for the IMU noise fit (R1.6). It's written for
-whoever on the team picks up an IMU next, so it starts from an unopened box.
+This is how we get the Yesense / WHEELTEC H30WP talking to the PC, publishing on ROS 2,
+and recording the static log we need for the IMU noise fit (R1.6).
 
 Expect about half an hour for the setup, then a long static recording at the end:
-at least two hours, ideally overnight.
+at least two hours, longer is better.
 
 ## What's in the box
 
@@ -59,7 +58,7 @@ ring finger-tight. Set the IMU flat on the desk and leave it alone.
 It's worth taking a photo of the adapter with the wires on it. Then anyone can
 check the wiring later without unplugging anything.
 
-## Preparing the PC
+## Preparing PC
 
 This only needs doing once per machine.
 
@@ -70,7 +69,7 @@ sudo apt remove -y brltty
 ```
 
 - The first line lets your user open serial ports without sudo.
-- The second installs the serial library our tools use.
+- The second installs the serial library our tools use (if it isn't already installed).
 - The third removes a braille-display service that Ubuntu ships with. It likes to grab USB serial adapters the moment they appear.
 
 Log out and back in afterwards, or the group change won't apply. Running `groups`
@@ -94,7 +93,7 @@ installed.
 
 ## Checking the IMU
 
-From the GDN workspace:
+From the GDN workspace (cd gdn_workspace):
 
 ```bash
 python3 tools/h30wp_check.py
@@ -130,8 +129,7 @@ If it doesn't pass, the script says why:
 - **`BYTES BUT NO FRAMES`**: data is arriving at a different speed. Run `python3 tools/h30wp_check.py --scan`, which tries the common baud rates.
 - **`expected about 9.8`**: the IMU was probably moving, or isn't flat. Run it again with the IMU still. If it keeps happening, post the output in the team channel.
 
-If you've swapped the data wires and it still says `NO DATA`, stop there. Share
-the full output and your photo of the adapter rather than trying other wiring.
+If you've swapped the data wires and it still says `NO DATA`, Hold.
 
 ## Giving it a fixed name
 
@@ -161,7 +159,7 @@ python3 tools/h30wp_node.py
 ```
 
 The driver uses `/dev/gdn_imu` if it exists, otherwise whichever single
-`/dev/ttyUSB*` it finds. To choose the port yourself, add
+`/dev/ttyUSB*` it finds. To choose the port, add
 `--ros-args -p port:=/dev/ttyUSB0`.
 
 It publishes three topics:
@@ -211,7 +209,7 @@ mkdir -p log
 ros2 bag record -s mcap -o log/h30wp_static /imu/data /imu/mag /imu/temperature
 ```
 
-Leave it at least two hours, or overnight if you can. Stop the recording with
+Leave it at least two hours, again longer is better. Stop the recording with
 Ctrl-C, then stop the driver. Then run the fit:
 
 ```bash
@@ -228,7 +226,7 @@ covers what happens with the fit after that.
 
 Keep the bag. It's our raw evidence for the IMU model.
 
-## Leave these alone for now
+## Not necessary for now
 
 WHEELTEC's Windows tool (YIS Manager) can recalibrate the gyro bias and the
 magnetometer, and change the output mode and baud rate. Don't use it yet:
