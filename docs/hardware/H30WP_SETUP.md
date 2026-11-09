@@ -1,209 +1,241 @@
-# H30WP IMU: first-time setup on the PC
+# Setting up the H30WP IMU
 
-This takes the Yesense / WHEELTEC H30WP from the box to a ROS 2 topic and a static
-recording for the noise fit (roadmap R1.6). Do the steps in order. Each one ends with
-a check, so a problem shows up at the step that caused it.
+This is how we get the Yesense / WHEELTEC H30WP talking to a PC, publishing on ROS 2,
+and recording the static log we need for the IMU noise fit (R1.6). It's written for
+whoever on the team picks up an IMU next, so it starts from an unopened box.
 
-Time: about 30 minutes, plus the 2 hour (or overnight) static recording at the end.
+Expect about half an hour for the setup, then a long static recording at the end:
+at least two hours, ideally overnight.
 
-## 1. What you have
+## What's in the box
 
-| Part | What it is |
-|---|---|
-| The IMU | Black metal box with WHEELTEC / YESENSE / H30WP on the lid and axis arrows. It has a round screw-on waterproof socket. |
-| The IMU cable | Black cable, round plug on one end. The other end splits into 8 thin coloured wires with small black push-on ends (Dupont). |
-| The adapter | Small green board with a USB-C socket and a black chip in the middle. This is a USB-to-serial converter. It has a 3-pin header marked **G TX RX** on one side and pins marked **5V** and **3V3** on the other. |
-| A USB-C cable | To connect the adapter to the PC. It must be a data cable. Some cables only charge, and the PC won't see anything through those. |
+The IMU itself is a black aluminium block with WHEELTEC, YESENSE and H30WP printed on
+the lid, along with its axis arrows. It has a round, screw-on waterproof socket on one
+side.
 
-Specs worth knowing:
-- The IMU accepts 5 to 26 V.
-- It talks serial (UART) at 460800 baud by default.
-- It sends up to 400 samples per second.
+The cable has a matching round plug on one end. The other end is a bundle of eight
+thin coloured wires (the jacket reads AWM 2464, 8 x 0.25 mm²), each ending in a small
+black push-on connector.
 
-## 2. The wiring
+The adapter is a small green USB-to-serial board with a USB-C socket. It has two
+3-pin headers: one marked `G TX RX`, the other marked `5V G 3V3`. There's also a
+white 6-pin socket on it that we don't use.
 
-**Rules, before touching any wire:**
-- **Do all wiring with the USB cable unplugged.** Plug it in only when a step says so.
-- The IMU needs **four** wires connected: power, ground, and two data wires.
-- The other four wires stay **unconnected**. Keep their ends apart, and away from anything metal. A loose end touching a pin or another wire is the easiest way to damage something.
-- Nothing ever goes on the adapter's **3V3** pin. The IMU needs at least 5 V. On 3.3 V it won't start, though it won't be damaged either.
+You also need a USB-C cable that carries data. Plenty of USB-C cables only charge,
+and the PC won't see the adapter through one of those.
 
-**Which wire is which.** WHEELTEC doesn't publish the colour code for this cable, and it isn't printed on it. If a slip of paper with a colour chart came in the box, or the seller's listing has one, **that chart wins** over anything below. Without one, this is the wiring your unit is already set up with, and it's consistent with the usual convention:
+A few numbers from WHEELTEC's documentation:
+- the IMU runs on 5 to 26 V;
+- it talks serial at 460800 baud by default;
+- it outputs up to 400 samples a second.
 
-| Wire colour | IMU function (most likely) | Goes to adapter pin |
+## Wiring
+
+Keep the USB cable unplugged the whole time you're wiring.
+
+Only four of the eight wires get connected:
+
+| Wire | What it is | Adapter pin |
 |---|---|---|
-| Red | Power in (5 to 26 V) | **5V** |
-| Brown | Ground | **G** (the one next to 5V, or the G on the TX/RX header) |
-| Green | Serial data | **TX** or **RX** |
-| Yellow | Serial data | the other of **TX** / **RX** |
-| Blue, white, pink, grey | RS-485 and spare lines | nothing; ends kept apart |
+| Red | power in | `5V` |
+| Brown | ground | `G` on the `5V G 3V3` header |
+| Yellow | serial data | `TX` or `RX` |
+| Green | serial data | the other one of `TX` / `RX` |
 
-Green and yellow are the only uncertain pair, and that guess is harmless. If they're the
-wrong way round, nothing breaks; you just get no data, and you swap them (step 6).
+Blue, white, pink and grey stay unconnected. They're the RS-485 and spare lines.
+Tape their ends or tuck them away, so they can't touch a pin or each other.
 
-**Do it:**
-1. With USB unplugged, push each of the four Dupont ends fully onto its pin. Push straight on; don't bend the pins.
-2. Wrap the four unused wire ends with a bit of tape, or tuck them where they can't touch the board.
-3. Screw the round plug onto the IMU: line up the notch, push in, then turn the ring finger-tight.
-4. Put the IMU flat on a solid table. Leave it still.
+WHEELTEC doesn't publish the colour code for this cable, so the table above is the
+wiring we found working on our unit, not an official chart. If your IMU came with a
+colour chart, follow the chart instead.
 
-**Check:** take one clear, close photo of the adapter showing all pins and wires. Keep
-it; it's the record of how this unit is wired.
+Two things to know before you trust the table:
+- **Never put anything on `3V3`.** The IMU needs at least 5 V. At 3.3 V it just won't start; nothing gets damaged.
+- **Yellow and green can be swapped without risk.** If they're the wrong way round, you get no data, and swapping them fixes it.
 
-## 3. Prepare the PC (once)
+Screw the round plug onto the IMU: line up the notch, push it in, then turn the
+ring finger-tight. Set the IMU flat on the desk and leave it alone.
+
+It's worth taking a photo of the adapter with the wires on it. Then anyone can
+check the wiring later without unplugging anything.
+
+## Preparing the PC
+
+This only needs doing once per machine.
 
 ```bash
-sudo usermod -aG dialout $USER        # lets you open serial ports without sudo
-sudo apt install -y python3-serial    # the serial library the GDN tools use
-sudo apt remove -y brltty             # a braille-display service that grabs USB serial adapters
+sudo usermod -aG dialout $USER
+sudo apt install -y python3-serial
+sudo apt remove -y brltty
 ```
-**Log out and back in, or reboot,** so the new group takes effect.
 
-**Check:** `groups` lists `dialout`.
+- The first line lets your user open serial ports without sudo.
+- The second installs the serial library our tools use.
+- The third removes a braille-display service that Ubuntu ships with. It likes to grab USB serial adapters the moment they appear.
 
-## 4. Plug in and find the port
+Log out and back in afterwards, or the group change won't apply. Running `groups`
+should then list `dialout`.
 
-Plug the USB-C cable into the adapter, then into the PC. The adapter's blue light
-should come on. Then:
+## First connection
+
+Plug the USB-C cable into the adapter and then into the PC. The blue light on the
+adapter comes on. Then:
 
 ```bash
 ls -l /dev/ttyUSB* /dev/ttyACM*
-lsusb
 ```
 
-**Check:** exactly one new port appears, usually `/dev/ttyUSB0`. `lsusb` shows a new
-line for the adapter's chip, typically Silicon Labs CP210x or QinHeng (CH340/CH9102).
+You should see one new port, normally `/dev/ttyUSB0`.
 
-**If no port appears:**
-- Try another USB-C cable. A charge-only cable is the most common cause.
-- Run `sudo dmesg | tail -n 20` right after plugging in. If it shows the port being created and then dropped, `brltty` is still installed; go back to step 3.
+If nothing shows up, try a different USB-C cable first, since that's the usual
+culprit. If that doesn't help, run `sudo dmesg | tail -n 20` straight after
+plugging in. A port that appears and then disappears means `brltty` is still
+installed.
 
-## 5. Check the IMU
+## Checking the IMU
 
 From the GDN workspace:
+
 ```bash
-cd ~/gdn_workspace
 python3 tools/h30wp_check.py
 ```
-It finds the port, reads for 5 seconds, decodes the data, and ends with a plain
-RESULT line. A working IMU looks like this:
+
+The script finds the port and listens for five seconds. Then it prints what it
+decoded and a one-line verdict at the end. On a healthy IMU sitting still, the
+output looks roughly like this:
 
 ```
 baud 460800: ... bytes, ... good frames, 0 bad checksums
 frames: 200 per second, 0 lost ...
-acceleration (m/s^2, FLU): ... |a| = 9.79  OK (about 9.8 at rest)
-angular rate (deg/s, FLU): ...  OK (still)
-magnetic field (mGauss, raw): ... |m| = ... (Earth is roughly 250 to 650)
+acceleration (m/s^2, FLU): +0.010 -0.020 +9.790  |a| = 9.790  OK (about 9.8 at rest)
+angular rate (deg/s, FLU): +0.0492 -0.0299 +0.0100  OK (still)
+magnetic field (mGauss, raw): ...
+temperature: 25.1 C
+
 RESULT: PASS, the IMU works
 ```
 
-**Check:** RESULT says PASS, the magnitude `|a|` is close to 9.8, and the rate is steady
-(the exact number depends on the IMU's settings). Tilt the IMU while it reads and run
-it again. The acceleration numbers should move with the tilt, which proves they're
-real readings.
+Look at three things:
+- `|a|`, the size of the measured acceleration, should be close to 9.8. That's gravity.
+- The angular rate should be close to zero.
+- The frame count should be steady, with nothing lost.
 
-## 6. If step 5 doesn't pass
+As a last sanity check, tilt the IMU by hand and run the script again. The
+acceleration numbers should change with the tilt.
 
-The script says which case you're in:
+If it doesn't pass, the script says why:
+- **`NO PORT`**: the PC can't see the adapter. Go back to the cable and `brltty`.
+- **`NO PERMISSION`**: the `dialout` group isn't active yet. Log out and back in.
+- **`NO DATA`**: the adapter is fine, but nothing is coming from the IMU. Unplug USB, check that red is on `5V` and brown on `G`, then swap yellow and green. Plug back in and run the check again.
+- **`BYTES BUT NO FRAMES`**: data is arriving at a different speed. Run `python3 tools/h30wp_check.py --scan`, which tries the common baud rates.
+- **`expected about 9.8`**: the IMU was probably moving, or isn't flat. Run it again with the IMU still. If it keeps happening, post the output in the team channel.
 
-| Message | Meaning | Do this |
-|---|---|---|
-| `NO PORT` | The PC doesn't see the adapter | Step 4 again: cable, `brltty` |
-| `NO PERMISSION` | Your user can't open the port | Step 3: `dialout`, then log out and in |
-| `NO DATA` | The adapter works, but nothing comes from the IMU | Unplug USB. Check red is on **5V** (not 3V3) and brown on **G**. Then swap green and yellow on TX/RX. Plug in and run step 5 again. |
-| `BYTES BUT NO FRAMES` | Data arrives at another speed | `python3 tools/h30wp_check.py --scan` |
-| `CHECK: expected about 9.8` | Readings are wrong or the IMU was moving | Make sure it's still and flat, then run again. If it stays wrong, send the output. |
+If you've swapped the data wires and it still says `NO DATA`, stop there. Share
+the full output and your photo of the adapter rather than trying other wiring.
 
-If it still fails after the TX/RX swap, stop. Send the full output and the photo from
-step 2.
+## Giving it a fixed name
 
-## 7. Give it a fixed name (once)
-
-Later the PC will also have the TFmini-S, and possibly PX4, on USB serial ports, and
-`ttyUSB0` can then end up meaning a different device each boot. A udev rule gives the
-IMU's adapter its own permanent name, `/dev/gdn_imu`:
+Once the TFmini-S, and maybe PX4, are on USB too, `/dev/ttyUSB0` won't always be
+the IMU. A udev rule gives the IMU's adapter a permanent name, `/dev/gdn_imu`:
 
 ```bash
 python3 tools/h30wp_check.py --udev
 ```
-It prints one line. Save that line as `/etc/udev/rules.d/99-gdn-imu.rules` (for
-example with `sudo nano`), then run:
+
+That prints a single line. Save it as `/etc/udev/rules.d/99-gdn-imu.rules` (with
+`sudo nano`, or any editor run with sudo), then reload:
+
 ```bash
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ls -l /dev/gdn_imu
 ```
 
-**Check:** `/dev/gdn_imu` exists and points to the `ttyUSB` port.
+If the adapter has no serial number, the rule matches any adapter of the same
+model. That's fine as long as we only have one.
 
-If the printed line has no `serial` part, the rule matches any adapter of that model.
-That's fine while there's only one.
-
-## 8. Run it in ROS 2
+## Running it in ROS 2
 
 ```bash
 source env.sh
 python3 tools/h30wp_node.py
 ```
-It uses `/dev/gdn_imu` if it exists, otherwise the only `ttyUSB` port. To set the port
-yourself: `--ros-args -p port:=/dev/ttyUSB0`.
+
+The driver uses `/dev/gdn_imu` if it exists, otherwise whichever single
+`/dev/ttyUSB*` it finds. To choose the port yourself, add
+`--ros-args -p port:=/dev/ttyUSB0`.
+
+It publishes three topics:
 
 | Topic | Type | Contents |
 |---|---|---|
-| `/imu/data` | `sensor_msgs/Imu` | acceleration in m/s², angular rate in rad/s |
-| `/imu/mag` | `sensor_msgs/MagneticField` | magnetic field in tesla |
-| `/imu/temperature` | `sensor_msgs/Temperature` | °C |
+| `/imu/data` | `sensor_msgs/Imu` | acceleration (m/s²) and angular rate (rad/s) |
+| `/imu/mag` | `sensor_msgs/MagneticField` | magnetic field (tesla) |
+| `/imu/temperature` | `sensor_msgs/Temperature` | temperature (°C) |
 
-Every 10 s it logs the rate, lost frames and bad checksums. All three should stay
-steady at 0 losses.
+Every ten seconds it logs the rate, lost frames and bad checksums. The last two
+should stay at zero. If the USB cable gets knocked out, the driver says so and
+picks the IMU back up when it's plugged in again.
 
-**Check**, in a second terminal (also `source env.sh`):
+To check from another terminal (after `source env.sh`):
+
 ```bash
 ros2 topic hz /imu/data
 ros2 topic echo --once /imu/data
 ```
 
-Axes are the IMU's own, as printed on the lid: front, left, up. That's also the ROS
-convention. GDN and PX4 use front, right, down, and that conversion happens where the IMU
-is wired into the filter, not here.
+The data stays in the IMU's own axes, as printed on the lid:
+- X points away from the cable socket;
+- Y points toward the edge with "H30WP" printed on it;
+- Z points out of the lid.
 
-## 9. The static recording (R1.6)
+When the IMU sits lid-up, that's front-left-up, the usual ROS convention. GDN and
+PX4 work in front-right-down, but that conversion belongs where the IMU is mounted
+on the vehicle and fed into the filter, not in the driver.
 
-This recording measures the IMU's noise and bias drift. The numbers then go into the
-filter and the simulator. Do it once, carefully. For the rest of the procedure, see
-[config/imu/README.md](../../config/imu/README.md).
+## The static recording
 
-**Where:**
-- Put the IMU flat on something heavy and solid, such as a thick book on the floor, or a stone or concrete surface.
-- Keep it away from fans, the laptop, speakers, doors, and anywhere people walk.
-- Keep the room at a steady temperature: no air conditioner cycling on and off nearby, no direct sun.
-- Don't touch it or the cable once it's running.
+This log is what we fit the IMU's noise and bias drift from. Those numbers go into
+the filter tuning and into the simulator, so it's worth doing carefully, once.
 
-**How:**
-1. Start `python3 tools/h30wp_node.py`, and let the IMU warm up for 15 minutes.
-2. In a second terminal, start the recording:
-   ```bash
-   source env.sh
-   mkdir -p log
-   ros2 bag record -s mcap -o log/h30wp_static /imu/data /imu/mag /imu/temperature
-   ```
-3. Leave it for **at least 2 hours**. Overnight is better.
-4. Stop the recording with Ctrl-C, then stop the driver.
-5. Fit it:
-   ```bash
-   python3 tools/allan_fit.py --bag log/h30wp_static --topic /imu/data --skip 900 \
-       --name h30wp --out config/imu/h30wp.yaml --plot h30wp_allan.png
-   ```
+The setting matters more than anything else:
+- Put the IMU on something heavy and solid. A concrete floor, a stone slab or a thick book on the floor all work.
+- Keep it away from fans, the laptop, speakers, doors, and anywhere people walk past.
+- Keep the temperature steady. An air conditioner cycling on and off, or sun moving across the room, both show up in the data.
+- Once it's started, don't touch the IMU or its cable.
 
-**Check:** the fit prints `0 gaps`, and on the plot the points follow the fitted line.
-Send me the printed output and the plot. Keep the bag; it's the raw evidence for the
-model.
+Start the driver and give the IMU 15 minutes to warm up. Then, in a second terminal:
 
-## What not to change yet
+```bash
+source env.sh
+mkdir -p log
+ros2 bag record -s mcap -o log/h30wp_static /imu/data /imu/mag /imu/temperature
+```
 
-- **The calibrations in WHEELTEC's Windows tool (YIS Manager).** Gyro bias, magnetometer and similar change what the IMU outputs. Leave them until the static recording is done, so it measures the IMU as delivered. The magnetometer calibration only makes sense once the IMU is mounted on the drone, with its motors and wiring around it.
-- **The output mode and baud rate.** The defaults work with these tools.
+Leave it at least two hours, or overnight if you can. Stop the recording with
+Ctrl-C, then stop the driver. Then run the fit:
 
-## Sources
+```bash
+python3 tools/allan_fit.py --bag log/h30wp_static --topic /imu/data --skip 900 \
+    --name h30wp --out config/imu/h30wp.yaml --plot h30wp_allan.png
+```
 
-- [WHEELTEC H30 repository](https://github.com/Seeed-Projects/WHEELTEC-H30-IMU): user manual (wiring, default 460800 baud, front-left-up axes) and the YESENSE Communication Protocol v2.3, which `tools/h30wp_check.py` follows. Its decoder is tested against the protocol document's example frame.
-- [Seeed Studio wiki, H30 MINI / H30WP](https://wiki.seeedstudio.com/wheeltec_imu/): the H30WP's 5 to 26 V input, UART/RS-485 interfaces and 400 Hz output.
+The `--skip 900` drops the first 15 minutes, in case the IMU was still settling.
+
+A good result reports `0 gaps`, and on the plot the measured points follow the
+fitted line. If the plot has a bump the line can't follow, the recording was
+disturbed and needs doing again. [config/imu/README.md](../../config/imu/README.md)
+covers what happens with the fit after that.
+
+Keep the bag. It's our raw evidence for the IMU model.
+
+## Leave these alone for now
+
+WHEELTEC's Windows tool (YIS Manager) can recalibrate the gyro bias and the
+magnetometer, and change the output mode and baud rate. Don't use it yet:
+- We want the static recording to measure the IMU as it was delivered, and our tools are set up for the default output.
+- The magnetometer calibration only means something once the IMU is mounted on the drone, with the motors and wiring around it.
+
+## References
+
+- [WHEELTEC H30 repository](https://github.com/Seeed-Projects/WHEELTEC-H30-IMU): user manual (power, the 460800 default, axes) and the YESENSE Communication Protocol v2.3, which `tools/h30wp_check.py` decodes. The decoder is tested against the protocol document's own example frame.
+- [Seeed Studio wiki, H30 MINI and H30WP](https://wiki.seeedstudio.com/wheeltec_imu/): the H30WP's 5 to 26 V input, UART and RS-485 interfaces, and 400 Hz output.
