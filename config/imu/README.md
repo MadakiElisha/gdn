@@ -25,13 +25,16 @@ is the built-in copy of the placeholder). The report's `imu:` line names the mod
 
 ## Adding a real IMU (H30WP, Mid-360S, OAK-D Lite)
 
+For the H30WP, wiring and first-time setup up to this recording are in
+[docs/hardware/H30WP_SETUP.md](../../docs/hardware/H30WP_SETUP.md).
+
 1. **Record a static log of at least 2 hours.** Mount the sensor on something heavy and
    still, away from fans, motors and foot traffic, at a steady temperature. Power it up
    15 minutes before you start recording, or drop that warm-up later with `--skip 900`.
    Log at the rate GDN will use, through the driver GDN will use:
 
    ```bash
-   ros2 bag record -s mcap -o log/h30wp_static  /imu/data      # H30WP driver (sensor_msgs/Imu)
+   ros2 bag record -s mcap -o log/h30wp_static  /imu/data      # tools/h30wp_node.py (sensor_msgs/Imu)
    ros2 bag record -s mcap -o log/mid360_static /livox/imu     # Livox driver
    ros2 bag record -s mcap -o log/oakd_static   /oak/imu/data  # depthai-ros
    ```
