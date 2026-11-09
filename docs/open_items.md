@@ -60,13 +60,23 @@ Reproduce with `tools/sim_run.sh`, then `tools/sim_replay.sh` on the bag
 it records. Note that bag replays of the same flight vary by roughly 40% between
 runs because playback timing isn't deterministic.
 
-### OI-013: filter accel-bias random walk not yet set from a real IMU (open)
-`EskfConfig::q_accel_bias_rw` (5e-4 m/s^3/sqrt(Hz)) is a tuned value. TEST-022 shows it
-is the IMU setting GDN is most sensitive to. With PX4's pre-2025 Gazebo bias drift
-(0.006, tau 300 s) the filter falls to 94/100 Zermatt flights and 8.7% over 3 sigma.
-4e-3 restores 100/100 and 0.43%, and improves the real flight001 IMU (CEP95 61.5 to
-55.7 m), but costs a little on SRTM-like onboard maps (96 to 94 flights). Set it from
-the H30WP Allan fit (R1.6, `config/imu/README.md`) and re-run the TEST-022 sweep.
+### OI-013: filter IMU process noise not yet set from a real IMU (open)
+`EskfConfig::q_accel_bias_rw` (5e-4 m/s^3/sqrt(Hz)) and `q_accel_nd` (0.02 m/s^2/sqrt(Hz))
+are tuned values.
+- **Bias random walk (TEST-022).** With PX4's pre-2025 Gazebo bias drift (0.006, tau
+  300 s) the filter falls to 94/100 Zermatt flights and 8.7% over 3 sigma. 4e-3 restores
+  100/100 and 0.43%, and improves the real flight001 IMU (CEP95 61.5 to 55.7 m), but costs
+  a little on SRTM-like onboard maps (96 to 94 flights).
+- **White noise (TEST-023).** After a GNSS handover on flight001's real IMU, the filter
+  is overconfident for the first minute: 8.6% over 3 sigma in the first 5 minutes,
+  83% in the first 30 s. `q_accel_nd` 0.1 brings that to 0.51% (0.2: 0.09%) and improves
+  CEP95 (73 to 62 m); the bias setting alone doesn't (3.1% at 2e-2). It barely changes
+  Zermatt. Scored from take-off, flight001 goes from 0.00% to 1.00% over 3 sigma and
+  100 to 99 flights.
+
+Set both from the H30WP Allan fit (R1.6, `config/imu/README.md`) plus in-flight data,
+then re-run the TEST-022 and TEST-023 sweeps. The CI's flight001 GNSS-loss step is a
+regression guard until then.
 
 ## Closed
 

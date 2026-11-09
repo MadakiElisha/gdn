@@ -1,0 +1,89 @@
+scenario,label,t_lo,t_hi,n,err_p50,err_p95,sigma3_p50,over3sigma_pct
+zl_gnss,"Zermatt 15 min, perfect map",0,0.5,100,0.200,0.380,0.741,0.000
+zl_gnss,"Zermatt 15 min, perfect map",0.5,1,100,0.205,0.400,0.771,0.000
+zl_gnss,"Zermatt 15 min, perfect map",1,2,200,0.230,0.440,0.858,0.000
+zl_gnss,"Zermatt 15 min, perfect map",2,3,200,0.280,0.540,1.054,0.000
+zl_gnss,"Zermatt 15 min, perfect map",3,5,400,0.360,0.740,1.588,0.000
+zl_gnss,"Zermatt 15 min, perfect map",5,7,400,0.550,1.181,2.775,0.000
+zl_gnss,"Zermatt 15 min, perfect map",7,10,600,0.910,2.120,4.892,0.000
+zl_gnss,"Zermatt 15 min, perfect map",10,15,1000,1.800,4.090,9.789,0.000
+zl_gnss,"Zermatt 15 min, perfect map",15,20,1000,3.150,7.560,19.282,0.000
+zl_gnss,"Zermatt 15 min, perfect map",20,30,2000,4.875,12.981,29.451,0.000
+zl_gnss,"Zermatt 15 min, perfect map",30,45,3000,8.160,20.102,48.070,0.000
+zl_gnss,"Zermatt 15 min, perfect map",45,60,3000,7.470,19.700,46.476,0.000
+zl_gnss,"Zermatt 15 min, perfect map",60,90,6000,6.050,16.682,40.954,0.000
+zl_gnss,"Zermatt 15 min, perfect map",90,120,6000,6.120,15.550,46.919,0.000
+zl_gnss,"Zermatt 15 min, perfect map",120,180,12000,8.150,26.000,58.258,0.000
+zl_gnss,"Zermatt 15 min, perfect map",180,240,12000,10.410,25.082,62.456,0.000
+zl_gnss,"Zermatt 15 min, perfect map",240,300,12000,12.410,36.600,73.935,0.125
+zl_gnss,"Zermatt 15 min, perfect map",300,360,12000,12.490,46.550,79.590,1.917
+zl_gnss,"Zermatt 15 min, perfect map",360,420,12000,13.335,37.370,77.781,1.450
+zl_gnss,"Zermatt 15 min, perfect map",420,480,12000,10.815,40.521,66.575,1.583
+zl_gnss,"Zermatt 15 min, perfect map",480,540,12000,10.430,29.220,60.452,2.017
+zl_gnss,"Zermatt 15 min, perfect map",540,600,12100,10.380,38.310,66.332,2.149
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",0,0.5,100,0.200,0.380,0.741,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",0.5,1,100,0.205,0.400,0.774,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",1,2,200,0.230,0.440,0.858,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",2,3,200,0.280,0.540,1.054,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",3,5,400,0.360,0.740,1.588,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",5,7,400,0.560,1.172,2.773,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",7,10,600,1.050,2.441,4.988,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",10,15,1000,4.150,9.292,10.316,0.100
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",15,20,1000,7.490,16.057,19.605,1.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",20,30,2000,9.345,18.083,30.438,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",30,45,3000,15.665,28.130,50.994,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",45,60,3000,23.925,40.010,49.007,0.000
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",60,90,6000,21.285,47.701,46.482,2.133
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",90,120,6000,32.415,70.031,59.075,8.733
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",120,180,12000,24.050,105.938,79.617,3.967
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",180,240,12000,27.960,75.760,82.893,4.733
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",240,300,12000,35.080,115.930,85.412,9.800
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",300,360,12000,48.000,126.915,95.136,6.542
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",360,420,12000,46.890,277.195,97.251,12.350
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",420,480,12000,32.585,578.394,87.082,11.650
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",480,540,12000,37.330,1141.961,73.834,13.767
+zl_gnss_srtm,"Zermatt 15 min, SRTM-like maps (5 x 20)",540,600,12100,43.245,1898.533,88.427,28.041
+f1_gnss,"flight001 (real IMU), filter as today",0,0.5,100,0.690,0.911,0.741,34.000
+f1_gnss,"flight001 (real IMU), filter as today",0.5,1,100,0.675,0.900,0.774,28.000
+f1_gnss,"flight001 (real IMU), filter as today",1,2,200,0.640,0.930,0.859,10.000
+f1_gnss,"flight001 (real IMU), filter as today",2,3,200,1.240,1.730,1.067,73.500
+f1_gnss,"flight001 (real IMU), filter as today",3,5,400,2.890,4.160,1.636,100.000
+f1_gnss,"flight001 (real IMU), filter as today",5,7,400,5.765,7.490,2.946,100.000
+f1_gnss,"flight001 (real IMU), filter as today",7,10,600,10.410,13.770,5.532,100.000
+f1_gnss,"flight001 (real IMU), filter as today",10,15,1000,19.105,25.306,11.859,100.000
+f1_gnss,"flight001 (real IMU), filter as today",15,20,1000,30.065,37.142,22.773,99.700
+f1_gnss,"flight001 (real IMU), filter as today",20,30,2000,43.550,54.630,42.325,66.700
+f1_gnss,"flight001 (real IMU), filter as today",30,45,3000,47.475,59.970,69.930,6.533
+f1_gnss,"flight001 (real IMU), filter as today",45,60,3000,53.355,76.022,96.648,0.000
+f1_gnss,"flight001 (real IMU), filter as today",60,90,6000,36.900,70.807,108.558,0.000
+f1_gnss,"flight001 (real IMU), filter as today",90,120,6000,43.115,72.947,112.583,0.000
+f1_gnss,"flight001 (real IMU), filter as today",120,180,12000,42.300,72.690,119.252,0.000
+f1_gnss,"flight001 (real IMU), filter as today",180,240,12000,40.080,77.520,126.842,0.000
+f1_gnss,"flight001 (real IMU), filter as today",240,300,12000,39.110,75.580,128.028,0.000
+f1_gnss,"flight001 (real IMU), filter as today",300,360,12000,51.715,116.793,132.891,1.100
+f1_gnss,"flight001 (real IMU), filter as today",360,420,12000,29.890,70.450,124.441,0.125
+f1_gnss,"flight001 (real IMU), filter as today",420,480,12000,33.265,79.891,125.807,0.025
+f1_gnss,"flight001 (real IMU), filter as today",480,540,12000,30.890,75.311,132.567,0.000
+f1_gnss,"flight001 (real IMU), filter as today",540,600,12100,33.400,74.730,127.029,0.306
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",0,0.5,100,0.690,0.911,0.744,35.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",0.5,1,100,0.690,0.921,0.798,24.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",1,2,200,0.600,0.890,1.018,2.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",2,3,200,1.090,1.591,1.573,1.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",3,5,400,2.515,3.770,2.928,18.750
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",5,7,400,5.105,6.781,5.595,22.250
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",7,10,600,9.095,12.051,10.274,12.500
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",10,15,1000,15.500,20.122,20.552,0.500
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",15,20,1000,21.090,26.840,36.998,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",20,30,2000,25.800,33.811,64.787,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",30,45,3000,24.105,35.061,93.741,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",45,60,3000,26.215,48.360,116.447,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",60,90,6000,20.610,48.365,118.120,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",90,120,6000,27.270,55.812,122.129,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",120,180,12000,32.220,63.640,128.595,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",180,240,12000,30.425,71.780,137.000,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",240,300,12000,29.200,67.252,139.495,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",300,360,12000,35.125,85.190,146.504,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",360,420,12000,28.110,63.670,141.006,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",420,480,12000,24.000,57.810,140.036,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",480,540,12000,27.470,64.830,150.977,0.000
+f1_gnss_qan0.1,"flight001, accel noise setting 0.1 (not adopted)",540,600,12100,25.740,68.401,162.816,0.000

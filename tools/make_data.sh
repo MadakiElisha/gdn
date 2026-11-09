@@ -14,6 +14,8 @@ cd "$ROOT"
 
 echo "== Zermatt synthetic flight (data/flight_zermatt_csv) =="
 GDN_ROOT="$ROOT" python3 tools/gen_zermatt_flight.py
+echo "== Zermatt 15 min flight (data/flight_zermatt_long_csv, R1.7: GNSS-loss scoring) =="
+GDN_ROOT="$ROOT" python3 tools/gen_zermatt_flight.py --minutes 15
 
 echo "== Checksums (data/SHA256SUMS) =="
 (cd data && sha256sum -c SHA256SUMS)

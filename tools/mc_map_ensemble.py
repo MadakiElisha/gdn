@@ -12,7 +12,8 @@ sample. Output uses mc_campaign's summary format, so ci_check_mc.py reads it.
         --maps 10 --per-map 20 -- --model=agl --startup=node
 
 Everything after "--" goes to mc_campaign. Maps go to data/maps/ensemble/ (generated,
-not tracked).
+not tracked). With --gnss-loss=T among them (R1.7), the pooled window starts at the loss
+and the "GNSS-free D s" lines are pooled too (--gnss-free=..., default 300,600).
 """
 import argparse
 import csv
@@ -31,10 +32,17 @@ ap.add_argument("--csv", required=True, help="flight CSV directory")
 ap.add_argument("--recipe", required=True, help='make_db_map.py options, e.g. "--noise 5 --corr 150"')
 ap.add_argument("--maps", type=int, default=10, help="number of map error patterns")
 ap.add_argument("--per-map", type=int, default=20, help="flights per map")
-ap.add_argument("--window", default="60,300", help="scoring window, s (as mc_campaign)")
+ap.add_argument("--window", help="scoring window, s (as mc_campaign; default 60,300, or from the GNSS loss)")
 ap.add_argument("--tag", default="ens", help="name for the generated maps")
 ap.add_argument("mc_args", nargs="*", help="after --: options for mc_campaign")
 a = ap.parse_args()
+# R1.7: GNSS loss and GNSS-free durations, as mc_campaign reads them.
+gnss_loss = next((float(x.split("=", 1)[1]) for x in a.mc_args if x.startswith("--gnss-loss=")), None)
+gnss_free = next(([float(v) for v in x.split("=", 1)[1].split(",") if v]
+                  for x in a.mc_args if x.startswith("--gnss-free=")), [300.0, 600.0])
+gnss_free = sorted(gnss_free) if gnss_loss is not None else []
+if a.window is None:
+    a.window = f"{gnss_loss:g},{gnss_loss + gnss_free[-1]:g}" if gnss_loss is not None else "60,300"
 w0, w1 = (float(v) for v in a.window.split(","))
 
 binary = ROOT / "install/gdn_fusion/lib/gdn_fusion/mc_campaign"
@@ -44,8 +52,9 @@ out_dir = ROOT / "data/maps/ensemble"
 out_dir.mkdir(parents=True, exist_ok=True)
 env = {"GDN_ROOT": str(ROOT), "PATH": "/usr/bin:/bin"}
 
-imu_line = ""
+imu_line = scen_line = ""
 per_seed = defaultdict(lambda: {"err": [], "over": [], "nees": [], "t": []})
+gf = [defaultdict(lambda: {"err": [], "over": []}) for _ in gnss_free]   # R1.7
 for k in range(a.maps):
     db = out_dir / f"{a.tag}_{k:02d}.bin"
     mk = [sys.executable, str(ROOT / "tools/make_db_map.py"), "--in", a.world, "--out", str(db),
@@ -57,14 +66,19 @@ for k in range(a.maps):
     res = subprocess.run(mc, check=True, capture_output=True, text=True, cwd=ROOT, env=env).stdout
     line = next((l for l in res.splitlines() if l.startswith("per-seed RMS")), "")
     imu_line = next((l for l in res.splitlines() if l.startswith("imu:")), imu_line if k else "")
+    scen_line = next((l for l in res.splitlines() if l.startswith("scenario:")), scen_line)
     print(f"map {k:2d}: {info.split('vs truth: ')[-1]} | {line.split('passing')[-1].strip()}")
     with open(trace) as f:
         for r in csv.DictReader(f):
             t = float(r["t"])
+            e, sg = float(r["err"]), float(r["sigma"])
             if w0 <= t <= w1:
                 d = per_seed[int(r["seed"])]
-                e, sg = float(r["err"]), float(r["sigma"])
                 d["err"].append(e); d["over"].append(e > 3.0 * sg); d["nees"].append(float(r["nees"]))
+            for i, dur in enumerate(gnss_free):
+                if gnss_loss <= t <= gnss_loss + dur:
+                    g = gf[i][int(r["seed"])]
+                    g["err"].append(e); g["over"].append(e > 3.0 * sg)
 
 pool = np.concatenate([np.array(d["err"]) for d in per_seed.values()])
 over = np.concatenate([np.array(d["over"]) for d in per_seed.values()])
@@ -72,6 +86,8 @@ nees = np.concatenate([np.array(d["nees"]) for d in per_seed.values()])
 rms = np.array([np.sqrt(np.mean(np.square(d["err"]))) for d in per_seed.values()])
 n = len(rms); n_pass = int((rms < 100.0).sum())
 print(imu_line)   # R1.6: which IMU model the results are for
+if scen_line:
+    print(scen_line)   # R1.7: GNSS loss / start error
 print(f"map ensemble: {a.maps} maps x {a.per_map} flights, recipe '{a.recipe}', "
       f"mc: {' '.join(a.mc_args)}, pooled n={len(pool)}")
 print(f"CEP50: {np.percentile(pool, 50):.1f} m  CEP95: {np.percentile(pool, 95):.1f} m  "
@@ -83,3 +99,9 @@ print(f"consistency: NEES mean {nees.mean():.2f} median {np.median(nees):.2f} (c
 print(f"consistency: error > 3 x published sigma {100 * over.mean():.2f}% (REQ-INT-001: at most 1%)")
 # NIS isn't in the trace, so there is no pooled NIS line (ci_check_mc.py then refuses
 # --max-nis-over9 on this output rather than passing it silently).
+for i, dur in enumerate(gnss_free):
+    e = np.concatenate([np.array(g["err"]) for g in gf[i].values()])
+    o = np.concatenate([np.array(g["over"]) for g in gf[i].values()])
+    never = sum(1 for g in gf[i].values() if max(g["err"]) < 100.0)
+    print(f"GNSS-free {dur:.0f} s: CEP50 {np.percentile(e, 50):.1f} m  CEP95 {np.percentile(e, 95):.1f} m  "
+          f"max {e.max():.1f} m  over 3 sigma {100 * o.mean():.2f}%  flights never over 100 m: {never}/{len(gf[i])}")

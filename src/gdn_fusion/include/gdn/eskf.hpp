@@ -506,6 +506,52 @@ public:
     int mag_full_updates() const { return n_mag_full_; }
     int mag_heading_updates() const { return n_mag_head_; }
 
+    // GNSS horizontal position and velocity, local NED metres and m/s, with their 1-sigma
+    // noise per axis (R1.7). Used while GNSS is available, so that when it is lost the
+    // filter carries on from a converged state with the covariance it had at that moment
+    // (the "covariance handover" of docs/requirements.md). There is no innovation gate:
+    // while GNSS is trusted it is the reference, and judging it is the integrity
+    // monitor's job (R4.4, REQ-INT-005). Baro and mag biases get zero gain rows (R1.4).
+    UpdResult ApplyGnss(const Eigen::Vector2d& pos_ne, const Eigen::Vector2d& vel_ne,
+                        double sigma_pos, double sigma_vel) {
+        if (!aligned_ || !yaw_aligned_ || sigma_pos <= 0 || sigma_vel <= 0) return UpdResult::kSlopeGate;
+        Eigen::Matrix<double, 4, 19> H = Eigen::Matrix<double, 4, 19>::Zero();
+        H(0, 0) = H(1, 1) = 1.0;                       // position N, E
+        H(2, 3) = H(3, 4) = 1.0;                       // velocity N, E
+        Eigen::Vector4d y;
+        y << pos_ne - pos_.head<2>(), vel_ne - vel_.head<2>();
+        Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
+        R.diagonal() << sigma_pos * sigma_pos, sigma_pos * sigma_pos, sigma_vel * sigma_vel, sigma_vel * sigma_vel;
+        const Eigen::Matrix4d S = H * P_ * H.transpose() + R;
+        Eigen::Matrix<double, 19, 4> K = P_ * H.transpose() * S.inverse();
+        K.row(15).setZero(); K.block<3, 4>(16, 0).setZero();
+        LimitGain<4>(K, y, false);
+        x_ += K * y;
+        const M19 IKH = M19::Identity() - K * H;
+        P_ = Repair(IKH * P_ * IKH.transpose() + K * R * K.transpose());
+        pos_ += x_.segment<3>(0); vel_ += x_.segment<3>(3);
+        const double da = x_.segment<3>(6).norm();
+        if (da > 1e-9)
+            q_ = (q_ * Eigen::Quaterniond(Eigen::AngleAxisd(da, x_.segment<3>(6).normalized()))).normalized();
+        ba_ += x_.segment<3>(9); bg_ += x_.segment<3>(12);
+        M19 J = M19::Identity();
+        J.block<3,3>(6,6) = Eigen::Matrix3d::Identity() - Skew(x_.segment<3>(6));
+        P_ = Repair(J * P_ * J.transpose());
+        x_.setZero();
+        n_upd_++; n_gnss_++;
+        return UpdResult::kApplied;
+    }
+    int gnss_updates() const { return n_gnss_; }
+
+    // Start the horizontal position somewhere else, with a stated 1-sigma per axis (R1.7
+    // start-error scenarios; later, an operator-entered or acquisition fix, R4.1). The
+    // position block is decorrelated from everything else; no other state changes.
+    void SetHorizontalPosition(const Eigen::Vector2d& pos_ne, double sigma) {
+        pos_.head<2>() = pos_ne;
+        for (int i = 0; i < 2; ++i) { P_.row(i).setZero(); P_.col(i).setZero(); P_(i, i) = sigma * sigma; }
+        x_.setZero();
+    }
+
     void SetInitialZ(double z_ned) {
         if (aligned_) { pos_.z() = z_ned; x_.setZero(); }
     }
@@ -635,6 +681,7 @@ private:
     int n_gap_ = 0;
     int n_clamp_ = 0;
     int n_mag_full_ = 0, n_mag_head_ = 0;
+    int n_gnss_ = 0;
     double mag_dnorm_ = 0.0, mag_ddip_ = 0.0;
     int mag_clean_run_ = 0;
     bool mag_disturbed_ = false;

@@ -1,12 +1,112 @@
+"""Synthetic fixed-wing flights over the Zermatt map (level, 30 m/s, 30 s parked first).
+
+    python3 tools/gen_zermatt_flight.py               # data/flight_zermatt_csv, 177 s (the original)
+    python3 tools/gen_zermatt_flight.py --minutes 15  # data/flight_zermatt_long_csv (R1.7)
+
+The long flight exists so the Monte Carlo can cut GNSS mid-flight and still score 5
+and 10 minutes without it (mc_campaign --gnss-loss=150 --gnss-free=300,600). It flies
+a lawnmower over most of the map (lines 300 m apart, 2 km long, swept north then back
+south on the lines in between), steering to waypoints with a 150 m turn radius.
+"""
+import argparse
 from gdn_paths import ROOT  # repo root (GDN_ROOT or this clone)
-import numpy as np, struct, os
+import math
+import numpy as np, struct, os, sys
+
+_ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+_ap.add_argument("--minutes", type=float, default=0.0,
+                 help="airborne minutes of the long lawnmower flight (0: the original 177 s flight)")
+_ap.add_argument("--out", help="output directory (default data/flight_zermatt_csv or data/flight_zermatt_long_csv)")
+_args = _ap.parse_args()
 OUT = ROOT/'data/flight_zermatt_csv'
+if _args.minutes > 0:
+    OUT = ROOT/'data/flight_zermatt_long_csv'
+if _args.out:
+    OUT = ROOT/_args.out
 os.makedirs(OUT, exist_ok=True)
 
 with open(ROOT/'data/maps/zermatt.bin', 'rb') as f:
     nx, ny = struct.unpack('<ii', f.read(8))
     lat0, lon0, dlat, dlon = struct.unpack('<dddd', f.read(32))
     alt = np.frombuffer(f.read(4*nx*ny), dtype='<f4').reshape(ny, nx)
+
+
+def long_flight(minutes):
+    """Lawnmower with waypoint steering. Same conventions as the original flight:
+    level, body x forward, ay = v * yaw rate, az = -9.81, 100 Hz IMU, 10 Hz lpos."""
+    v, acc, R, dt = 30.0, 2.0, 150.0, 0.01
+    w_max, k_psi = v / R, 0.5
+    E0, E1, spacing = -1000.0, 1000.0, 300.0
+    north = [-1500.0 + spacing * k for k in range(11)]          # -1500 .. 1500
+    south = [1350.0 - spacing * k for k in range(10)]           # 1350 .. -1350
+    wps = []
+    for k, n in enumerate(north + south):
+        ends = (E0, E1) if k % 2 == 0 else (E1, E0)
+        wps += [(n, ends[0]), (n, ends[1])]
+    T_park, T_air = 30.0, minutes * 60.0
+    n_tot = int(round((T_park + T_air) / dt))
+    t = np.arange(n_tot) * dt
+    psi = np.zeros(n_tot); spd = np.zeros(n_tot); along = np.zeros(n_tot); rate = np.zeros(n_tot)
+    x = np.zeros(n_tot); y = np.zeros(n_tot)
+    # Scalar maths (math, not numpy) in the stepping loop, so the files and their
+    # checksums don't depend on numpy's SIMD paths.
+    wi = 0
+    px, py = 0.0, 0.0
+    h = math.atan2(wps[0][1], wps[0][0])                     # parked facing the first waypoint
+    s = 0.0
+    for i in range(n_tot):
+        if i * dt >= T_park:
+            a_cmd = acc if s < v else 0.0
+            tn, te = wps[wi % len(wps)]
+            if math.hypot(tn - px, te - py) < R:                # turn anticipation
+                wi += 1
+                tn, te = wps[wi % len(wps)]
+            err = math.remainder(math.atan2(te - py, tn - px) - h, 2 * math.pi)
+            r = min(w_max, max(-w_max, k_psi * err)) if s > 5.0 else 0.0
+            along[i] = a_cmd
+            rate[i] = r
+        psi[i], spd[i], x[i], y[i] = h, s, px, py
+        # advance (semi-implicit, as the filter integrates)
+        s = min(v, s + along[i] * dt)
+        h = h + rate[i] * dt
+        px += s * math.cos(h) * dt
+        py += s * math.sin(h) * dt
+    imu = (along, spd * rate, np.full(n_tot, -9.81), np.zeros(n_tot), np.zeros(n_tot), rate)
+    return t, psi, spd, x, y, imu, wi
+
+
+if _args.minutes > 0:
+    t, psi, spd, x, y, imu, wi = long_flight(_args.minutes)
+    kLatC = lat0 + 0.5 * ny * dlat
+    # Terrain under the track (bilinear is overkill here: nearest cell), for the summary.
+    rows = np.clip(np.round(ny / 2 + x / (dlat * 111320.0)).astype(int), 0, ny - 1)
+    cols = np.clip(np.round(nx / 2 + y / (dlon * 111320.0 * np.cos(np.radians(kLatC)))).astype(int), 0, nx - 1)
+    terr = alt[rows, cols]
+    print(f"long flight: {t[-1] + 0.01:.0f} s ({_args.minutes:g} min airborne), {wi} waypoints, "
+          f"track N {x.min():.0f}..{x.max():.0f} m, E {y.min():.0f}..{y.max():.0f} m, "
+          f"terrain under it {terr.min():.0f}..{terr.max():.0f} m")
+    if abs(x).max() > 0.9 * abs(dlat * 111320.0) * ny / 2 or abs(y).max() > 0.9 * dlon * 111320.0 * np.cos(np.radians(kLatC)) * nx / 2:
+        sys.exit("track leaves the inner 90% of the map")
+    with open(OUT/'imu_truth.csv', 'w') as f:
+        f.write("t,ax,ay,az,gx,gy,gz\n")
+        for i in range(t.size):
+            f.write(f"{t[i]*1e6:.0f}," + ",".join(f"{c[i]:.6f}" for c in imu) + "\n")
+    with open(OUT/'lpos.csv', 'w') as f:
+        f.write("t,x,y,vx,vy\n")
+        for i in range(0, t.size, 10):
+            f.write(f"{t[i]*1e6:.0f},{x[i]:.6f},{y[i]:.6f},{spd[i]*np.cos(psi[i]):.6f},{spd[i]*np.sin(psi[i]):.6f}\n")
+    # The error-free IMU must reproduce the truth track by dead reckoning, or the filter
+    # would be chasing a model error. Integrate it the way the generator steps the state.
+    hh, ss, qx, qy, dev = psi[0], 0.0, 0.0, 0.0, 0.0
+    for i in range(t.size - 1):
+        ss = min(30.0, ss + float(f"{imu[0][i]:.6f}") * 0.01)        # as written to the CSV
+        hh += float(f"{imu[5][i]:.6f}") * 0.01
+        qx += ss * math.cos(hh) * 0.01
+        qy += ss * math.sin(hh) * 0.01
+        dev = max(dev, math.hypot(qx - x[i + 1], qy - y[i + 1]))
+    print(f"dead-reckoning check: the error-free IMU, as written, reproduces the track within {dev:.2f} m")
+    print(f"wrote {OUT}/imu_truth.csv and lpos.csv (no imu.csv: use the IMU model, --imu=auto)")
+    sys.exit(0)
 
 kLatC = 45.96319444444445
 dlat_m = dlat * 111320.0

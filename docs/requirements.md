@@ -98,9 +98,17 @@ A wrong answer that looks confident is worse than a flagged one.
 
 None of these can be properly measured yet. Here's what we have:
 
-- **Windows too short.** The current MC and bench score a 60 to 300 s window. The
-  Zermatt synthetic flight is only 177 s long. Measuring 5 and 10 minutes without
-  GNSS needs longer flights with GNSS cut mid-flight (R1.7).
+- **GNSS-free windows (R1.7, TEST-023).** The MC cuts GNSS mid-flight
+  (`--gnss-loss`) and scores 5 and 10 minutes from the loss, on a 15 minute Zermatt
+  flight and on flight001. Fixed-wing (REQ-NAV-003), GNSS lost 2 minutes after
+  take-off, 100 flights:
+  - Zermatt, perfect map: CEP95 25.9 m at 5 min and 32.0 m at 10 min (pass); max 125 m
+    and 1468 m (fail, false locks); 0.03% and 0.93% over 3 sigma (pass).
+  - Zermatt, SRTM-like maps: CEP95 86 m and 202 m, 4.8% and 9.7% over 3 sigma (fail).
+  - flight001, real IMU: CEP95 73 m and 79 m, 8.6% and 4.5% over 3 sigma (fail; OI-013).
+- **Acquisition (REQ-ACQ-001).** From 500 m, 1 to 4 flights in 100 are under 100 m at
+  120 s after take-off; from 60 m, 72 to 99; from 150 m, 17 to 53 (TEST-023). Fails
+  until acquisition (R4.1).
 - **Fixed-wing, rugged terrain, TRN only, real altimeter model.** On Zermatt, CEP50
   is about 18 m, but CEP95 is over 900 m because of false-contour locks (OI-009, 7 of
   24 seeds). That fails REQ-NAV-003 until acquisition (R4.1) is in.
