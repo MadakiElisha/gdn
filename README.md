@@ -194,7 +194,7 @@ messages should work.
 
 | Role | Part | What it gives GDN |
 |---|---|---|
-| IMU | Yesense / WHEELTEC H30WP | 9-axis MEMS (gyro, accel, mag), up to 400 Hz over UART/RS485 |
+| IMU | Yesense / WHEELTEC H30WP | 9-axis MEMS (gyro, accel, mag), up to 400 Hz over UART/RS485. Setup: [docs/hardware/H30WP_SETUP.md](docs/hardware/H30WP_SETUP.md) |
 | Lidar | Livox Mid-360S | 360 by 59 degree point cloud, about 40 m on dark surfaces, built-in IMU, PTP time sync; used for LIO and lidar AGL |
 | Rangefinder | Benewake TFmini-S | Height above ground from 0.1 to 12 m (about 7 m on dark surfaces), for landing and low hover |
 | Stereo camera | Luxonis OAK-D Lite | Global-shutter OV7251 stereo pair (7.5 cm baseline), 13 MP IMX214 colour camera, BMI270 IMU, onboard processor (4 TOPS); used for VIO and later geo-registration |
