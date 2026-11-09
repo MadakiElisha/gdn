@@ -31,7 +31,7 @@ ros2 pkg prefix gdn_fusion >/dev/null 2>&1 || die "GDN not built: colcon build -
 
 # World (generated per machine because it holds absolute paths).
 WDIR="$ROOT/data/sim/$WORLD"
-if [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ]; then
+if [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ] || [ tools/make_sim_world.py -nt "$WDIR/$WORLD.sdf" ]; then
   python3 tools/make_sim_world.py --map "$MAP" --name "$WORLD" || die "world generation failed"
 fi
 
@@ -59,11 +59,40 @@ source "$PX4_DIR/build/px4_sitl_default/rootfs/gz_env.sh"
 set -u
 export GZ_SIM_RESOURCE_PATH="$GZ_SIM_RESOURCE_PATH:$ROOT/sim/models:$WDIR"
 
-echo "sim_run: starting Gazebo ($WORLD)"
+# Gazebo's messaging uses multicast discovery; with no network route (offline laptop,
+# some VPNs) it fails with "Network is unreachable". Everything here is on one machine.
+export GZ_IP="${GZ_IP:-127.0.0.1}"
+
+# Render engine: ogre2 (default, needed for the OAK-D camera later) or ogre (Ogre1, a
+# fallback if ogre2's shaders fail to compile on a driver). The terrain is a mesh, which
+# both render the same; tools/check_sim_radar.py checks the radar against the map. It applies to both the
+# server's sensors (the radar altimeter) and the GUI, via a copy of PX4's server config.
+RENDER="${GDN_GZ_RENDER:-ogre2}"
+sed "s#<render_engine>[a-z0-9]*</render_engine>#<render_engine>$RENDER</render_engine>#" \
+  "$GZ_SIM_SERVER_CONFIG_PATH" > "$LOG/server.config"
+export GZ_SIM_SERVER_CONFIG_PATH="$LOG/server.config"
+
+# Server and GUI run as separate processes, so a GUI crash doesn't stop the simulation.
+echo "sim_run: starting Gazebo ($WORLD, render engine $RENDER)"
 if [ -n "$HEADLESS" ]; then
-  gz sim -s -r --headless-rendering "$WDIR/$WORLD.sdf" > "$LOG/gz.log" 2>&1 & PIDS+=($!)
+  gz sim -v 4 -s -r --headless-rendering "$WDIR/$WORLD.sdf" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
 else
-  gz sim -r "$WDIR/$WORLD.sdf" > "$LOG/gz.log" 2>&1 & PIDS+=($!)
+  gz sim -v 4 -s -r "$WDIR/$WORLD.sdf" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
+fi
+PIDS+=($GZ_PID)
+sleep 5
+gz_dead() {
+  kill -0 "$GZ_PID" 2>/dev/null && return 1
+  echo; echo "sim_run: the Gazebo server stopped. Last lines of $LOG/gz.log:"
+  grep -iE "error|exception|failed|terminate" "$LOG/gz.log" | tail -8
+  if [ "$RENDER" = "ogre2" ]; then
+    echo "sim_run: if that's a shader or OGRE error, try:  GDN_GZ_RENDER=ogre tools/sim_run.sh"
+  fi
+  return 0
+}
+gz_dead && exit 1
+if [ -z "$HEADLESS" ]; then
+  gz sim -v 3 -g --render-engine-gui "$RENDER" > "$LOG/gz_gui.log" 2>&1 & PIDS+=($!)
 fi
 
 MicroXRCEAgent udp4 -p 8888 > "$LOG/agent.log" 2>&1 & PIDS+=($!)
@@ -75,6 +104,7 @@ echo "sim_run: starting PX4 (attaching to $MODEL_INSTANCE)"
 echo -n "sim_run: waiting for PX4 over DDS "
 for _ in $(seq 1 90); do
   timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 && break
+  gz_dead && exit 1
   echo -n "."
 done
 echo

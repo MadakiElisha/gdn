@@ -413,7 +413,7 @@ The full ledger is [docs/open_items.md](docs/open_items.md). Status as of Novemb
 | OI-004 | Error growth late in the flight and near landing | Accepted limitation for now |
 | OI-005 | Untested on fine or real terrain | Done (Zermatt SRTM) |
 | OI-006 | Attitude/velocity oscillation under TRN updates | Done (velocity injection clamp) |
-| OI-007 | Gazebo heightmap visuals broken under WSL2 software rendering | Deferred |
+| OI-007 | Gazebo heightmap visuals broken (crash in Ogre2, wrong geometry in Ogre1) | Closed: terrain is drawn as a mesh |
 | OI-009 | False-contour lock in some Zermatt seeds | Open; fixed by acquisition (R4.1) |
 | OI-010 | Bench left stray nodes between runs | Done |
 | OI-011 | Earlier Zermatt map was mirrored north-south | Done (map regenerated from GeoTIFF) |
