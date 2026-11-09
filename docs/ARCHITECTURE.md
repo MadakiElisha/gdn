@@ -177,6 +177,19 @@ filter's IMU process noise is in `EskfConfig` (`q_accel_nd`, `q_gyro_nd`,
 `q_accel_bias_rw`, `q_gyro_bias_rw`). The Gazebo x500 already carries PX4's white noise;
 model files for Gazebo arrive with R2.4.
 
+**Scenarios: GNSS loss and start error (R1.7, TEST-023).** The requirements score time
+since GNSS was lost, from a converged filter that keeps its covariance.
+`Eskf::ApplyGnss` (horizontal position and velocity; no gate; baro and mag biases
+untouched) lets the MC fuse a simulated GNSS until `mc_campaign --gnss-loss=T`. After
+that the filter carries on with the covariance it had. `--gnss-free=300,600` pools the
+5 and 10 minutes after the loss, as REQ-NAV-001 to 003 define them. `--start-error=M`
+uses `Eskf::SetHorizontalPosition` to start M metres off with a stated sigma, and reports
+REQ-ACQ-001 (under 100 m at 120 s after take-off). Every MC report has a `scenario:`
+line. `data/flight_zermatt_long_csv` (15 minutes, `gen_zermatt_flight.py --minutes 15`)
+gives the synthetic case room for 10 minutes without GNSS; flight001 (16 minutes) is
+scored up to the local-position reset in its recorded truth at 967.7 s. The node has no
+GNSS input yet; the PX4 handover belongs with the SITL scenarios (R2.8).
+
 ## Validation ledger
 
 - **Selftest** (31 checks; `tools/run_selftest.sh` runs them at -O2 and -O3,
@@ -220,7 +233,7 @@ These are the main things standing between this and a fielded GNSS-denied stack.
   slopes (TEST-017), and baro drift faster than the bias random walk still costs
   accuracy.
 - **The filter starts at the true position** (initial position sigma of about 10 m) and has no acquisition mode.
-  Start errors above about 60 m fail.
+  Start errors above about 60 m fail (TEST-023: half or more fail from 150 m, nearly all from 500 m).
 - **Map error is synthetic.** Since R1.3 the MC (`--db-map`) and bench (`GDN_DB_MAP`)
   fly over a truth map and navigate with a different onboard map, built by
   `tools/make_db_map.py` (noise, bias, coarser cells). Both maps come from the same

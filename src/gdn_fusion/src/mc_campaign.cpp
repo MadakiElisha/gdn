@@ -121,6 +121,19 @@ int main(int argc_all, char** argv_all) {
     //                  The "imu:" line of the report names what was used.
     //   --q-ba=K, --q-bg=K  filter accel-bias (m/s^3/sqrt(Hz)) and gyro-bias
     //                  (deg/s^2/sqrt(Hz)) random walk, for sweeps.
+    //   --q-an=N, --q-gn=N  filter accel (m/s^2/sqrt(Hz)) and gyro (deg/s/sqrt(Hz))
+    //                  white noise density, for sweeps (R1.7).
+    //   --start-error=M  R1.7: the filter starts M metres from the truth, in a random
+    //                  direction per flight, and is told sigma max(M, 10) m per axis.
+    //                  Applied when heading is aligned (parked for the node start-up, at
+    //                  the take-off roll for truth). Reports REQ-ACQ-001 acquisition.
+    //   --gnss-loss=T  R1.7: simulated GNSS (5 Hz, 1.5 m and 0.1 m/s per axis, white) is
+    //                  fused until log time T s, then lost. The filter keeps the state and
+    //                  covariance it had (covariance handover). Scoring starts at T.
+    //   --gnss-free=D1,D2  R1.7: with --gnss-loss, also report CEP50/CEP95/max and the
+    //                  3-sigma check pooled over [T, T+D] for each D (default 300,600: the
+    //                  5 and 10 minutes of docs/requirements.md). The main window becomes
+    //                  [T, T+max D] unless --window is given.
     //   --q-imu=match  set the filter's IMU process noise from the IMU model (white
     //                  noise; bias random walk where the model has drift) instead of the
     //                  tuned EskfConfig values.
@@ -129,6 +142,9 @@ int main(int argc_all, char** argv_all) {
     std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "auto", trace_path, db_arg;
     std::string imu_arg = "auto", q_imu;
     double baro_drift = 0.0, clearance = 30.0, w0 = 60.0, w1 = 300.0;
+    bool window_set = false, start_set = false;
+    double start_err = 0.0, gnss_loss = -1.0;            // R1.7
+    std::vector<double> gnss_free;
     int seed0 = 0;
     double hard_iron = 0.15;
     gdn::EskfConfig cfg;   // defaults == node defaults
@@ -146,12 +162,20 @@ int main(int argc_all, char** argv_all) {
         else if (s.rfind("--hard-iron=", 0) == 0) hard_iron = std::atof(s.c_str() + 12);
         else if (s.rfind("--baro-drift=", 0) == 0) baro_drift = std::atof(s.c_str() + 13);
         else if (s.rfind("--clearance=", 0) == 0) clearance = std::atof(s.c_str() + 12);
-        else if (s.rfind("--window=", 0) == 0) std::sscanf(s.c_str() + 9, "%lf,%lf", &w0, &w1);
+        else if (s.rfind("--window=", 0) == 0) { std::sscanf(s.c_str() + 9, "%lf,%lf", &w0, &w1); window_set = true; }
+        else if (s.rfind("--start-error=", 0) == 0) { start_err = std::atof(s.c_str() + 14); start_set = true; }
+        else if (s.rfind("--gnss-loss=", 0) == 0) gnss_loss = std::atof(s.c_str() + 12);
+        else if (s.rfind("--gnss-free=", 0) == 0) {
+            std::stringstream ss(s.substr(12)); std::string tok;
+            while (std::getline(ss, tok, ',')) if (!tok.empty()) gnss_free.push_back(std::atof(tok.c_str()));
+        }
         else if (s.rfind("--q-baro=", 0) == 0) cfg.q_baro_bias = std::atof(s.c_str() + 9);
         else if (s.rfind("--r-agl=", 0) == 0) cfg.r_agl = std::atof(s.c_str() + 8);
         else if (s.rfind("--r-trn=", 0) == 0) cfg.r_trn = std::atof(s.c_str() + 8);
         else if (s.rfind("--q-ba=", 0) == 0) cfg.q_accel_bias_rw = std::atof(s.c_str() + 7);
         else if (s.rfind("--q-bg=", 0) == 0) cfg.q_gyro_bias_rw = std::atof(s.c_str() + 7) * gdn::Eskf::kDeg;
+        else if (s.rfind("--q-an=", 0) == 0) cfg.q_accel_nd = std::atof(s.c_str() + 7);
+        else if (s.rfind("--q-gn=", 0) == 0) cfg.q_gyro_nd = std::atof(s.c_str() + 7) * gdn::Eskf::kDeg;
         else if (s.rfind("--", 0) == 0) { std::printf("ERROR: unknown option %s\n", s.c_str()); return 1; }
         else pos_args.push_back(argv_all[a]);
     }
@@ -164,6 +188,19 @@ int main(int argc_all, char** argv_all) {
         return 1;
     }
     const bool node_startup = startup == "node";
+    // R1.7 scenario options.
+    if (start_err < 0 || (gnss_loss >= 0 && start_err > 0)) {
+        std::printf("ERROR: --start-error=M needs M >= 0, and applies to flights without GNSS (acquisition):\n"
+                    "  with --gnss-loss the filter starts from GNSS, so the two don't combine\n");
+        return 1;
+    }
+    if (!gnss_free.empty() && gnss_loss < 0) {
+        std::printf("ERROR: --gnss-free=D scores the D seconds after GNSS is lost: it needs --gnss-loss=T\n");
+        return 1;
+    }
+    if (gnss_loss >= 0 && gnss_free.empty()) gnss_free = {300.0, 600.0};
+    std::sort(gnss_free.begin(), gnss_free.end());
+    if (gnss_loss >= 0 && !window_set) { w0 = gnss_loss; w1 = gnss_loss + gnss_free.back(); }
     const int argc = static_cast<int>(pos_args.size());
     char** argv = pos_args.data();
     const int nseeds = argc > 1 ? std::atoi(argv[1]) : 100;
@@ -241,6 +278,49 @@ int main(int argc_all, char** argv_all) {
     const Eigen::Vector3d m_ref(cfg.mag_ref_north, cfg.mag_ref_east, cfg.mag_ref_down);
     const Eigen::Vector3d b_hardiron = hard_iron * Eigen::Vector3d(2.0, -1.0, 1.0);
 
+    // R1.7: scenario. Take-off = first truth speed over 3 m/s (REQ-ACQ-001 counts from it).
+    double t_end = std::min((it.back() - t0), (lt.back() - t0)) * 1e-6;
+    // A recorded truth can jump (flight001: PX4 reset its local position by about 440 m
+    // at 967 s, just before landing). Scoring past a jump would score the reset, so the
+    // flight ends there.
+    for (size_t q = 1; q < lt.size(); ++q) {
+        const double dtq = (lt[q] - lt[q - 1]) * 1e-6;
+        const double step = std::hypot(lx[q] - lx[q - 1], ly[q] - ly[q - 1]);
+        const double vmax = std::max(std::hypot(lvx[q], lvy[q]), std::hypot(lvx[q - 1], lvy[q - 1]));
+        if (step > vmax * dtq + 20.0) {
+            t_end = std::min(t_end, (lt[q - 1] - t0) * 1e-6);
+            std::printf("truth: position jumps %.0f m at t=%.1f s (a reset in the recorded truth); "
+                        "the flight is scored up to there\n", step, t_end);
+            break;
+        }
+    }
+    double t_takeoff = 0.0;
+    for (size_t q = 0; q < lt.size(); ++q)
+        if (std::hypot(lvx[q], lvy[q]) > 3.0) { t_takeoff = (lt[q] - t0) * 1e-6; break; }
+    if (gnss_loss >= 0 && gnss_loss + gnss_free.back() > t_end + 1e-6) {
+        std::printf("ERROR: GNSS lost at %.0f s plus %.0f s GNSS-free needs a flight of %.0f s; %s ends at %.0f s.\n"
+                    "  Longer synthetic flight: tools/gen_zermatt_flight.py --minutes 15 (data/flight_zermatt_long_csv)\n",
+                    gnss_loss, gnss_free.back(), gnss_loss + gnss_free.back(), csv_dir.c_str(), t_end);
+        return 1;
+    }
+    constexpr double kGnssRate = 5.0, kGnssPos = 1.5, kGnssVel = 0.1, kAcqLimit = 100.0, kAcqTime = 120.0;
+    const double start_sigma = std::max(10.0, start_err);
+    if (gnss_loss >= 0)
+        std::printf("scenario: GNSS (simulated, %.0f Hz, %.1f m and %.1f m/s per axis) until t=%.0f s, then lost; "
+                    "the filter keeps its covariance (handover). Scored from the loss.\n",
+                    kGnssRate, kGnssPos, kGnssVel, gnss_loss);
+    else if (start_err > 0)
+        std::printf("scenario: no GNSS; start error %.0f m in a random direction, filter told sigma %.0f m per axis\n",
+                    start_err, start_sigma);
+    else
+        std::printf("scenario: no GNSS; the filter starts at the true position (sigma 10 m per axis)\n");
+    // Per GNSS-free duration: pooled errors, per-seed maxima, consistency.
+    std::vector<std::vector<double>> gf_pool(gnss_free.size());
+    std::vector<std::vector<double>> gf_seedmax(gnss_free.size());
+    std::vector<gdn::ConsistencyStats> gf_cons(gnss_free.size());
+    std::vector<double> handover_sigma, handover_err, err_at_acq;
+    int acquired = 0, held = 0;
+
     std::vector<double> pool, vpool, seed_rms, seed_max, latch_t;
     gdn::ConsistencyStats cons_all, cons_pass, cons_fail;   // R1.5
     std::ofstream trace;
@@ -289,9 +369,20 @@ int main(int argc_all, char** argv_all) {
         gdn::GroundMonitor ground;
         gdn::ConsistencyStats cons;
         bool gnss_airborne = false; int gnss_zc = 0, last_m = -1;
+        // R1.7: own streams, so the existing random sequences are unchanged.
+        std::mt19937_64 rng_gnss(0x474e53ULL + static_cast<uint64_t>(seed));
+        std::mt19937_64 rng_start(0x535452ULL + static_cast<uint64_t>(seed));
+        std::normal_distribution<double> d_g(0, 1);
+        const double start_dir = std::uniform_real_distribution<double>(0.0, 2.0 * M_PI)(rng_start);
+        bool start_applied = false, handed_over = false;
+        int last_g = -1;
+        double e_acq = -1.0, max_after_acq = 0.0;
+        std::vector<double> gf_max(gnss_free.size(), 0.0);
+        std::vector<gdn::ConsistencyStats> gf_c(gnss_free.size());
 
         for (size_t i = 0; i < it.size(); ++i) {
             const double t = (it[i] - t0) * 1e-6;
+            if (t > t_end) break;                                 // R1.7: truth reset (above)
             Eigen::Vector3d a_m(ax[i], ay[i], az[i]), w_m(gx[i], gy[i], gz[i]);
             if (use_imu_model) {
                 const size_t i0 = i > 0 ? i - 1 : 0, i1 = i > 0 ? i : 1;
@@ -357,6 +448,25 @@ int main(int argc_all, char** argv_all) {
                 yaw_done = true;
                 if (diag_mode) std::printf("YAW t=%.1f yaw=%.1f spd=%.1f pb=(%.1f,%.1f)\n", t,
                     std::atan2(lvy[j], lvx[j])/gdn::Eskf::kDeg, spd, eskf.pos().x(), eskf.pos().y());
+            }
+
+            // R1.7 start error: once heading is aligned, move the filter's position and
+            // tell it how unsure it is.
+            if (yaw_done && !start_applied) {
+                start_applied = true;
+                if (start_err > 0)
+                    eskf.SetHorizontalPosition(eskf.pos().head<2>() + start_err *
+                        Eigen::Vector2d(std::cos(start_dir), std::sin(start_dir)), start_sigma);
+            }
+            // R1.7 GNSS until the loss, at 5 Hz, from the truth plus white noise.
+            if (gnss_loss >= 0 && t < gnss_loss && yaw_done) {
+                const int g = static_cast<int>(std::floor(t * kGnssRate));
+                if (g != last_g) {
+                    last_g = g;
+                    eskf.ApplyGnss(Eigen::Vector2d(lx[j] + kGnssPos * d_g(rng_gnss), ly[j] + kGnssPos * d_g(rng_gnss)),
+                                   Eigen::Vector2d(lvx[j] + kGnssVel * d_g(rng_gnss), lvy[j] + kGnssVel * d_g(rng_gnss)),
+                                   kGnssPos, kGnssVel);
+                }
             }
 
             // Barometer at 10 Hz (agl model only; ideal and naive have no baro state).
@@ -425,6 +535,24 @@ int main(int argc_all, char** argv_all) {
                 std::printf("t=%3.0f err=%7.1f pos=(%7.1f,%7.1f) truth=(%7.1f,%7.1f) sp=%5.1f\n",
                             t, e, eskf.pos().x(), eskf.pos().y(), lx[j], ly[j],
                             eskf.sigma_pos());
+            // R1.7: acquisition (error 120 s after take-off, and the worst after that),
+            // handover, and the GNSS-free windows.
+            if (t >= t_takeoff + kAcqTime) {
+                if (e_acq < 0) e_acq = e;
+                max_after_acq = std::max(max_after_acq, e);
+            }
+            if (gnss_loss >= 0 && t >= gnss_loss) {
+                if (!handed_over) {
+                    handed_over = true;
+                    handover_sigma.push_back(eskf.sigma_pos()); handover_err.push_back(e);
+                }
+                for (size_t d = 0; d < gnss_free.size(); ++d)
+                    if (t <= gnss_loss + gnss_free[d]) {
+                        gf_pool[d].push_back(e); gf_max[d] = std::max(gf_max[d], e);
+                        gf_c[d].AddPosition(Eigen::Vector2d(eskf.pos().x() - lx[j], eskf.pos().y() - ly[j]),
+                                            eskf.P_horiz(), eskf.sigma_pos());
+                    }
+            }
             if (t >= w0 && t <= w1) {
                 cons.AddPosition(Eigen::Vector2d(eskf.pos().x() - lx[j], eskf.pos().y() - ly[j]),
                                  eskf.P_horiz(), eskf.sigma_pos());
@@ -438,6 +566,11 @@ int main(int argc_all, char** argv_all) {
         cons_all.Merge(cons);
         (rms < 100.0 ? cons_pass : cons_fail).Merge(cons);
         if (rms < 100.0) ++pass_seeds;
+        for (size_t d = 0; d < gnss_free.size(); ++d) { gf_seedmax[d].push_back(gf_max[d]); gf_cons[d].Merge(gf_c[d]); }
+        // REQ-ACQ-001: under the limit 120 s after take-off; held: stayed under to the end.
+        err_at_acq.push_back(e_acq);
+        if (e_acq >= 0 && e_acq < kAcqLimit) ++acquired;
+        if (e_acq >= 0 && max_after_acq < kAcqLimit) ++held;
     }
 
     int in_spec = 0; for (double e : pool) if (e < 100.0) ++in_spec;
@@ -474,6 +607,23 @@ int main(int argc_all, char** argv_all) {
     if (!vpool.empty())
         std::printf("vertical: altitude error p50 %.1f m  p95 %.1f m  max %.1f m\n",
                     Percentile(vpool, 50), Percentile(vpool, 95), Percentile(vpool, 100));
+    // R1.7. ci_check_mc.py parses the "GNSS-free" and "acquisition" lines.
+    if (gnss_loss >= 0) {
+        std::printf("handover at t=%.0f s: filter sigma median %.2f m, error median %.2f m (p95 %.2f m)\n",
+                    gnss_loss, Percentile(handover_sigma, 50), Percentile(handover_err, 50),
+                    Percentile(handover_err, 95));
+        for (size_t d = 0; d < gnss_free.size(); ++d) {
+            int under = 0; for (double m : gf_seedmax[d]) if (m < 100.0) ++under;
+            std::printf("GNSS-free %.0f s: CEP50 %.1f m  CEP95 %.1f m  max %.1f m  over 3 sigma %.2f%%  "
+                        "flights never over 100 m: %d/%d\n",
+                        gnss_free[d], Percentile(gf_pool[d], 50), Percentile(gf_pool[d], 95),
+                        Percentile(gf_pool[d], 100), gf_cons[d].over3sigma_pct(), under, nseeds);
+        }
+    }
+    if (start_set || start_err > 0)
+        std::printf("acquisition (REQ-ACQ-001): start error %.0f m: under %.0f m at %.0f s after take-off: %d/%d flights "
+                    "(error there median %.1f m); stayed under to the end (%.0f s): %d/%d\n",
+                    start_err, kAcqLimit, kAcqTime, acquired, nseeds, Percentile(err_at_acq, 50), t_end, held, nseeds);
     { std::ofstream o("/tmp/mc_per_seed.csv"); o << "seed,rms,max\n";
       for (size_t s = 0; s < seed_rms.size(); ++s)
           o << s << "," << seed_rms[s] << "," << seed_max[s] << "\n"; }

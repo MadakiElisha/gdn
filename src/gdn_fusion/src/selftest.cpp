@@ -776,6 +776,77 @@ int main() {
         }
     }
 
+    // TEST-023 (R1.7): GNSS loss with a covariance handover, and a stated start error.
+    // The requirements score "time since GNSS was lost, starting from a converged
+    // filter that keeps the covariance it had" (docs/requirements.md). So the filter
+    // must fuse GNSS honestly while it has it, and its covariance at the moment of loss
+    // must still describe its error afterwards. Before R1.7 the core had no GNSS update
+    // and no way to start away from the truth with a stated uncertainty.
+    {
+        using V3 = Eigen::Vector3d;
+        const V3 a0(0, 0, -Eskf::kG);
+        auto aligned = [&]() {
+            Eskf e;
+            for (int k = 0; k < 600 && !e.aligned(); ++k) e.FeedStatic(a0, V3::Zero());
+            e.TransferAlignYaw(0.0);
+            return e;
+        };
+        // 100 flights at rest with a perfect IMU: 30 s of 5 Hz GNSS (1.5 m, 0.1 m/s),
+        // then 30 s without. Truth is the origin, so the filter's position is its error.
+        const int runs = 100;
+        const double sp = 1.5, sv = 0.1;
+        std::mt19937_64 rng(0x523137);
+        std::normal_distribution<double> n01(0, 1);
+        double nees_on = 0, nees_off = 0, sig_on = 0, sig_off = 0;
+        bool biases_untouched = true;
+        for (int r = 0; r < runs; ++r) {
+            Eskf e = aligned();
+            const double bb0 = e.baro_bias();
+            for (int k = 1; k <= 600; ++k) {                  // 60 s at 10 Hz
+                e.Propagate(a0, V3::Zero(), 0.1);
+                if (k <= 300 && k % 2 == 0)
+                    e.ApplyGnss(Eigen::Vector2d(sp * n01(rng), sp * n01(rng)),
+                                Eigen::Vector2d(sv * n01(rng), sv * n01(rng)), sp, sv);
+                if (k == 300 || k == 600) {
+                    const Eigen::Vector2d ev = e.pos().head<2>();
+                    const double nees = ev.dot(e.P_horiz().ldlt().solve(ev));
+                    (k == 300 ? nees_on : nees_off) += nees / runs;
+                    (k == 300 ? sig_on : sig_off) += e.sigma_pos() / runs;
+                }
+            }
+            biases_untouched = biases_untouched && e.baro_bias() == bb0 && e.mag_bias().norm() == 0.0;
+        }
+        std::printf("      GNSS on 30 s: NEES mean %.2f (honest: 2), sigma %.2f m | 30 s after loss: NEES mean %.2f, sigma %.2f m\n",
+                    nees_on, sig_on, nees_off, sig_off);
+        // NEES of 100 independent 2-D errors: mean 2, standard error 0.2.
+        CHECK(std::abs(nees_on - 2.0) < 0.6 && sig_on < 1.5,
+              "eskf: TEST-023 GNSS update converges and is honest (NEES ~2)");
+        // After the loss: the filter starts from the converged covariance (no reset), it
+        // grows, and it must not be overconfident (REQ-INT-001 is one-sided). At rest with
+        // a perfect IMU the true error hardly grows (tilt and accel bias cancel when
+        // nothing accelerates), so NEES falls well below 2 here; the MC with the IMU model
+        // is where honesty after the loss is measured (TEST-023 report).
+        CHECK(sig_on < 1.5 && sig_off > sig_on && nees_off < 2.6,
+              "eskf: TEST-023 covariance handed over at GNSS loss grows and is not overconfident");
+        CHECK(biases_untouched, "eskf: TEST-023 GNSS update leaves the baro and mag biases alone");
+
+        // Start error: the filter is told where it is (wrongly) and how sure it is.
+        Eskf e = aligned();
+        const Eigen::MatrixXd P0 = e.P();
+        e.SetHorizontalPosition(Eigen::Vector2d(300.0, -400.0), 500.0);
+        double cross = 0.0;
+        for (int i = 0; i < 2; ++i)
+            for (int k = 0; k < P0.rows(); ++k)
+                if (k != i) cross = std::max(cross, std::abs(e.P()(i, k)));
+        const double rest = (e.P().bottomRightCorner(17, 17) - P0.bottomRightCorner(17, 17)).norm();
+        std::printf("      start error: pos (%.0f, %.0f), sigma %.0f/%.0f m, largest cross term %.3g, other states moved %.3g\n",
+                    e.pos().x(), e.pos().y(), std::sqrt(e.P()(0, 0)), std::sqrt(e.P()(1, 1)), cross, rest);
+        CHECK(std::abs(e.pos().x() - 300.0) < 1e-9 && std::abs(e.pos().y() + 400.0) < 1e-9 &&
+              std::abs(e.P()(0, 0) - 250000.0) < 1e-6 && std::abs(e.P()(1, 1) - 250000.0) < 1e-6 &&
+              cross == 0.0 && rest == 0.0 && e.p_mineig() > 0.0,
+              "eskf: TEST-023 start error sets position and its stated uncertainty only");
+    }
+
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }
