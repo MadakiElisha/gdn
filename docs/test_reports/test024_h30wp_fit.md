@@ -203,9 +203,11 @@ default), and heading-only must hold even then. Everything else passes unchanged
 - **One bench log, at a changing room temperature.** The drift above about 5 minutes is
   mostly the room. That makes the model conservative for a steady room, and a fair guess
   for flight, where temperature also changes. A second log at a steady temperature, with
-  the temperature output on, would separate the two.
+  the temperature output on, would separate the two. It's optional: it would make the
+  drift model less conservative, and the filter's gyro setting already sits 4.4x above
+  this one.
 - **Turn-on bias** is not measured: one log is one power-up. The placeholder's 0.05
-  m/s² and 0.02 deg/s stay until several short power-up logs exist.
+  m/s² and 0.02 deg/s stay until several short power-up logs exist (optional).
 - **No vibration, scale factor or misalignment.** A static log can't show them. Flight
   data can (Phase 6).
 - **Axes.** The H30WP reports front-left-up (the lid). GDN uses front-right-down, so y
