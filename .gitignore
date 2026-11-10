@@ -25,3 +25,6 @@ data/maps/*
 /consistency.png
 /viz_trace.log
 /zermatt_track.png
+
+# Per-unit sensor config written by tools/livox_setup.py (lidar and host IPs)
+config/sensors/mid360s.json
