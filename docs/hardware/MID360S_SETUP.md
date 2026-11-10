@@ -76,7 +76,7 @@ sudo nmcli con up livox
 You can do the same in Settings, Network: on the wired connection, set IPv4 to
 Manual, address `192.168.1.50`, netmask `255.255.255.0`, and leave the gateway empty.
 
-One catch: if your home or office router also hands out 192.168.1.x addresses on
+One catch: if the office router also hands out 192.168.1.x addresses on
 Wi-Fi, the PC sees the same subnet twice and may send lidar traffic the wrong way.
 If you hit odd problems with Wi-Fi on, turn Wi-Fi off while working with the lidar.
 
