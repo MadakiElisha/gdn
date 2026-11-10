@@ -222,7 +222,8 @@ python3 tools/allan_fit.py --csv log/h30wp_static/allan.csv --skip 900 \
 
 The `--skip 900` drops the first 15 minutes, in case the IMU was still settling. The
 first log (9 November 2026, TEST-024) is in `config/imu/h30wp.yaml`. The room warmed
-during it, so a second log at a steady temperature is still wanted.
+during it. A second log at a steady temperature would refine the drift model, but it's
+optional.
 
 A good result reports `0 gaps`, and on the plot the measured points follow the
 fitted line. If the plot has a bump the line can't follow, the recording was
