@@ -240,10 +240,10 @@ early, in parallel with Phases 2 to 5.
 
 - [ ] **R6.1 Companion computer image.** Orin Nano on JetPack 7.2+ (or a Pi 5 on Ubuntu 24.04). `setup_ubuntu.sh --headless` works on it, and build times are written down.
 - [ ] **R6.2 Drivers.**
-  - `livox_ros_driver2` for the Mid-360S.
+  - `livox_ros_driver2` for the Mid-360S. Builds on Jazzy (driver 1.2.8, Mid-360S support since 1.2.5); bench setup, network check and launcher in `docs/hardware/MID360S_SETUP.md`.
   - The H30WP ROS 2 driver for Jazzy. A first one exists (`tools/h30wp_node.py`, setup in `docs/hardware/H30WP_SETUP.md`); for flight it moves into C++ with the latency measurement of R6.3.
   - TFmini-S on the flight controller (PX4 driver), read on the companion as `distance_sensor`.
-  - `depthai-ros` for the OAK-D Lite: the stereo pair at 30 Hz or more, the IMU at 200 Hz or more, and the colour camera at a low rate for logging. Check for a Jazzy build, and build from source if there isn't one.
+  - `depthai-ros` for the OAK-D Lite: the stereo pair at 30 Hz or more, the IMU at 200 Hz or more, and the colour camera at a low rate for logging. Jazzy has a binary, `ros-jazzy-depthai-ros-v3`; bench setup and `tools/oak_check.py` are in `docs/hardware/OAK_D_LITE_SETUP.md`. Still to do: the VIO pipeline config (synced rectified mono pair plus full-rate IMU, no colour or NN).
 - [ ] **R6.3 Time sync.** PTP from the companion to the Livox. Measure H30WP latency and timestamp it on arrival. Use the OAK-D's device timestamps, synced to the host. Sync the companion and PX4 clocks through uXRCE-DDS. Write down the measured offsets, and feed them back into the R2.4 timing models.
 - [ ] **R6.4 Extrinsics.**
   - Lidar to IMU (the Livox has an internal IMU; decide whether LIO uses it or the H30WP).

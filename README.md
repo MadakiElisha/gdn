@@ -195,9 +195,9 @@ messages should work.
 | Role | Part | What it gives GDN |
 |---|---|---|
 | IMU | Yesense / WHEELTEC H30WP | 9-axis MEMS (gyro, accel, mag), up to 400 Hz over UART/RS485. Setup: [docs/hardware/H30WP_SETUP.md](docs/hardware/H30WP_SETUP.md) |
-| Lidar | Livox Mid-360S | 360 by 59 degree point cloud, about 40 m on dark surfaces, built-in IMU, PTP time sync; used for LIO and lidar AGL |
+| Lidar | Livox Mid-360S | 360 by 59 degree point cloud, about 40 m on dark surfaces, built-in IMU, PTP time sync; used for LIO and lidar AGL. Setup: [docs/hardware/MID360S_SETUP.md](docs/hardware/MID360S_SETUP.md) |
 | Rangefinder | Benewake TFmini-S | Height above ground from 0.1 to 12 m (about 7 m on dark surfaces), for landing and low hover |
-| Stereo camera | Luxonis OAK-D Lite | Global-shutter OV7251 stereo pair (7.5 cm baseline), 13 MP IMX214 colour camera, BMI270 IMU, onboard processor (4 TOPS); used for VIO and later geo-registration |
+| Stereo camera | Luxonis OAK-D Lite | Global-shutter OV7251 stereo pair (7.5 cm baseline), 13 MP IMX214 colour camera, BMI270 IMU, onboard processor (4 TOPS); used for VIO and later geo-registration. Setup: [docs/hardware/OAK_D_LITE_SETUP.md](docs/hardware/OAK_D_LITE_SETUP.md) |
 | Companion | Jetson Orin Nano (JetPack 7.2+) or Raspberry Pi 5 + Hailo HAT | Runs GDN, LIO and VIO. The Orin has more headroom; the Hailo NPU only helps neural-network parts |
 | Autopilot | PX4 v1.16 (R2.1) | uXRCE-DDS link, matching the `px4_msgs` submodule. v1.16 is the first release with official Ubuntu 24.04 and Gazebo Harmonic support |
 
