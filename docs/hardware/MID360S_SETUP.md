@@ -82,7 +82,7 @@ If you hit odd problems with Wi-Fi on, turn Wi-Fi off while working with the lid
 
 ## Checking the lidar is reachable
 
-From the GDN workspace, with your lidar's serial number:
+From the GDN workspace, with the lidar's serial number:
 
 ```bash
 python3 tools/livox_setup.py --sn 47MDL1C0010081
