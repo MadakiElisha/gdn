@@ -166,7 +166,7 @@ int32 nx, int32 ny, float64 lat0, lon0, dlat, dlon, float32 alt[ny*nx]  (row-maj
 
 All simulators use fixed seeds for replay parity.
 
-**IMU error model (R1.6, TEST-022 and TEST-024).** `gdn/imu_model.hpp` defines the model: white noise
+**IMU error model (R1.6, TEST-022, TEST-024 and TEST-025).** `gdn/imu_model.hpp` defines the model: white noise
 per axis, Gauss-Markov bias drift and turn-on bias. It reads model files from
 `config/imu/` and applies them (`ImuErrorSim`). The Monte Carlo uses it on flights that
 have an error-free IMU (`imu_truth.csv`, written by `gen_zermatt_flight.py`); real logs
@@ -176,8 +176,11 @@ as an upper envelope over 30 s to 10 min, so it doesn't promise a better IMU tha
 measured where the GNSS-free windows are scored). Every MC report names the model on
 its `imu:` line. The filter's IMU process noise is in `EskfConfig` (`q_accel_nd`,
 `q_gyro_nd`, `q_accel_bias_rw`, `q_gyro_bias_rw`); the selftest (TEST-024) keeps it at
-or above the H30WP's, with the bias random walks within 10x of it. The Gazebo x500 already carries PX4's white noise;
-model files for Gazebo arrive with R2.4.
+or above the H30WP's, with the bias random walks within 10x of it, and (TEST-025) not
+below the Mid-360S's or OAK-D Lite's either, since LIO and VIO may feed it from those.
+`config/imu/` also holds those two fits; `allan_fit.py` resamples uneven sample times as
+the filter integrates them and stops at a log's first break. The Gazebo x500 already
+carries PX4's white noise; model files for Gazebo arrive with R2.4.
 
 **Scenarios: GNSS loss and start error (R1.7, TEST-023).** The requirements score time
 since GNSS was lost, from a converged filter that keeps its covariance.

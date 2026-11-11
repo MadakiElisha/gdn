@@ -1,0 +1,5 @@
+sensor,kind,N_x,N_y,N_z,K,tau_s,drift_fit,hours,rate_hz,dt_spread,cut_at_s,cut_what
+mid360s,accel,0.00059955,0.00057809,0.00069963,3.6096e-05,8.577e+04,least squares,1.377,200.00,0.148,7359,a 128.7 s gap
+mid360s,gyro,8.8329e-05,7.0302e-05,0.00014224,1.214e-05,251.2,envelope,1.377,200.00,0.148,7359,a 128.7 s gap
+oakd_lite,accel,0.0012462,0.0011087,0.0012339,0.00015415,135.9,envelope,1.692,238.63,0.288,7293,the clock went back 7292.9 s
+oakd_lite,gyro,9.9208e-05,9.8693e-05,0.00010001,1.1822e-05,63.1,envelope,1.692,238.63,0.288,7293,the clock went back 7292.9 s

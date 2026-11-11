@@ -879,6 +879,34 @@ int main() {
               "eskf: TEST-024 default bias random walks are within 10x of the H30WP's");
     }
 
+    // TEST-025 (R1.6, hardware): the Mid-360S and OAK-D Lite IMU models, from 2 h static
+    // logs (tools/allan_fit.py, with uneven sample times and breaks handled). They are not
+    // the navigation IMU; they feed LIO and VIO and the Gazebo sensor models (R2.4). Check
+    // that the strict loader takes them (every key, no typos) and the numbers are those of
+    // a MEMS IMU with resolved drift, so a broken fit can't slip in.
+    for (const char* name : {"mid360s", "oakd_lite"}) {
+        ImuNoiseModel m;
+        std::string err;
+        const bool loaded = LoadImuModel(DataPath(std::string("config/imu/") + name + ".yaml"), &m, &err);
+        if (!loaded) std::printf("      %s\n", err.c_str());
+        std::printf("      %s: accel N %.2e to %.2e m/s^2/sqrt(Hz), gyro N %.2e to %.2e rad/s/sqrt(Hz), "
+                    "bias rw %.2e / %.2e\n", name, m.accel_noise_density.minCoeff(), m.accel_noise_density.maxCoeff(),
+                    m.gyro_noise_density.minCoeff(), m.gyro_noise_density.maxCoeff(), m.accel_bias_rw, m.gyro_bias_rw);
+        CHECK(loaded && m.name == name && m.accel_noise_density.minCoeff() > 1e-4 &&
+              m.accel_noise_density.maxCoeff() < 5e-3 && m.gyro_noise_density.minCoeff() > 1e-5 &&
+              m.gyro_noise_density.maxCoeff() < 1e-3 && m.accel_bias_rw > 0.0 && m.gyro_bias_rw > 0.0,
+              (std::string("imu: TEST-025 ") + name + " model loads, with white noise and drift from the fit").c_str());
+        // Which IMU LIO feeds the filter with is open (R6.4): the defaults must not be
+        // overconfident for these two either (TEST-025: 1.4x to 16x above them).
+        const EskfConfig c;
+        const double r[4] = {c.q_accel_nd / m.accel_noise_density.maxCoeff(), c.q_gyro_nd / m.gyro_noise_density.maxCoeff(),
+                             c.q_accel_bias_rw / m.accel_bias_rw, c.q_gyro_bias_rw / m.gyro_bias_rw};
+        std::printf("      filter / %s: accel white %.1fx, gyro white %.1fx, accel bias rw %.1fx, gyro bias rw %.1fx\n",
+                    name, r[0], r[1], r[2], r[3]);
+        CHECK(loaded && r[0] >= 1.0 && r[1] >= 1.0 && r[2] >= 1.0 && r[3] >= 1.0,
+              (std::string("eskf: TEST-025 default process noise is not below the ") + name + "'s").c_str());
+    }
+
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

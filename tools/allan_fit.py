@@ -19,10 +19,18 @@ at or above the curve there, and the output says so (TEST-024).
         --name h30wp --out config/imu/h30wp.yaml --plot h30wp_allan.png    # tools/h30wp_log.py
     python3 tools/allan_fit.py --bag log/px4_static --topic /fmu/out/sensor_combined \\
         --name px4 --out config/imu/px4.yaml
-    python3 tools/allan_fit.py --bag log/mid360_static --topic /livox/imu --accel-unit g \\
-        --name mid360 --out config/imu/mid360.yaml
+    python3 tools/allan_fit.py --bag log/mid360s_static --topic /livox/imu --accel-unit g \\
+        --skip 2400 --name mid360s --out config/imu/mid360s.yaml
+    python3 tools/allan_fit.py --csv log/oakd_lite_static/imu.csv --skip 1200 \\
+        --name oakd_lite --out config/imu/oakd_lite.yaml                 # tools/oak_imu_log.py
     python3 tools/allan_fit.py --csv log.csv ...       # t[s or us],ax,ay,az,gx,gy,gz
     python3 tools/allan_fit.py --selfcheck             # recovers known parameters (CI)
+
+Sample times needn't be even (TEST-025): the Mid-360S's are jittered and the OAK-D Lite
+drops about 40% of its gyro ticks. Each sample is held until the next, as GDN
+integrates it, and that is resampled evenly at the mean rate (even_samples). A log that
+breaks off (a gap over BREAK_S, or the clock going back when the sensor restarts) is cut
+there, because what follows is a fresh power-up (first_segment).
 
 One static log can't show the turn-on bias (it is one draw); the output keeps the
 --turn-on-* values (default: the placeholder's) and says so.
@@ -124,9 +132,17 @@ def load_csv(path):
     with open(path) as f:
         r = csv.DictReader(f)
         cols = {k: [] for k in ("t", "ax", "ay", "az", "gx", "gy", "gz")}
+        bad = 0
         for row in r:
-            for k in cols:
-                cols[k].append(float(row[k]))
+            try:
+                vals = [float(row[k]) for k in cols]
+            except (TypeError, ValueError):   # e.g. a half-written last line after a power cut
+                bad += 1
+                continue
+            for k, v in zip(cols, vals):
+                cols[k].append(v)
+        if bad:
+            print(f"note: skipped {bad} unreadable line(s) in {path}")
     t = np.array(cols["t"])
     if np.median(np.diff(t)) > 100.0:   # microseconds (GDN CSVs, PX4)
         t = t * 1e-6
@@ -171,13 +187,50 @@ def load_bag(path, topic):
 
 
 # ------------------------------------------------------------------------- fit ----
+BREAK_S = 1.0   # a step longer than this (or backwards) ends the log: what follows is a restart
+
+
+def first_segment(t):
+    """Index where the log first breaks off (a gap over BREAK_S, or time going backwards
+    when a sensor restarts and its clock begins again), and a description; (len, None) if
+    it never does. After a break the sensor has powered up again, with a new bias and a
+    new warm-up, so it is not the same static log (TEST-025)."""
+    dt = np.diff(t)
+    bad = np.flatnonzero((dt < 0.0) | (dt > BREAK_S))
+    if bad.size == 0:
+        return t.size, None
+    i = int(bad[0])
+    what = f"the clock went back {-dt[i]:.1f} s" if dt[i] < 0 else f"a {dt[i]:.1f} s gap"
+    return i + 1, {"at": float(t[i] - t[0]), "what": what, "dropped": int(t.size - i - 1)}
+
+
+def even_samples(t, x):
+    """Resample a stream with uneven sample times onto an even grid at its mean rate. Each
+    sample is held until the next one, as GDN's integration uses it; the integral of that is
+    interpolated onto the grid and differenced. Evenly timed logs come back unchanged (the
+    last sample has no hold time and is dropped). The time-weighted mean is removed first,
+    so timestamp jitter times a large mean (gravity, a gyro offset) doesn't add noise."""
+    dt = np.diff(t)
+    xs = x[:-1]
+    xs = xs - (xs * dt[:, None]).sum(axis=0) / dt.sum()
+    C = np.concatenate([np.zeros((1, x.shape[1])), np.cumsum(xs * dt[:, None], axis=0)])
+    fs = (t.size - 1) / (t[-1] - t[0])
+    tg = t[0] + np.arange(int(np.floor((t[-1] - t[0]) * fs + 1e-6)) + 1) / fs
+    Cg = np.column_stack([np.interp(tg, t, C[:, i]) for i in range(x.shape[1])])
+    return fs, np.diff(Cg, axis=0) * fs
+
+
 def fit_log(t, acc, gyr, skip_s=0.0):
+    end, cut = first_segment(t)
+    t, acc, gyr = t[:end], acc[:end], gyr[:end]
     keep = t >= t[0] + skip_s
     t, acc, gyr = t[keep], acc[keep], gyr[keep]
     dt = np.diff(t)
-    fs = 1.0 / np.median(dt)
-    gaps = int(np.sum(dt > 1.5 / fs))
-    res = {"fs": fs, "hours": (t[-1] - t[0]) / 3600.0, "gaps": gaps, "n": t.size}
+    gaps = int(np.sum(dt > 3.0 * np.median(dt)))
+    fs, acc = even_samples(t, acc)
+    _, gyr = even_samples(t, gyr)
+    res = {"fs": fs, "hours": (t[-1] - t[0]) / 3600.0, "gaps": gaps, "n": t.size, "cut": cut,
+           "dt_spread": float(np.std(dt) / np.mean(dt))}
     for key, data in (("accel", acc), ("gyro", gyr)):
         curves = [adev_curve(data[:, i], fs) for i in range(3)]
         tau = curves[0][0]
@@ -221,7 +274,7 @@ def write_model(path, name, res, src, turn_on_a, turn_on_g, source=None):
     a, g = res["accel"], res["gyro"]
     with open(path, "w") as f:
         f.write(f"# IMU model fitted by tools/allan_fit.py on {datetime.date.today().isoformat()}\n")
-        f.write(f"# from {os.path.basename(src.rstrip('/'))}: {res['hours']:.2f} h at {res['fs']:.0f} Hz, {res['gaps']} gaps.\n")
+        f.write(f"# from {os.path.basename(src.rstrip('/'))}: {_timing(res)}.\n")
         f.write("# White noise and bias drift from the Allan deviation; turn-on bias NOT from this log\n")
         f.write("# (one static log is one power-up), kept from --turn-on-accel / --turn-on-gyro.\n")
         f.write(f"name: {name}\n")
@@ -253,8 +306,17 @@ def write_adev_csv(path, res):
                 f.write(f"{key},{t:.6g},{r['adev'][0][i]:.6g},{r['adev'][1][i]:.6g},{r['adev'][2][i]:.6g}\n")
 
 
+def _timing(res):
+    s = f"{res['hours']:.2f} h at {res['fs']:.1f} Hz (mean), {res['gaps']} gaps"
+    if res.get("dt_spread", 0.0) > 0.05:
+        s += f", uneven sample times (spread {100 * res['dt_spread']:.0f}%: resampled, see even_samples)"
+    if res.get("cut"):
+        s += f", cut where it broke off at {res['cut']['at']:.0f} s ({res['cut']['what']})"
+    return s
+
+
 def report(res):
-    print(f"log: {res['hours']:.2f} h at {res['fs']:.1f} Hz, {res['n']} samples, {res['gaps']} gaps")
+    print(f"log: {_timing(res)}, {res['n']} samples")
     for key, unit, rw in (("accel", "m/s^2/sqrt(Hz)", "m/s^3/sqrt(Hz)"), ("gyro", "rad/s/sqrt(Hz)", "rad/s^2/sqrt(Hz)")):
         r = res[key]
         drift = (f"drift K {r['K']:.3g} {rw}, tau {r['tc']:.0f} s (settles at {r['K'] * np.sqrt(r['tc'] / 2):.3g})"
@@ -344,7 +406,65 @@ def selfcheck():
           f"{MISSION_BAND[0]:.0f}-{MISSION_BAND[1]:.0f} s: {ratio.min():.2f} to {ratio.max():.2f} "
           "(must stay within 0.75 to 2.5)")
     ok &= good
+    ok &= _selfcheck_uneven(rng)
+    ok &= _selfcheck_breaks(rng)
     print("ALLAN SELFCHECK PASSED" if ok else "ALLAN SELFCHECK FAILED")
+    return ok
+
+
+def _selfcheck_uneven(rng):
+    """Uneven sample times, like the OAK-D Lite's stream (TEST-025): the gyro ticks every
+    2.53 ms but 62% of the steps skip a tick. Each sample is still one tick's reading, so
+    the stream GDN integrates (each sample held until the next) has more angle noise than
+    an even one: N_stream^2 = N^2 E[dt^2] / (E[dt] dt0). The fit must give that, not
+    pretend the samples were evenly spaced at some rate."""
+    dt0, N, hours = 1.0 / 395.0, 1.5e-3, 2.0
+    steps = np.where(rng.random(int(hours * 3600 / dt0 / 1.62)) < 0.62, 2, 1)
+    t = np.concatenate([[0.0], np.cumsum(steps)]) * dt0
+    x = N / np.sqrt(dt0) * rng.standard_normal((t.size, 3))
+    dt = np.diff(t)
+    want = N * np.sqrt(np.mean(dt * dt) / (np.mean(dt) * dt0))
+    res = fit_log(t, x * 0.1, x)
+    ok = True
+    for key, scale in (("accel", 0.1), ("gyro", 1.0)):
+        r = res[key]
+        e = np.max(np.abs(r["N"] / (want * scale) - 1.0))
+        lo, hi = _band_ratio(r, want * scale)
+        good = e < 0.05 and lo > 0.75 and hi < 1.25
+        print(f"{'PASS' if good else 'FAIL'}  allan: uneven times {key:5s} N off by {100 * e:.1f}% from the stream's "
+              f"{want * scale:.3g} (sensor {N * scale:.3g}); model / true over 30-600 s {lo:.2f} to {hi:.2f}")
+        ok &= good
+    return ok
+
+
+def _band_ratio(r, N_true):
+    """Fitted model over the true (white noise only) Allan deviation, min and max over
+    the mission band. A small drift found in pure noise (it happens: the drift test is
+    statistical) is harmless if the model stays close there; a spurious one isn't."""
+    tb = np.logspace(np.log10(MISSION_BAND[0]), np.log10(MISSION_BAND[1]), 25)
+    ratio = model_adev(np.mean(r["N"]), r["K"], r["tc"], tb) / (N_true / np.sqrt(tb))
+    return ratio.min(), ratio.max()
+
+
+def _selfcheck_breaks(rng):
+    """A log that breaks off and resumes (TEST-025): the Mid-360S lost power for 128 s and
+    came back, the OAK-D Lite restarted and its clock began again at zero. What follows is
+    a fresh power-up (here, a different bias), so the fit must stop at the break."""
+    fs, hours, N = 200.0, 2.0, 1.0e-3
+    n = int(hours * 3600 * fs)
+    ok = True
+    for name, t2_start in (("gap 128 s", n / fs + 128.0), ("clock reset", 3.0)):
+        t = np.concatenate([np.arange(n) / fs, t2_start + np.arange(n // 10) / fs])
+        x = N * np.sqrt(fs) * rng.standard_normal((t.size, 3))
+        x[n:] += 0.02                                   # the bias after the restart
+        res = fit_log(t, x, x)
+        r = res["gyro"]
+        e = np.max(np.abs(r["N"] / N - 1.0))
+        lo, hi = _band_ratio(r, N)
+        good = e < 0.05 and lo > 0.75 and hi < 1.25 and abs(res["hours"] - hours) < 0.01
+        print(f"{'PASS' if good else 'FAIL'}  allan: {name:11s} fitted {res['hours']:.2f} h (the {hours:.0f} h before "
+              f"the break), N off by {100 * e:.1f}%; model / true over 30-600 s {lo:.2f} to {hi:.2f}")
+        ok &= good
     return ok
 
 
@@ -371,6 +491,11 @@ def main():
     if a.bag and not a.topic:
         ap.error("--bag needs --topic")
     t, acc, gyr = load_csv(a.csv) if a.csv else load_bag(a.bag, a.topic)
+    end, cut = first_segment(t)
+    if cut:
+        print(f"note: the log breaks off {cut['at']:.0f} s in ({cut['what']}); the {cut['dropped']} samples "
+              "after it are a fresh power-up and are left out")
+        t, acc, gyr = t[:end], acc[:end], gyr[:end]
     if a.accel_unit == "g":
         acc = acc * 9.80665
     if a.gyro_unit == "dps":
@@ -391,6 +516,7 @@ def main():
               ", ".join(f"{t[e[0]] - t[0]:.0f} s ({e.size} samples)" for e in ev[:5]) +
               ("" if len(ev) <= 5 else ", ...") + "; check the fit doesn't change without them")
     res = fit_log(t, acc, gyr, a.skip)
+    res["cut"] = cut
     report(res)
     src_name = a.csv or a.bag
     if a.out:

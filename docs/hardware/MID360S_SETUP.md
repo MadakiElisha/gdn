@@ -170,6 +170,26 @@ XFER=0 tools/livox_run.sh
 Then open `rviz2`, set the fixed frame to `livox_frame`, and add a PointCloud2 display
 on `/livox/lidar`. Walk around it and you should see yourself in the cloud.
 
+## Recording a static IMU log (R1.6)
+
+With the driver running, record only the IMU topic:
+
+```bash
+cd ~/gdn_workspace && source /opt/ros/jazzy/setup.bash
+systemd-inhibit --what=sleep:idle timeout --foreground -s INT 2.5h \
+    ros2 bag record -s mcap --disable-keyboard-controls -o log/mid360s_static --topics /livox/imu
+```
+
+- `--foreground` and `--disable-keyboard-controls` matter: without them `timeout`
+  runs the recorder in the background, where its keyboard handling stops it after a few
+  seconds.
+- Leave the lidar running in the same place throughout. Its gyro needs about 40 minutes
+  to warm up (TEST-025), and its own motor shows in the IMU at averaging times under a
+  second, which is how it will be in flight too.
+- If its power drops out and comes back, `tools/allan_fit.py` stops at the gap.
+
+The fit: `config/imu/README.md`.
+
 ## When the driver complains
 
 - **`bind failed` and `Init lds lidar fail!`**: the PC doesn't have the host address

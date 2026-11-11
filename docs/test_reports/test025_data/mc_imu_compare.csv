@@ -1,0 +1,13 @@
+scenario,imu,gnss_free_s,cep50,cep95,max,over3sigma_pct,never_over_100,flights
+"Zermatt 15 min, GNSS lost at 150 s",h30wp,300,6.3,20.2,62.9,0.00,100,100
+"Zermatt 15 min, GNSS lost at 150 s",h30wp,600,7.7,22.5,77.3,0.00,100,100
+"Zermatt 15 min, GNSS lost at 150 s",mid360s,300,6.4,21.2,76.6,0.00,100,100
+"Zermatt 15 min, GNSS lost at 150 s",mid360s,600,7.9,23.5,96.8,0.02,100,100
+"Zermatt 15 min, GNSS lost at 150 s",oakd_lite,300,6.4,20.7,101.3,0.02,99,100
+"Zermatt 15 min, GNSS lost at 150 s",oakd_lite,600,7.9,23.2,107.8,0.05,99,100
+"Zermatt 15 min, GNSS lost at 150 s, SRTM-like maps",h30wp,300,21.1,62.4,154.1,4.22,77,100
+"Zermatt 15 min, GNSS lost at 150 s, SRTM-like maps",h30wp,600,26.5,80.8,242.7,6.31,37,100
+"Zermatt 15 min, GNSS lost at 150 s, SRTM-like maps",mid360s,300,21.2,62.9,260.1,4.45,76,100
+"Zermatt 15 min, GNSS lost at 150 s, SRTM-like maps",mid360s,600,26.9,89.8,2656.5,7.55,37,100
+"Zermatt 15 min, GNSS lost at 150 s, SRTM-like maps",oakd_lite,300,21.2,63.0,156.5,4.44,76,100
+"Zermatt 15 min, GNSS lost at 150 s, SRTM-like maps",oakd_lite,600,26.7,83.3,472.5,6.80,39,100
