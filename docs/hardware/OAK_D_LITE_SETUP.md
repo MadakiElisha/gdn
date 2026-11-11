@@ -118,6 +118,40 @@ checking the camera works. The configuration for VIO (synced, rectified mono pai
 at a fixed rate, plus the IMU at its full rate, without the colour camera and
 network) is part of R6.2, where we'll add it to the repo.
 
+**Known problem on our unit (OAK-D-LITE-AF, November 2026):** the apt driver
+(depthai-ros 3.2.1, which bundles DepthAI 3.10) crashes the camera a few seconds after
+`Driver ready!`, then reconnects and crashes again every 12 s or so. Every crash dump
+(`~/.cache/depthai/crashdumps/`) says `Start Source: Invalid config steps`, meaning a
+camera sensor failed to start. It happened with the default launch, with low-bandwidth
+images, with the stereo cameras only, and with `pointcloud.enable:=true`, on USB 2 and
+USB 3. One low-bandwidth run lasted 3 hours, so the crash isn't every time.
+`tools/oak_check.py --stream`, on DepthAI 3.12, ran the same cameras without a crash.
+Until a driver built on a newer DepthAI is out, use DepthAI 3.12 directly where you can
+(below).
+
+## Recording a static IMU log (R1.6)
+
+`tools/oak_imu_log.py` records the IMU with all three cameras running, so it warms up
+as it would in use. It uses DepthAI 3.12, not the ROS driver above:
+
+```bash
+cd ~/gdn_workspace && source /opt/ros/jazzy/setup.bash
+systemd-inhibit --what=sleep:idle python3 tools/oak_imu_log.py --out log/oakd_lite_static --hours 2.25 --ros
+ros2 run rqt_image_view rqt_image_view /oak/rgb/image_raw      # optional, in another terminal
+```
+
+- `--ros` publishes a 10 Hz preview of the three cameras while it records. Only one
+  program can open the camera, so this is the only way to watch during a recording.
+  Leave it out to run from `~/.venvs/oak/bin/python` without ROS.
+- It prints the IMU rate, lost reports and frame rates every minute.
+- It stops if the camera restarts, because what follows would be a fresh warm-up.
+- The IMU arrives at about 240 Hz: the BMI270's gyro ticks every 2.53 ms, and about
+  40% of the ticks don't come through. `tools/allan_fit.py` handles the uneven
+  spacing (TEST-025).
+
+Set it on something that can't rock, then keep away from the desk: typing on the same
+desk shows up in the gyro. The fit: `config/imu/README.md`.
+
 ## Leave these alone
 
 - **The calibration on the camera.** DepthAI can flash and factory-reset calibration

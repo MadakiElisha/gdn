@@ -1,0 +1,20 @@
+# IMU model fitted by tools/allan_fit.py on 2026-11-11
+# from imu.csv: 1.69 h at 238.6 Hz (mean), 0 gaps, uneven sample times (spread 29%: resampled, see even_samples), cut where it broke off at 7293 s (the clock went back 7292.9 s).
+# White noise and bias drift from the Allan deviation; turn-on bias NOT from this log
+# (one static log is one power-up), kept from --turn-on-accel / --turn-on-gyro.
+name: oakd_lite
+source: Luxonis OAK-D Lite (BMI270), 2.0 h bench log 2026-11-11 by tools/oak_imu_log.py with the three cameras running, first 20 min dropped (warm-up), cut where the camera restarted (TEST-025), 1.7 h static
+accel_noise_density: [0.0012462, 0.0011087, 0.0012339]   # m/s^2/sqrt(Hz)
+gyro_noise_density: [9.9208e-05, 9.8693e-05, 0.00010001]    # rad/s/sqrt(Hz)
+accel_bias_rw: 0.00015415     # m/s^3/sqrt(Hz)
+accel_bias_tau: 135.9
+gyro_bias_rw: 1.1822e-05      # rad/s^2/sqrt(Hz)
+gyro_bias_tau: 63.1
+accel_turn_on_sigma: 0.05
+gyro_turn_on_sigma: 0.00034907
+fit_hours: 1.692
+fit_rate_hz: 238.63
+fit_accel_bias_instability: 0.000787   # m/s^2, at tau 44.4 s
+fit_gyro_bias_instability: 4.514e-05    # rad/s, at tau 498 s
+fit_accel_drift: upper envelope over 30-600 s (least squares was 4.5x low at 498 s)
+fit_gyro_drift: upper envelope over 30-600 s (least squares was 1.6x low at 498 s)

@@ -1,0 +1,20 @@
+# IMU model fitted by tools/allan_fit.py on 2026-11-11
+# from mid360s_static: 1.38 h at 200.0 Hz (mean), 0 gaps, uneven sample times (spread 15%: resampled, see even_samples), cut where it broke off at 7359 s (a 128.7 s gap).
+# White noise and bias drift from the Allan deviation; turn-on bias NOT from this log
+# (one static log is one power-up), kept from --turn-on-accel / --turn-on-gyro.
+name: mid360s
+source: Livox Mid-360S built-in IMU, 2.0 h bench log 2026-11-10 (/livox/imu, livox_ros_driver2 1.2.8), first 40 min dropped (warm-up), cut at a mains power trip (TEST-025), 1.4 h static
+accel_noise_density: [0.00059955, 0.00057809, 0.00069963]   # m/s^2/sqrt(Hz)
+gyro_noise_density: [8.8329e-05, 7.0302e-05, 0.00014224]    # rad/s/sqrt(Hz)
+accel_bias_rw: 3.6096e-05     # m/s^3/sqrt(Hz)
+accel_bias_tau: 8.577e+04
+gyro_bias_rw: 1.214e-05      # rad/s^2/sqrt(Hz)
+gyro_bias_tau: 251.2
+accel_turn_on_sigma: 0.05
+gyro_turn_on_sigma: 0.00034907
+fit_hours: 1.377
+fit_rate_hz: 200.00
+fit_accel_bias_instability: 0.0002739   # m/s^2, at tau 18 s
+fit_gyro_bias_instability: 6.378e-05    # rad/s, at tau 39.3 s
+fit_accel_drift: least squares
+fit_gyro_drift: upper envelope over 30-496 s (least squares was 3.5x low at 496 s)
