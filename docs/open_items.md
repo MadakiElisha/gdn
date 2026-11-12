@@ -23,6 +23,10 @@ In the Zermatt Monte Carlo, about 5 of 24 seeds lock onto a parallel contour and
 there, with errors in the kilometres. A point-gradient filter can't tell similar
 contours apart once the error is larger than the terrain's correlation length.
 Remedy: a multi-hypothesis or batch acquisition stage before the ESKF (ROADMAP R4.1).
+A cheaper lead from TEST-028 (R1.10): on SRTM-like maps, doubling `r_agl` (10 to 14 m
+sigma) raised the flights never over 100 m from 37 to 47 of 100 and cut the samples
+over 3 sigma from 6.3% to 2.6%. `r_agl` was tuned on a perfect map (TEST-017). Not
+applied yet: it needs its own sweep, including the perfect-map regressions.
 
 ### OI-012: GDN drifts on the x500 in closed-loop SITL (open)
 First closed-loop runs (PX4 v1.16, x500, Zermatt, Stage A): PX4 flies the route

@@ -128,8 +128,11 @@ The node (`eskf_node`) talks to the rest of the system over these topics today.
 | out | `/gdn/odom` | `nav_msgs/Odometry` | fused position, velocity, attitude |
 | out | `/gdn/sigma` | `std_msgs/Float64` | horizontal 1-sigma, m |
 
-Parameters (`map_path`, `r_trn`, gates, clamps) default to the values in `EskfConfig`,
-so the node, the unit tests and the Monte Carlo always run the same configuration.
+The filter's settings (noise values, gates, limits) are all in one file,
+`config/filter/default.yaml` (R1.10). The node, the unit tests and the Monte Carlo load
+the same file, so they always run the same configuration, and each result names it with
+a fingerprint of the values. Any setting can be overridden for a test run
+(`--ros-args -p r_agl:=50` on the node, `--set=r_agl=50` on the MC).
 
 ### Terrain database
 
@@ -343,6 +346,8 @@ Source `env.sh` first in every terminal.
 | Monte Carlo on the PX4 replay flight | `tools/mc_run.sh 100` |
 | Monte Carlo on Zermatt | `tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin` |
 | Monte Carlo with options | add `--model=agl\|naive\|ideal`, `--baro-drift=15`, `--window=60,600`, `--q-baro=`, `--r-agl=` |
+| Monte Carlo with another filter setting (R1.10) | add `--set=KEY=VALUE` (any key of `config/filter/default.yaml`), or `--config=FILE`; `--dump-config=FILE` saves the values run |
+| Which filter settings matter (R1.10) | `python3 tools/config_sensitivity.py --out sens.csv` (halves and doubles each one; 545 MC runs, 15 to 25 min) |
 | Replay bench on the PX4 flight | `tools/bench.sh` (add `BENCH_NO_BARO=1` for the baro-off run) |
 | Replay bench on any bag and map | `GDN_BAG=... GDN_MAP=... tools/bench.sh` |
 | Bench with RViz | `tools/bench_viz.sh` |

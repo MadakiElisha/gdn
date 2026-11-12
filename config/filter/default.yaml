@@ -1,0 +1,127 @@
+# GDN filter configuration (R1.10, docs/test_reports/test028_config_files.md).
+#
+# Every tuning value of the navigation filter lives here; the C++ has none. The node
+# (parameter filter_config) and the Monte Carlo (--config) load this file. Every key is
+# required and an unknown key is an error, so a typo can't fall back to a value nobody
+# chose. Both print the name and a fingerprint of the values they ran with: two results
+# with the same fingerprint ran with the same numbers.
+#
+# To try a value without editing the file: mc_campaign --set=KEY=VALUE, or
+# eskf_node --ros-args -p KEY:=VALUE. Overrides are printed and change the fingerprint.
+# A changed value here is a change of the filter: run the MC regression and say so in
+# the PR, as for code.
+#
+# Units are the code's: SI, angles in radians unless the key ends in _deg. Variances are
+# marked ^2; "sigma" values are 1 sigma.
+schema: 1
+name: default
+source: values as of R1.10 (2026-11-12), moved unchanged from the C++, except datum_sigma_m (node 5.0, MC 5.4; now both 5.4)
+
+# --- TRN: terrain height measured directly (the "ideal" measurement model) ------------
+r_trn: 400                 # m^2
+slope_min: 0.02            # no update on terrain flatter than this (m/m)
+gate_sigma: 3              # innovation gate, sigma
+gate_abs_m: 40             # innovation gate, m
+
+# --- Altimeter: height above ground (R1.1) -----------------------------------------
+# r_agl lumps sensor noise and onboard-map error. 100 m^2 (10 m sigma) came out best in
+# the flight001 MC sweep (TEST-017).
+r_agl: 100                 # m^2
+gate_agl_sigma: 3          # sigma
+gate_agl_abs_m: 40         # m
+# The first AGL reading fixes the altitude datum, known to about the altimeter's noise:
+# the simulated radar altimeter's 5 m plus 2 m, sqrt(5^2 + 2^2) = 5.4 m. The node used
+# 5.0 and the MC 5.4 until R1.10 put both on this one value.
+datum_sigma_m: 5.4         # m
+
+# --- Barometer (OI-002) -------------------------------------------------------------
+# Baro-bias random walk. 0.05 lets the bias move about 4 m in 5 minutes (1 sigma), enough
+# to follow a pressure change. 0.001 couldn't track drift and leaked it into position
+# (TEST-017 sweep).
+q_baro_bias: 0.05          # m^2/s
+p0_baro_bias: 25           # m^2
+r_baro: 4                  # m^2
+gate_baro_sigma: 5         # sigma
+baro_init_sigma_m: 1.5     # m, baro bias calibrated at the first reading
+
+# --- IMU process noise ----------------------------------------------------------------
+# Against the H30WP's Allan fit (config/imu/h30wp.yaml, TEST-024): white noise 33x
+# (accel) and 3.7x (gyro) the bench values, since flight adds vibration (q_accel_nd is
+# still open, OI-013); bias random walks 5.3x and 4.4x, never below the sensor and never
+# so loose that attitude wanders (selftest TEST-024).
+q_accel_nd: 0.02                         # m/s^2/sqrt(Hz)
+q_gyro_nd: 0.00034906585039886593        # rad/s/sqrt(Hz) = 0.02 deg/s/sqrt(Hz)
+q_accel_bias_rw: 0.0005                  # m/s^3/sqrt(Hz)
+q_gyro_bias_rw: 1.7453292519943296e-05   # rad/s^2/sqrt(Hz) = 0.001 deg/s^2/sqrt(Hz); 0.01 deg before R1.6 hardware
+
+# --- Static alignment (start-up, parked) -----------------------------------------------
+still_rate: 0.05           # rad/s, a sample counts as still below this rate
+static_n: 500              # still samples needed
+max_gyro_mean: 0.02        # rad/s, mean rate above this: not parked, start again
+max_grav_dev: 0.5          # m/s^2, |mean accel| this far from g: start again
+max_accel_var: 1           # (m/s^2)^2, accel variance above this: start again
+
+# --- Starting uncertainty (after static alignment) ---------------------------------
+p0_pos: 100                # m^2 per axis
+p0_vel: 1                  # (m/s)^2 per axis
+p0_tilt_sigma_deg: 0.5     # deg, roll and pitch (gravity fixes them well)
+p0_accel_bias: 0.01        # (m/s^2)^2 per axis
+p0_gyro_bias_sigma_deg: 0.1    # deg/s per axis
+yaw_sigma_transfer_deg: 1      # deg, heading after alignment to the GNSS track (MC "truth" start-up)
+yaw_sigma_mag_align_deg: 5     # deg, heading after alignment to the magnetometer (node start-up)
+
+# --- On-ground detection and ZUPT (R1.2, TEST-018) -----------------------------------
+# "Still" means the window-mean IMU reading is within these tolerances of the reading at
+# alignment; motion for latch_s sets the airborne latch.
+ground_window_s: 0.2       # s
+ground_accel_tol: 0.3      # m/s^2
+ground_gyro_tol: 0.02      # rad/s (about 1.1 deg/s)
+ground_latch_s: 0.5        # s
+ground_zupt_period_s: 0.1  # s (ZUPT at 10 Hz while still)
+zupt_sigma_v: 0.05         # m/s, zero-velocity measurement noise
+gate_zupt_chi2: 100        # very loose: a ZUPT should only be refused if drift already happened
+
+# --- Magnetometer (OI-003, R1.4) ------------------------------------------------------
+# mag_fusion: "auto": 3-axis update while the field's strength and dip match the
+# reference, heading-only while they don't (OI-012, TEST-021); "heading": heading only;
+# "full": 3-axis, the pre-R1.4 default; "align": initial heading only (diagnostic).
+mag_fusion: auto
+q_mag_bias: 1e-05          # (uT/s)^2/s, mag bias random walk
+p0_mag_bias: 100           # uT^2 (10 uT sigma)
+r_mag: 4                   # uT^2 (2 uT sigma)
+gate_mag_sigma: 5          # sigma (Mahalanobis)
+# Heading-only fusion assumes a calibrated compass; this is the residual hard iron after
+# calibration, treated as measurement noise.
+mag_heading_cal_sigma: 0.5 # uT
+# auto: 3-axis only while the field, averaged over about 1 s (mag_auto_tau updates), is
+# within mag_auto_norm_tol of the reference strength and mag_auto_dip_tol_deg of its dip.
+mag_auto_norm_tol: 2       # uT
+mag_auto_dip_tol_deg: 2    # deg
+mag_auto_tau: 10           # updates
+# Hysteresis: after a disturbance, stay heading-only until the field has looked clean for
+# this many updates. Off: at these tolerances auto doesn't flap, and a 30-update hold cost
+# the Zermatt MC (99/100 and 1.77% over 3 sigma, against 100/100 and 0.46%) because
+# manoeuvres trip the check briefly. With tighter tolerances, set about 30 (TEST-021).
+mag_auto_hold: 0           # updates
+# Earth's field at the operating area, NED. WMM for Zurich; set it for other sites (the
+# node takes mag_ref_* parameters; sim_run.sh passes the Gazebo world's field).
+mag_ref_north: 21.5        # uT
+mag_ref_east: 1.3          # uT
+mag_ref_down: 42.3         # uT
+
+# --- Gain limits per update (R1.4) ---------------------------------------------------
+# A block's gain is scaled down until its correction fits the limit (the covariance
+# update uses the same reduced gain).
+clamp_dv: 0.5              # m/s (OI-006)
+clamp_dtheta_deg: 180      # deg; relaxed so a coarse mag heading can be corrected (0.2 broke mag convergence)
+clamp_dva: 0.005           # m/s^2, accel bias
+clamp_dvg_deg: 0.05        # deg/s, gyro bias
+clamp_dvm: 5               # uT, mag bias
+
+# --- IMU holes (node only) -------------------------------------------------------------
+# When a sensor_combined message covers less time than the spacing between messages, IMU
+# data was lost. Attitude uncertainty is widened by scale x rate x hole + floor, velocity
+# by accel x hole.
+gap_att_rate_scale: 2
+gap_att_floor_deg: 1       # deg
+gap_vel_accel: 2           # m/s^2

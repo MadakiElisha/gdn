@@ -18,11 +18,12 @@
 #include <Eigen/Dense>
 #include <cmath>
 #include <cstdint>
-#include <fstream>
 #include <random>
 #include <set>
 #include <sstream>
 #include <string>
+#include <vector>
+#include "gdn/kv_file.hpp"
 
 namespace gdn {
 
@@ -77,17 +78,13 @@ inline ImuNoiseModel ImuPlaceholder() {
 // Reads a model file. Every model key is required (a typo must not silently become a
 // zero); "source" and keys starting with "fit_" are optional / informational.
 inline bool LoadImuModel(const std::string& path, ImuNoiseModel* out, std::string* err) {
-    std::ifstream f(path);
-    if (!f) { *err = "cannot open " + path; return false; }
+    std::vector<KeyValue> kvs;
+    if (!ReadKeyValues(path, &kvs, err)) return false;
     ImuNoiseModel m;
     std::set<std::string> seen;
-    const std::set<std::string> required = {
-        "name", "accel_noise_density", "gyro_noise_density", "accel_bias_rw", "accel_bias_tau",
-        "gyro_bias_rw", "gyro_bias_tau", "accel_turn_on_sigma", "gyro_turn_on_sigma"};
-    auto trim = [](const std::string& s) {
-        const auto a = s.find_first_not_of(" \t\r\"'"), b = s.find_last_not_of(" \t\r\"'");
-        return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
-    };
+    const std::set<std::string> required = {"name",          "accel_noise_density", "gyro_noise_density",
+                                            "accel_bias_rw", "accel_bias_tau",      "gyro_bias_rw",
+                                            "gyro_bias_tau", "accel_turn_on_sigma", "gyro_turn_on_sigma"};
     auto vec = [&](const std::string& v, Eigen::Vector3d* x) {
         std::string s = v;
         for (char& c : s) if (c == '[' || c == ']' || c == ',') c = ' ';
@@ -98,15 +95,10 @@ inline bool LoadImuModel(const std::string& path, ImuNoiseModel* out, std::strin
         if (is1 >> a) { *x = Eigen::Vector3d::Constant(a); return true; }
         return false;
     };
-    std::string line;
-    int ln = 0;
-    while (std::getline(f, line)) {
-        ++ln;
-        if (const auto h = line.find('#'); h != std::string::npos) line.erase(h);
-        if (trim(line).empty()) continue;
-        const auto c = line.find(':');
-        if (c == std::string::npos) { *err = path + ":" + std::to_string(ln) + ": expected key: value"; return false; }
-        const std::string k = trim(line.substr(0, c)), v = trim(line.substr(c + 1));
+    for (const KeyValue& kv : kvs) {
+        const std::string& k = kv.key;
+        const std::string& v = kv.value;
+        const int ln = kv.line;
         bool ok = true;
         char* end = nullptr;
         auto num = [&](double* x) { *x = std::strtod(v.c_str(), &end); ok = end != v.c_str() && *end == '\0'; };

@@ -20,6 +20,9 @@ What it scores, from what mc_campaign prints:
                     counts under 100 m, so again fixed-wing only for now.
 Results are PASS, FAIL, or NOT SCORED (with the reason). Scored on realistic map error
 (REQ-DB-002): perfect-map runs are a regression check, not a score.
+
+A scorecard is the score of one filter configuration (R1.10): it prints the "filter:" line
+the reports share, and refuses reports that ran with different fingerprints.
 """
 import argparse
 import re
@@ -72,6 +75,22 @@ def parse_mc(text):
                          r"take-off: (\d+)/(\d+) flights", text, re.M):
         r["acq"].append((float(m.group(1)), int(m.group(2)), int(m.group(3))))
     return r
+
+
+def common_filter(texts):
+    """(the filter line all reports share, None) or (None, why not). R1.10."""
+    lines = [m.group(1).strip() if m else None
+             for m in (re.search(r"^filter: (.+)$", t, re.M) for t in texts)]
+    fps = {m.group(1) for m in (re.search(r"fingerprint (\w+)", l or "") for l in lines) if m}
+    if len(fps) > 1:
+        return None, ("the reports ran with different filter configurations (fingerprints "
+                      + ", ".join(sorted(fps)) + "): score each configuration on its own")
+    stated = [l for l in lines if l]
+    if not stated:
+        return "not stated (reports from before R1.10)", None
+    if len(stated) < len(lines):
+        return stated[0] + " (some reports don't state it)", None
+    return stated[0], None
 
 
 def score(limits, cls, runs):
@@ -185,6 +204,12 @@ def selfcheck():
         v = verdicts(_mc(45.0, 99, 70.0, 99).replace("srtm_like_0.bin", "zermatt.bin (same map: no map error)"))
         check(all(x == "NOT SCORED" for k, x in v.items() if k[0] == "REQ-NAV-003"),
               "a perfect-map run isn't scored (REQ-DB-002)")
+        fa = "filter: default (config/filter/default.yaml), fingerprint 9025345f59ba\n"
+        fb = "filter: default (config/filter/default.yaml), fingerprint 5b7ae4d53c18; overrides r_agl=50\n"
+        same, err1 = common_filter([fa + _acq(500, 99), fa + _mc(45.0, 99, 70.0, 99)])
+        _, err2 = common_filter([fa + _acq(500, 99), fb + _mc(45.0, 99, 70.0, 99)])
+        check(same and "9025345f59ba" in same and err1 is None and err2 and "different filter" in err2,
+              "reports from one filter configuration score together; two configurations are refused")
     except NotImplementedError:
         check(False, "scorer not implemented")
     print("SCORE SELFCHECK PASSED" if ok else "SCORE SELFCHECK FAILED")
@@ -203,7 +228,12 @@ def main():
         sys.exit(0 if selfcheck() else 1)
     if not a.cls or not a.reports:
         ap.error("give --class and at least one report")
-    rows = score(read_limits(DOC.read_text()), a.cls, [parse_mc(Path(p).read_text()) for p in a.reports])
+    texts = [Path(p).read_text() for p in a.reports]
+    filt, why = common_filter(texts)
+    if why:
+        sys.exit("ERROR: " + why)
+    print(f"filter: {filt}")
+    rows = score(read_limits(DOC.read_text()), a.cls, [parse_mc(t) for t in texts])
     for req, what, meas, lim, verdict in rows:
         print(f"{verdict:10s}  {req}  {what:24s}  {meas:>16s}   limit {lim}")
     if a.csv:

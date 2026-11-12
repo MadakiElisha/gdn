@@ -15,6 +15,7 @@
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/filter_config.hpp"
 #include "gdn/consistency.hpp"
 #include "gdn/imu_model.hpp"
 #include "gdn/ground_monitor.hpp"
@@ -79,9 +80,9 @@ int main(int argc_all, char** argv_all) {
     //                  initial bias on the ground, so only the drift is unknown.
     //   --clearance=M  minimum height above the map along the truth path (default 30)
     //   --window=A,B   scoring window in seconds (default 60,300)
-    //   --q-baro=Q     baro-bias random walk, m^2/s (EskfConfig q_baro_bias)
-    //   --r-agl=R      AGL measurement variance, m^2 (EskfConfig r_agl)
-    //   --r-trn=R      TRN measurement variance, m^2 (EskfConfig r_trn)
+    //   --q-baro=Q     baro-bias random walk, m^2/s (config q_baro_bias)
+    //   --r-agl=R      AGL measurement variance, m^2 (config r_agl)
+    //   --r-trn=R      TRN measurement variance, m^2 (config r_trn)
     //   --startup=truth  heading from truth GNSS velocity at take-off (TransferAlignYaw);
     //                  TRN starts then. The original MC, kept as the CI regression path.
     //   --startup=node   what eskf_node does (R1.2): magnetometer heading while parked,
@@ -137,10 +138,17 @@ int main(int argc_all, char** argv_all) {
     //                  [T, T+max D] unless --window is given.
     //   --q-imu=match  set the filter's IMU process noise from the IMU model (white
     //                  noise; bias random walk where the model has drift) instead of the
-    //                  tuned EskfConfig values.
+    //                  tuned values of the filter config.
+    //   --config=FILE  R1.10: the filter configuration (default config/filter/default.yaml).
+    //                  The "filter:" line of the report names it, with a fingerprint of
+    //                  the values run and any overrides.
+    //   --set=KEY=VALUE  override one config value (any key of the file); repeatable. The
+    //                  --q-*, --r-* and --mag options are shorthands for the same.
+    //   --dump-config=FILE  write the values run (after overrides) as a config file that
+    //                  --config reads back, bit for bit.
     // Relative paths resolve against $GDN_ROOT (exported by env.sh).
     std::vector<char*> pos_args;
-    std::string model = "ideal", startup = "truth", ground_mode = "imu", mag_mode = "auto", trace_path, db_arg;
+    std::string model = "ideal", startup = "truth", ground_mode = "imu", trace_path, db_arg;
     std::string imu_arg = "auto", q_imu;
     double baro_drift = 0.0, clearance = 30.0, w0 = 60.0, w1 = 300.0;
     bool window_set = false, start_set = false;
@@ -148,7 +156,22 @@ int main(int argc_all, char** argv_all) {
     std::vector<double> gnss_free;
     int seed0 = 0;
     double hard_iron = 0.15;
-    gdn::EskfConfig cfg;   // defaults == node defaults
+    // R1.10: the filter configuration, the same file the node loads.
+    std::string config_arg = gdn::kDefaultFilterConfig, dump_config;
+    for (int a = 1; a < argc_all; ++a)
+        if (std::string(argv_all[a]).rfind("--config=", 0) == 0) config_arg = argv_all[a] + 9;
+    const std::string config_path = gdn::DataPath(config_arg);
+    gdn::FilterConfig fc_file;
+    {
+        std::string err;
+        if (!gdn::LoadFilterConfig(config_path, &fc_file, &err)) {
+            std::printf("ERROR: --config: %s\n", err.c_str());
+            return 1;
+        }
+    }
+    gdn::FilterConfig fc = fc_file;
+    gdn::EskfConfig& cfg = fc.eskf;
+    std::string& mag_mode = fc.mag_fusion;
     for (int a = 0; a < argc_all; ++a) {
         const std::string s = argv_all[a];
         if (s.rfind("--model=", 0) == 0) model = s.substr(8);
@@ -177,8 +200,23 @@ int main(int argc_all, char** argv_all) {
         else if (s.rfind("--q-bg=", 0) == 0) cfg.q_gyro_bias_rw = std::atof(s.c_str() + 7) * gdn::Eskf::kDeg;
         else if (s.rfind("--q-an=", 0) == 0) cfg.q_accel_nd = std::atof(s.c_str() + 7);
         else if (s.rfind("--q-gn=", 0) == 0) cfg.q_gyro_nd = std::atof(s.c_str() + 7) * gdn::Eskf::kDeg;
-        else if (s.rfind("--", 0) == 0) { std::printf("ERROR: unknown option %s\n", s.c_str()); return 1; }
-        else pos_args.push_back(argv_all[a]);
+        else if (s.rfind("--config=", 0) == 0)
+            continue;  // read above
+        else if (s.rfind("--dump-config=", 0) == 0)
+            dump_config = s.substr(14);
+        else if (s.rfind("--set=", 0) == 0) {
+            const std::string kv = s.substr(6);
+            const auto eq = kv.find('=');
+            std::string err;
+            if (eq == std::string::npos || !gdn::SetFilterValue(&fc, kv.substr(0, eq), kv.substr(eq + 1), &err)) {
+                std::printf("ERROR: --set=KEY=VALUE: %s\n", eq == std::string::npos ? kv.c_str() : err.c_str());
+                return 1;
+            }
+        } else if (s.rfind("--", 0) == 0) {
+            std::printf("ERROR: unknown option %s\n", s.c_str());
+            return 1;
+        } else
+            pos_args.push_back(argv_all[a]);
     }
     if (model != "ideal" && model != "naive" && model != "agl") {
         std::printf("ERROR: --model must be ideal, naive or agl\n"); return 1;
@@ -236,11 +274,28 @@ int main(int argc_all, char** argv_all) {
         if (imu_model.accel_bias_rw > 0) cfg.q_accel_bias_rw = imu_model.accel_bias_rw;
         if (imu_model.gyro_bias_rw > 0) cfg.q_gyro_bias_rw = imu_model.gyro_bias_rw;
     }
+    {
+        std::string err;
+        if (!gdn::ValidateFilterConfig(fc, &err)) {
+            std::printf("ERROR: filter config after overrides: %s\n", err.c_str());
+            return 1;
+        }
+    }
+    if (!dump_config.empty()) {
+        gdn::FilterConfig out = fc;
+        const std::string ov = gdn::FilterOverrides(fc_file, fc);
+        if (!ov.empty()) {
+            out.name += "-modified";
+            out.source = fc_file.name + " (" + config_arg + ") with " + ov;
+        }
+        std::ofstream(gdn::DataPath(dump_config)) << gdn::DumpFilterConfig(out, "mc_campaign, from " + config_arg);
+    }
     if (use_imu_model)
         std::printf("imu: %s (%s) on imu_truth.csv%s\n", imu_model.name.c_str(), imu_model.source.c_str(),
                     q_imu == "match" ? "; filter process noise matched to it" : "");
     else
         std::printf("imu: recorded (imu.csv as logged, plus a per-flight offset of 0.05 m/s^2 and 0.02 deg/s)\n");
+    std::printf("filter: %s\n", gdn::DescribeFilterConfig(fc, config_arg, &fc_file).c_str());
 
     Table imu, lpos;
     if (!imu.Load(csv_dir + (use_imu_model ? "/imu_truth.csv" : "/imu.csv")) || !lpos.Load(csv_dir + "/lpos.csv")) {
@@ -367,7 +422,7 @@ int main(int argc_all, char** argv_all) {
         // Node start-up: own streams, so the truth path's random sequence is unchanged.
         std::mt19937_64 rng_mag(0x4d4147ULL + static_cast<uint64_t>(seed));
         std::normal_distribution<double> d_mag(0, 2.0);
-        gdn::GroundMonitor ground;
+        gdn::GroundMonitor ground(fc.ground);
         gdn::ConsistencyStats cons;
         bool gnss_airborne = false; int gnss_zc = 0, last_m = -1;
         // R1.7: own streams, so the existing random sequences are unchanged.
@@ -497,9 +552,9 @@ int main(int argc_all, char** argv_all) {
                         // First fix: calibrate on the spot, as a real start-up would.
                         t_trn = t;
                         b_cal = baro;   // naive: baro offset at start
-                        // Datum known to about the AGL noise (5.4 m here), baro to 1.5 m.
-                        eskf.SetAltitudeDatum(mq.h + agl + eskf.pos().z(), 5.4);
-                        eskf.InitBaroBias(baro, 1.5);
+                        // Datum known to about the AGL noise, baro to its calibration (config).
+                        eskf.SetAltitudeDatum(mq.h + agl + eskf.pos().z(), fc.datum_sigma_m);
+                        eskf.InitBaroBias(baro, fc.baro_init_sigma_m);
                     }
                     if (model == "naive") {
                         // terrain = (datum - (baro - offset)) - agl, no bias state

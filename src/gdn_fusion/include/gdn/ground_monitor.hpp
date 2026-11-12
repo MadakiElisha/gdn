@@ -22,25 +22,27 @@
 //
 // Limits: the reference is the alignment pose, so a vehicle re-parked at a different
 // tilt reads as moving and latches (safe direction). Creeping at under about
-// accel_tol (0.3 m/s^2) is not seen. Landing and re-take-off need a regime input
+// accel_tol (0.3 m/s^2 in config/filter/default.yaml) is not seen. Landing and re-take-off need a regime input
 // from the autopilot (R2.5); until then the latch is one-way.
 #include <Eigen/Dense>
 #include <deque>
+#include "gdn/unset.hpp"
 
 namespace gdn {
 
+// Settings from the config file (ground_* keys, R1.10); no values in the code.
 struct GroundConfig {
-    double window_s = 0.2;       // averaging window, s
-    double accel_tol = 0.3;      // m/s^2 on the window-mean specific force
-    double gyro_tol = 0.02;      // rad/s on the window-mean rate (about 1.1 deg/s)
-    double latch_s = 0.5;        // continuous motion that sets the airborne latch, s
-    double zupt_period_s = 0.1;  // ZUPT rate while still (10 Hz)
+    double window_s = kUnset;       // averaging window, s
+    double accel_tol = kUnset;      // m/s^2 on the window-mean specific force
+    double gyro_tol = kUnset;       // rad/s on the window-mean rate
+    double latch_s = kUnset;        // continuous motion that sets the airborne latch, s
+    double zupt_period_s = kUnset;  // ZUPT interval while still, s
 };
 
 class GroundMonitor {
 public:
     using V3 = Eigen::Vector3d;
-    explicit GroundMonitor(const GroundConfig& cfg = GroundConfig{}) : cfg_(cfg) {}
+    explicit GroundMonitor(const GroundConfig& cfg) : cfg_(cfg) {}
 
     // Call once, right after static alignment, with Eskf::RestSpecificForce() and
     // Eskf::gyro_bias().
