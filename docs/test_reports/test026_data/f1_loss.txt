@@ -1,0 +1,15 @@
+map  0: mean +2.3 m, RMS 6.8 m, max 23.9 m | (<100 m): 20/20
+map  1: mean +3.2 m, RMS 7.1 m, max 26.3 m | (<100 m): 20/20
+map  2: mean +2.6 m, RMS 6.9 m, max 26.7 m | (<100 m): 20/20
+map  3: mean +1.6 m, RMS 6.6 m, max 25.5 m | (<100 m): 20/20
+map  4: mean +3.4 m, RMS 7.2 m, max 27.3 m | (<100 m): 20/20
+imu: recorded (imu.csv as logged, plus a per-flight offset of 0.05 m/s^2 and 0.02 deg/s)
+scenario: GNSS (simulated, 5 Hz, 1.5 m and 0.1 m/s per axis) until t=150 s, then lost; the filter keeps its covariance (handover). Scored from the loss.
+map ensemble: 5 maps x 20 flights, recipe '--coarsen 3 --noise 6 --corr 200 --bias 3', mc: --model=agl --baro-drift=5 --gnss-loss=150, pooled n=120100
+CEP50: 42.8 m  CEP95: 95.8 m  MAX: 222.5 m  in-spec(<100 m): 96.2%
+per-seed RMS: median 51.1 m  p95 74.9 m  worst 85.7 m  passing(<100 m): 100/100
+consistency: NEES mean 10.02 median 3.44 (consistent: 2, 1.39), outside 3-sigma ellipse 16.6% (1.1%)
+consistency: error > 3 x published sigma 8.94% (REQ-INT-001: at most 1%)
+GNSS-free 300 s: CEP50 41.8 m  CEP95 85.5 m  max 140.3 m  over 3 sigma 13.11%  flights never over 100 m: 55/100
+GNSS-free 600 s: CEP50 42.8 m  CEP95 95.8 m  max 222.5 m  over 3 sigma 8.94%  flights never over 100 m: 26/100
+vertical: altitude error p50 12.1 m  p95 15.2 m  max 23.8 m (largest of the 5 maps)

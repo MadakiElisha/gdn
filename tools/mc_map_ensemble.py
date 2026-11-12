@@ -17,6 +17,7 @@ and the "GNSS-free D s" lines are pooled too (--gnss-free=..., default 300,600).
 """
 import argparse
 import csv
+import re
 import shlex
 import subprocess
 import sys
@@ -53,6 +54,8 @@ out_dir.mkdir(parents=True, exist_ok=True)
 env = {"GDN_ROOT": str(ROOT), "PATH": "/usr/bin:/bin"}
 
 imu_line = scen_line = ""
+acq = defaultdict(lambda: [0, 0])     # start error -> [under 100 m at 120 s, flights], summed over maps
+vert = []                             # per map: altitude error p50, p95, max
 per_seed = defaultdict(lambda: {"err": [], "over": [], "nees": [], "t": []})
 gf = [defaultdict(lambda: {"err": [], "over": []}) for _ in gnss_free]   # R1.7
 for k in range(a.maps):
@@ -68,6 +71,11 @@ for k in range(a.maps):
     imu_line = next((l for l in res.splitlines() if l.startswith("imu:")), imu_line if k else "")
     scen_line = next((l for l in res.splitlines() if l.startswith("scenario:")), scen_line)
     print(f"map {k:2d}: {info.split('vs truth: ')[-1]} | {line.split('passing')[-1].strip()}")
+    for m in re.finditer(r"^acquisition \(REQ-ACQ-001\): start error ([0-9.]+) m: .*?: (\d+)/(\d+) flights", res, re.M):
+        acq[m.group(1)][0] += int(m.group(2)); acq[m.group(1)][1] += int(m.group(3))
+    m = re.search(r"^vertical: altitude error p50 ([0-9.]+) m\s+p95 ([0-9.]+) m\s+max ([0-9.]+) m", res, re.M)
+    if m:
+        vert.append([float(x) for x in m.groups()])
     with open(trace) as f:
         for r in csv.DictReader(f):
             t = float(r["t"])
@@ -105,3 +113,12 @@ for i, dur in enumerate(gnss_free):
     never = sum(1 for g in gf[i].values() if max(g["err"]) < 100.0)
     print(f"GNSS-free {dur:.0f} s: CEP50 {np.percentile(e, 50):.1f} m  CEP95 {np.percentile(e, 95):.1f} m  "
           f"max {e.max():.1f} m  over 3 sigma {100 * o.mean():.2f}%  flights never over 100 m: {never}/{len(gf[i])}")
+# R1.8: acquisition counts add up exactly over the maps. The altitude error isn't in the
+# trace, so the vertical line is the largest of the per-map values: on the safe side for
+# REQ-NAV-010 (tools/score_requirements.py reads both lines).
+if vert:
+    v = np.max(np.array(vert), axis=0)
+    print(f"vertical: altitude error p50 {v[0]:.1f} m  p95 {v[1]:.1f} m  max {v[2]:.1f} m (largest of the {len(vert)} maps)")
+for start, (ok, nn) in acq.items():
+    print(f"acquisition (REQ-ACQ-001): start error {float(start):.0f} m: under 100 m at 120 s after take-off: "
+          f"{ok}/{nn} flights (pooled over {a.maps} maps)")

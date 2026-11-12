@@ -1,0 +1,14 @@
+map  0: mean +2.2 m, RMS 8.0 m, max 61.1 m | (<100 m): 20/20
+map  1: mean +2.9 m, RMS 8.4 m, max 59.3 m | (<100 m): 19/20
+map  2: mean +1.9 m, RMS 8.0 m, max 71.9 m | (<100 m): 19/20
+map  3: mean -0.4 m, RMS 7.3 m, max 58.2 m | (<100 m): 20/20
+map  4: mean +5.5 m, RMS 9.3 m, max 59.0 m | (<100 m): 20/20
+imu: h30wp (WHEELTEC H30WP (Yesense), 2.25 h bench log 2026-11-09 by tools/h30wp_log.py, first 15 min dropped; the room warmed after the AC went off (TEST-024), 2.0 h static) on imu_truth.csv
+scenario: no GNSS; start error 60 m in a random direction, filter told sigma 60 m per axis
+map ensemble: 5 maps x 20 flights, recipe '--coarsen 3 --noise 6 --corr 200 --bias 3', mc: --model=agl --startup=node --start-error=60, pooled n=23400
+CEP50: 19.0 m  CEP95: 63.1 m  MAX: 271.1 m  in-spec(<100 m): 98.0%
+per-seed RMS: median 23.9 m  p95 48.1 m  worst 187.5 m  passing(<100 m): 98/100
+consistency: NEES mean 6.18 median 3.07 (consistent: 2, 1.39), outside 3-sigma ellipse 17.9% (1.1%)
+consistency: error > 3 x published sigma 3.86% (REQ-INT-001: at most 1%)
+vertical: altitude error p50 7.1 m  p95 9.6 m  max 11.1 m (largest of the 5 maps)
+acquisition (REQ-ACQ-001): start error 60 m: under 100 m at 120 s after take-off: 99/100 flights (pooled over 5 maps)

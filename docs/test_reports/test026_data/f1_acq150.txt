@@ -1,0 +1,14 @@
+map  0: mean +2.3 m, RMS 6.8 m, max 23.9 m | (<100 m): 5/20
+map  1: mean +3.2 m, RMS 7.1 m, max 26.3 m | (<100 m): 2/20
+map  2: mean +2.6 m, RMS 6.9 m, max 26.7 m | (<100 m): 2/20
+map  3: mean +1.6 m, RMS 6.6 m, max 25.5 m | (<100 m): 6/20
+map  4: mean +3.4 m, RMS 7.2 m, max 27.3 m | (<100 m): 8/20
+imu: recorded (imu.csv as logged, plus a per-flight offset of 0.05 m/s^2 and 0.02 deg/s)
+scenario: no GNSS; start error 150 m in a random direction, filter told sigma 150 m per axis
+map ensemble: 5 maps x 20 flights, recipe '--coarsen 3 --noise 6 --corr 200 --bias 3', mc: --model=agl --baro-drift=5 --start-error=150, pooled n=48100
+CEP50: 151.6 m  CEP95: 612.1 m  MAX: 3155.1 m  in-spec(<100 m): 29.6%
+per-seed RMS: median 158.7 m  p95 578.1 m  worst 1917.5 m  passing(<100 m): 23/100
+consistency: NEES mean 545.52 median 23.42 (consistent: 2, 1.39), outside 3-sigma ellipse 73.5% (1.1%)
+consistency: error > 3 x published sigma 58.57% (REQ-INT-001: at most 1%)
+vertical: altitude error p50 20.6 m  p95 51.4 m  max 65.6 m (largest of the 5 maps)
+acquisition (REQ-ACQ-001): start error 150 m: under 100 m at 120 s after take-off: 22/100 flights (pooled over 5 maps)
