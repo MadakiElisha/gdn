@@ -235,15 +235,18 @@ numbers its phases separately.
 ## Requirements
 
 The full set, with definitions and how each one is checked, is in
-[docs/requirements.md](docs/requirements.md). It's a draft: the GNSS-free durations are
-fixed, and the error limits are proposals to agree. The first targets are 5 and 10
-minutes without GNSS:
+[docs/requirements.md](docs/requirements.md). They were agreed in R1.8: the fixed-wing
+limits are firm, the multirotor and quadplane ones provisional until they can be
+measured (SITL and odometry). The targets are 5 and 10 minutes without GNSS, scored on
+realistic map error, with "max" meaning at least 99% of flights never go over it:
 
 | Vehicle | 5 min without GNSS | 10 min without GNSS |
 |---|---|---|
-| Multirotor, low | CEP95 15 m, max 30 m | CEP95 25 m, max 50 m |
-| Quadplane, cruise | CEP95 40 m, max 80 m | CEP95 60 m, max 120 m |
+| Multirotor, low (provisional) | CEP95 15 m, max 30 m | CEP95 25 m, max 50 m |
+| Quadplane, cruise (provisional) | CEP95 40 m, max 80 m | CEP95 60 m, max 120 m |
 | Fixed-wing, cruise | CEP95 50 m, max 100 m | CEP95 75 m, max 100 m |
+
+`tools/score_requirements.py` scores Monte Carlo runs against them (TEST-026).
 
 On top of these: altitude within 5 m, the reported uncertainty has to be honest
 (error over 3-sigma in at most 1% of samples), lost lock is flagged within 30 s, and

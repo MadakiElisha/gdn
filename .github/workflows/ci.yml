@@ -73,6 +73,11 @@ jobs:
       - name: IMU model and Allan fit self-check (R1.6)
         run: python3 tools/allan_fit.py --selfcheck
 
+      # R1.8: the requirements scorer reads its limits from docs/requirements.md; this
+      # checks it still can, and that its rules (99% of flights, map condition) hold.
+      - name: Requirements scorer self-check (R1.8)
+        run: python3 tools/score_requirements.py --selfcheck
+
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |
           source env.sh

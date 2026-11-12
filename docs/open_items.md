@@ -75,6 +75,16 @@ Set `q_accel_nd` from H30WP flight data (Phase 6), then re-run the TEST-024 swee
 CI's flight001 GNSS-loss step is a regression guard until then (15% over 3 sigma in the
 first 5 minutes; 13.09% on its 24 flights).
 
+### OI-014: altitude follows the onboard map's error (open)
+Found by TEST-026 (R1.8). With an SRTM-like onboard map, altitude error p95 is 10.2 m on
+Zermatt and 15.2 m on flight001, against REQ-NAV-010's 5 m. On a perfect map it is
+1.5 m. With the `agl` model, height comes from the radar altimeter plus the map's
+terrain height, so the map's bias and correlated error (3 m bias and about 6 m noise in
+the recipe) go straight into altitude. Altitude had only been measured on perfect maps
+before, so this was hidden. Likely direction: weigh the barometer more against TRN height
+where the map is uncertain, or estimate a map height bias. Re-check with the real second
+DEM (R2.2); fix with the TRN and integrity work (Phase 4).
+
 ## Closed
 
 ### OI-007: Gazebo heightmap visuals broken (closed)

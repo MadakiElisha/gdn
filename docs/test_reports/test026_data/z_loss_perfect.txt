@@ -1,0 +1,15 @@
+imu: h30wp (WHEELTEC H30WP (Yesense), 2.25 h bench log 2026-11-09 by tools/h30wp_log.py, first 15 min dropped; the room warmed after the AC went off (TEST-024), 2.0 h static) on imu_truth.csv
+scenario: GNSS (simulated, 5 Hz, 1.5 m and 0.1 m/s per axis) until t=150 s, then lost; the filter keeps its covariance (handover). Scored from the loss.
+maps: world zermatt.bin, onboard zermatt.bin (same map: no map error)
+MC campaign: 100 seeds, model agl, startup node (IMU ground, mag auto), baro drift 0.0 m, window 150-750 s, pooled n=120100
+airborne latch: 100/100 seeds, t median 30.52 s
+CEP50: 7.7 m  CEP95: 22.5 m  MAX: 77.3 m  in-spec(<100 m): 100.0%
+per-seed RMS: median 11.0 m  p95 16.0 m  worst 17.8 m  passing(<100 m): 100/100
+consistency: NEES mean 0.70 median 0.44 (consistent: 2, 1.39), outside 3-sigma ellipse 0.0% (1.1%)
+consistency: error > 3 x published sigma 0.00% (REQ-INT-001: at most 1%)
+consistency: NIS mean 0.30 median 0.13 (consistent: 1, 0.45), NIS > 9 0.0% (0.27%), n=120100
+consistency by seed: passing 100: over 3 sigma 0.00%, NEES median 0.44 | failing 0: over 3 sigma 0.00%, NEES median 0.00
+vertical: altitude error p50 0.5 m  p95 1.5 m  max 2.9 m
+handover at t=150 s: filter sigma median 0.25 m, error median 0.20 m (p95 0.38 m)
+GNSS-free 300 s: CEP50 6.3 m  CEP95 20.2 m  max 62.9 m  over 3 sigma 0.00%  flights never over 100 m: 100/100
+GNSS-free 600 s: CEP50 7.7 m  CEP95 22.5 m  max 77.3 m  over 3 sigma 0.00%  flights never over 100 m: 100/100
