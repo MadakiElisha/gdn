@@ -1,0 +1,12 @@
+# R1.9. Checked on changed lines only (tools/quality.sh format): the existing code is
+# hand-aligned, and a one-off reformat would touch about 40% of it. Close to Google
+# style, with 4-space indents and 120 columns as the code already uses.
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 120
+AccessModifierOffset: -4
+SortIncludes: Never
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Always

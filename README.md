@@ -294,7 +294,7 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | Purpose | Tools |
 |---|---|
 | Setup and data | `setup_ubuntu.sh` (machine setup), `make_data.sh` (derived data and checksum checks), `fetch_data.sh` / `pack_data.sh` (download or publish the flight001 recording) |
-| Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
+| Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `quality.sh` (warnings, cppcheck, clang-tidy, sanitizers, formatting; R1.9), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
 | Sensor simulators | `trn_sensor_sim.py` (terrain height under the vehicle), `baro_sim.py`, `mag_sim.py`; all fed by PX4 truth from the bag |
 | Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
 | Terrain maps | `generate_terrain.py` then `export_map_db.py` then `make_sigma4_map.py` (synthetic map); `fetch_terrain.py` and `make_zermatt_map.py` (SRTM); `export_map_bin.py`, `terrain_map.py` (older helpers) |
@@ -339,6 +339,7 @@ Source `env.sh` first in every terminal.
 | Task | Command |
 |---|---|
 | Unit tests (no ROS needed) | `tools/run_selftest.sh` |
+| Code-quality gates, as CI runs them (R1.9) | `tools/quality.sh all`, or one of `werror`, `cppcheck`, `tidy`, `sanitize`, `format` |
 | Monte Carlo on the PX4 replay flight | `tools/mc_run.sh 100` |
 | Monte Carlo on Zermatt | `tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin` |
 | Monte Carlo with options | add `--model=agl\|naive\|ideal`, `--baro-drift=15`, `--window=60,600`, `--q-baro=`, `--r-agl=` |

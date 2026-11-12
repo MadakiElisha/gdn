@@ -84,7 +84,7 @@ inline bool LoadImuModel(const std::string& path, ImuNoiseModel* out, std::strin
     const std::set<std::string> required = {
         "name", "accel_noise_density", "gyro_noise_density", "accel_bias_rw", "accel_bias_tau",
         "gyro_bias_rw", "gyro_bias_tau", "accel_turn_on_sigma", "gyro_turn_on_sigma"};
-    auto trim = [](std::string s) {
+    auto trim = [](const std::string& s) {
         const auto a = s.find_first_not_of(" \t\r\"'"), b = s.find_last_not_of(" \t\r\"'");
         return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
     };
@@ -121,12 +121,24 @@ inline bool LoadImuModel(const std::string& path, ImuNoiseModel* out, std::strin
         else if (k == "accel_turn_on_sigma") num(&m.accel_turn_on_sigma);
         else if (k == "gyro_turn_on_sigma") num(&m.gyro_turn_on_sigma);
         else if (k.rfind("fit_", 0) == 0) continue;
-        else { *err = path + ":" + std::to_string(ln) + ": unknown key '" + k + "'"; return false; }
-        if (!ok) { *err = path + ":" + std::to_string(ln) + ": bad value for " + k; return false; }
+        else {
+            *err = path;
+            *err += ":" + std::to_string(ln) + ": unknown key '" + k + "'";
+            return false;
+        }
+        if (!ok) {
+            *err = path;
+            *err += ":" + std::to_string(ln) + ": bad value for " + k;
+            return false;
+        }
         seen.insert(k);
     }
     for (const auto& k : required)
-        if (!seen.count(k)) { *err = path + ": missing " + k; return false; }
+        if (!seen.count(k)) {
+            *err = path;
+            *err += ": missing " + k;
+            return false;
+        }
     if (m.accel_bias_tau <= 0 || m.gyro_bias_tau <= 0) { *err = path + ": tau must be > 0"; return false; }
     *out = m;
     return true;

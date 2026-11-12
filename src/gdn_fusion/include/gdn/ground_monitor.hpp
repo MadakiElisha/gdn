@@ -40,7 +40,7 @@ struct GroundConfig {
 class GroundMonitor {
 public:
     using V3 = Eigen::Vector3d;
-    explicit GroundMonitor(GroundConfig cfg = GroundConfig{}) : cfg_(cfg) {}
+    explicit GroundMonitor(const GroundConfig& cfg = GroundConfig{}) : cfg_(cfg) {}
 
     // Call once, right after static alignment, with Eskf::RestSpecificForce() and
     // Eskf::gyro_bias().

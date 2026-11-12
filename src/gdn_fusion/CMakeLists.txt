@@ -1,8 +1,16 @@
 cmake_minimum_required(VERSION 3.8)
 project(gdn_fusion)
 
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic -Wno-maybe-uninitialized)
+if(CMAKE_COMPILER_IS_GNUCXX)
+  add_compile_options(-Wall -Wextra -Wpedantic -Wno-maybe-uninitialized)   # Eigen false positives
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+# R1.9: warnings fail the build for the core. CI sets it; off by default so a newer
+# compiler's new warnings don't stop someone's local build.
+option(GDN_WERROR "Treat compiler warnings as errors" OFF)
+if(GDN_WERROR)
+  add_compile_options(-Werror)
 endif()
 
 find_package(ament_cmake REQUIRED)

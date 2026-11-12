@@ -44,18 +44,18 @@ public:
         path_mode_ = declare_parameter("path_mode", std::string("altitude"));
         datum_offset_ = declare_parameter("datum_offset_m", 0.0);
         terrain_clearance_ = declare_parameter("terrain_clearance_m", 80.0);
-        odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-            "/gdn/odom", 10, [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
+        odom_sub_ =
+            create_subscription<nav_msgs::msg::Odometry>("/gdn/odom", 10, [this](const nav_msgs::msg::Odometry& msg) {
                 geometry_msgs::msg::PoseStamped pose;
-                pose.header = msg->header;
+                pose.header = msg.header;
                 pose.header.frame_id = "map";
-                const double n = msg->pose.pose.position.x, e = msg->pose.pose.position.y;
+                const double n = msg.pose.pose.position.x, e = msg.pose.pose.position.y;
                 pose.pose.position.x = e;
                 pose.pose.position.y = n;
                 if (path_mode_ == "terrain")
                     pose.pose.position.z = map_.Query(n, e).h - base_alt_ + terrain_clearance_;
                 else
-                    pose.pose.position.z = -msg->pose.pose.position.z + datum_offset_;
+                    pose.pose.position.z = -msg.pose.pose.position.z + datum_offset_;
                 pose.pose.orientation.w = 1.0;
                 path_.poses.push_back(pose);
                 path_.header = pose.header;

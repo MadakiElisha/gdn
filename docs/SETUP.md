@@ -146,6 +146,21 @@ them in a virtualenv unless it was created with `--system-site-packages`.
 | `tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin` | CEP50 around 14 m, roughly 19 of 24 seeds passing |
 | `BENCH_NO_BARO=1 GDN_BAG=data/flight_zermatt GDN_MAP=data/maps/zermatt.bin tools/bench.sh` | `RMS 60-300s` somewhere around 13 to 20 m, about 3 minutes |
 
+**Before you push (R1.9).** CI fails a PR on compiler warnings, cppcheck and clang-tidy
+findings, sanitizer errors, and badly formatted changed lines. Run the same checks
+locally with `tools/quality.sh` (needs `sudo apt install clang clang-tidy clang-format
+cppcheck`):
+
+| Command | What it checks |
+|---|---|
+| `tools/quality.sh werror` | the ROS-free core builds with `-Werror` under g++ and clang++ |
+| `tools/quality.sh cppcheck` | cppcheck: warning, performance, portability |
+| `tools/quality.sh tidy` | clang-tidy (`.clang-tidy`). The ROS nodes need `colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON` first. |
+| `tools/quality.sh sanitize` | the selftest and short MC runs under ASan and UBSan, about 4 minutes |
+| `tools/quality.sh format` | only the C++ lines you changed against `origin/main` follow `.clang-format`. To fix them: `git add -u && git clang-format --extensions cpp,hpp,h,cc origin/main` |
+
+Build with `-DGDN_WERROR=ON` to make warnings errors in colcon too, as CI does.
+
 The bench number moves between runs because ROS message timing isn't deterministic,
 and the scorer only takes 6 samples in that window. Monte Carlo results are exactly
 repeatable.

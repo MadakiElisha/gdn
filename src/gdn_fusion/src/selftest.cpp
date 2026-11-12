@@ -478,8 +478,9 @@ int main() {
         const bool ok = world.Load(pw) && db.Load(pd) && db_own.Load(pd);
         db.SetOrigin(world.lat_c(), world.lon_c());
         double worst = 0.0, worst_own = 0.0, worst_g = 0.0;
-        for (double n = -1200; n <= 1200; n += 97)
-            for (double e = -900; e <= 900; e += 83) {
+        for (int in = -1200; in <= 1200; in += 97)  // integer steps: R1.9 (no float loop counters)
+            for (int ie = -900; ie <= 900; ie += 83) {
+                const double n = in, e = ie;
                 const MapQuery qw = world.Query(n, e), qd = db.Query(n, e), qo = db_own.Query(n, e);
                 if (!(qw.ok && qd.ok && qo.ok)) continue;
                 worst = std::max(worst, std::abs(qw.h - qd.h));

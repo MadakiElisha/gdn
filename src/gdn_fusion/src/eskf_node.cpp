@@ -120,165 +120,186 @@ EskfNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
 }
 
 private:
-void ImuCb(const px4_msgs::msg::SensorCombined::SharedPtr msg) {
-    const Eigen::Vector3d a_m(msg->accelerometer_m_s2[0], msg->accelerometer_m_s2[1],
-                              msg->accelerometer_m_s2[2]);
-    const Eigen::Vector3d w_m(msg->gyro_rad[0], msg->gyro_rad[1], msg->gyro_rad[2]);
-    if (!eskf_->aligned()) {
-        if (eskf_->FeedStatic(a_m, w_m)) {
-            RCLCPP_INFO(get_logger(), "coarse alignment: ba=%.4f m/s2, bg=%.4f deg/s",
-                        eskf_->accel_bias().norm(),
-                        eskf_->gyro_bias().norm() / gdn::Eskf::kDeg);
-            // R1.2: on-ground detection is referenced to the aligned rest state.
-            ground_.Start(eskf_->RestSpecificForce(), eskf_->gyro_bias());
+    void ImuCb(const px4_msgs::msg::SensorCombined::ConstSharedPtr& msg) {
+        const Eigen::Vector3d a_m(msg->accelerometer_m_s2[0], msg->accelerometer_m_s2[1], msg->accelerometer_m_s2[2]);
+        const Eigen::Vector3d w_m(msg->gyro_rad[0], msg->gyro_rad[1], msg->gyro_rad[2]);
+        if (!eskf_->aligned()) {
+            if (eskf_->FeedStatic(a_m, w_m)) {
+                RCLCPP_INFO(get_logger(), "coarse alignment: ba=%.4f m/s2, bg=%.4f deg/s", eskf_->accel_bias().norm(),
+                            eskf_->gyro_bias().norm() / gdn::Eskf::kDeg);
+                // R1.2: on-ground detection is referenced to the aligned rest state.
+                ground_.Start(eskf_->RestSpecificForce(), eskf_->gyro_bias());
+            }
+            return;
         }
-        return;
-    }
-    const uint64_t t = msg->timestamp; t_cur_ = t * 1e-6;
-    if (last_t_ == 0) { last_t_ = t; return; }
-    double dt = (t - last_t_) * 1e-6; last_t_ = t;
-    if (dt <= 0.0 || dt > 0.25) { n_drop_++; return; }  // wrap/stall: skip, never fabricate
-    if (dt > 0.1) { n_stall_++; if (n_stall_ % 10 == 1)
-        RCLCPP_WARN(get_logger(), "IMU gap absorbed %.3f s (count %d)", dt, n_stall_); }
-    // Each sensor_combined message holds the mean rate over gyro_integral_dt. If that's
-    // much shorter than the spacing between messages, samples are being dropped on the
-    // way (e.g. uXRCE-DDS's 100 Hz cap with PX4 integrating at 250 Hz), and most of the
-    // motion never reaches the filter. Say so loudly; the fix is IMU_INTEG_RATE.
-    if (msg->gyro_integral_dt > 0 && dt * 1e6 > 1.5 * msg->gyro_integral_dt) {
-        if (++n_undercover_ == 200)
-            RCLCPP_ERROR(get_logger(), "IMU messages cover only %.0f%% of the time between them "
-                         "(integral %.1f ms, spacing %.1f ms): samples are dropped upstream. "
-                         "On PX4 set IMU_INTEG_RATE to the DDS rate (100).",
-                         100.0 * msg->gyro_integral_dt * 1e-6 / dt, msg->gyro_integral_dt * 1e-3, dt * 1e3);
-    }
-    eskf_->Propagate(a_m, w_m, dt);
-    // Time not covered by this message's integral means IMU data was lost. The
-    // propagation above guessed the motion in the hole from this one sample, so widen
-    // the attitude and velocity uncertainty by what could have happened in it
-    // (twice the current rate times the hole, plus 1 degree; 2 m/s^2 for velocity).
-    const double covered = msg->gyro_integral_dt > 0 ? msg->gyro_integral_dt * 1e-6 : dt;
-    const double hole = dt - covered;
-    if (hole > 0.02) {
-        eskf_->InflateForGap(2.0 * (w_m - eskf_->gyro_bias()).norm() * hole + 1.0 * gdn::Eskf::kDeg,
-                             2.0 * hole);
-        if (eskf_->gaps() % 20 == 1)
-            RCLCPP_WARN(get_logger(), "IMU hole of %.0f ms (rate %.0f dps): attitude uncertainty widened "
-                        "(count %d)", hole * 1e3, w_m.norm() / gdn::Eskf::kDeg, eskf_->gaps());
-    }
+        const uint64_t t = msg->timestamp;
+        t_cur_ = static_cast<double>(t) * 1e-6;
+        if (last_t_ == 0) {
+            last_t_ = t;
+            return;
+        }
+        // Signed difference: a timestamp going backwards gives dt < 0 (dropped below), not an
+        // unsigned wrap to about 1.8e13 s (R1.9, clang-tidy).
+        double dt = static_cast<double>(static_cast<int64_t>(t - last_t_)) * 1e-6;
+        last_t_ = t;
+        if (dt <= 0.0 || dt > 0.25) {
+            n_drop_++;
+            return;
+        }  // wrap/stall: skip, never fabricate
+        if (dt > 0.1) {
+            n_stall_++;
+            if (n_stall_ % 10 == 1) RCLCPP_WARN(get_logger(), "IMU gap absorbed %.3f s (count %d)", dt, n_stall_);
+        }
+        // Each sensor_combined message holds the mean rate over gyro_integral_dt. If that's
+        // much shorter than the spacing between messages, samples are being dropped on the
+        // way (e.g. uXRCE-DDS's 100 Hz cap with PX4 integrating at 250 Hz), and most of the
+        // motion never reaches the filter. Say so loudly; the fix is IMU_INTEG_RATE.
+        if (msg->gyro_integral_dt > 0 && dt * 1e6 > 1.5 * msg->gyro_integral_dt) {
+            if (++n_undercover_ == 200)
+                RCLCPP_ERROR(get_logger(),
+                             "IMU messages cover only %.0f%% of the time between them "
+                             "(integral %.1f ms, spacing %.1f ms): samples are dropped upstream. "
+                             "On PX4 set IMU_INTEG_RATE to the DDS rate (100).",
+                             100.0 * msg->gyro_integral_dt * 1e-6 / dt, msg->gyro_integral_dt * 1e-3, dt * 1e3);
+        }
+        eskf_->Propagate(a_m, w_m, dt);
+        // Time not covered by this message's integral means IMU data was lost. The
+        // propagation above guessed the motion in the hole from this one sample, so widen
+        // the attitude and velocity uncertainty by what could have happened in it
+        // (twice the current rate times the hole, plus 1 degree; 2 m/s^2 for velocity).
+        const double covered = msg->gyro_integral_dt > 0 ? msg->gyro_integral_dt * 1e-6 : dt;
+        const double hole = dt - covered;
+        if (hole > 0.02) {
+            eskf_->InflateForGap(2.0 * (w_m - eskf_->gyro_bias()).norm() * hole + 1.0 * gdn::Eskf::kDeg, 2.0 * hole);
+            if (eskf_->gaps() % 20 == 1)
+                RCLCPP_WARN(get_logger(),
+                            "IMU hole of %.0f ms (rate %.0f dps): attitude uncertainty widened "
+                            "(count %d)",
+                            hole * 1e3, w_m.norm() / gdn::Eskf::kDeg, eskf_->gaps());
+        }
 
-    // R1.2: ZUPT while the IMU says the vehicle is still; sustained motion sets the
-    // airborne latch. No GNSS input (gdn/ground_monitor.hpp, TEST-018).
-    const bool was_airborne = ground_.airborne();
-    if (ground_.Update(a_m, w_m, dt)) eskf_->ApplyZupt();
-    if (ground_.airborne() && !was_airborne)
-        RCLCPP_INFO(get_logger(), "Airborne latch set at t=%.1f (IMU motion for %.1f s) - ZUPT disabled",
-                    t_cur_, gdn::GroundConfig{}.latch_s);
+        // R1.2: ZUPT while the IMU says the vehicle is still; sustained motion sets the
+        // airborne latch. No GNSS input (gdn/ground_monitor.hpp, TEST-018).
+        const bool was_airborne = ground_.airborne();
+        if (ground_.Update(a_m, w_m, dt)) eskf_->ApplyZupt();
+        if (ground_.airborne() && !was_airborne)
+            RCLCPP_INFO(get_logger(), "Airborne latch set at t=%.1f (IMU motion for %.1f s) - ZUPT disabled", t_cur_,
+                        gdn::GroundConfig{}.latch_s);
 
-    nav_msgs::msg::Odometry o;
-    o.header.stamp = now(); o.header.frame_id = "map"; o.child_frame_id = "base_link";
-    o.pose.pose.position.x = eskf_->pos().x();
-    o.pose.pose.position.y = eskf_->pos().y();
-    o.pose.pose.position.z = eskf_->pos().z();
-    o.pose.pose.orientation.w = eskf_->q().w();
-    o.pose.pose.orientation.x = eskf_->q().x();
-    o.pose.pose.orientation.y = eskf_->q().y();
-    o.pose.pose.orientation.z = eskf_->q().z();
-    o.twist.twist.linear.x = eskf_->vel().x();
-    o.twist.twist.linear.y = eskf_->vel().y();
-    o.twist.twist.linear.z = eskf_->vel().z();
-    odom_pub_->publish(o);
-}
+        nav_msgs::msg::Odometry o;
+        o.header.stamp = now();
+        o.header.frame_id = "map";
+        o.child_frame_id = "base_link";
+        o.pose.pose.position.x = eskf_->pos().x();
+        o.pose.pose.position.y = eskf_->pos().y();
+        o.pose.pose.position.z = eskf_->pos().z();
+        o.pose.pose.orientation.w = eskf_->q().w();
+        o.pose.pose.orientation.x = eskf_->q().x();
+        o.pose.pose.orientation.y = eskf_->q().y();
+        o.pose.pose.orientation.z = eskf_->q().z();
+        o.twist.twist.linear.x = eskf_->vel().x();
+        o.twist.twist.linear.y = eskf_->vel().y();
+        o.twist.twist.linear.z = eskf_->vel().z();
+        odom_pub_->publish(o);
+    }
 
 // vehicle_local_position is PX4's GNSS-aided estimate. It is reference truth for the
 // DBG line only (zt=) and is never fed to the filter (R1.2).
-void LposCb(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg) {
-    if (msg->z_valid) { z_truth_ = msg->z; x_truth_ = msg->x; y_truth_ = msg->y; }
-}
-
-void AttCb(const px4_msgs::msg::VehicleAttitude::SharedPtr msg) {
-    double qw = msg->q[0], qx = msg->q[1], qy = msg->q[2], qz = msg->q[3];
-    yaw_truth_ = std::atan2(2.0*(qw*qz + qx*qy), 1.0 - 2.0*(qy*qy + qz*qz));
-}
-
-void MagCb(const geometry_msgs::msg::Vector3::SharedPtr msg) {
-    if (!eskf_->aligned()) return;
-    const Eigen::Vector3d z_meas(msg->x, msg->y, msg->z);
-    last_mag_meas_ = z_meas; mag_cb_++;
-    if (!eskf_->yaw_aligned()) {
-        eskf_->AlignYawFromMag(z_meas);
-        RCLCPP_INFO(get_logger(), "OI-003: Instantaneous Mag Yaw Aligned at t=%.1f", t_cur_);
-        return;
+    void LposCb(const px4_msgs::msg::VehicleLocalPosition::ConstSharedPtr& msg) {
+        if (msg->z_valid) {
+            z_truth_ = msg->z;
+            x_truth_ = msg->x;
+            y_truth_ = msg->y;
+        }
     }
-    if (mag_fusion_ == "auto") eskf_->ApplyMagAuto(z_meas);
-    else if (mag_fusion_ == "heading") eskf_->ApplyMagHeading(z_meas);
-    else if (mag_fusion_ == "full") eskf_->ApplyMag(z_meas);
-}
 
-void TrnCb(const std_msgs::msg::Float64::SharedPtr msg) {
-    if (trn_model_ != "ideal") return;
-    const gdn::MapQuery mq = map_.Query(eskf_->pos().x(), eskf_->pos().y());
-    const int k = eskf_->updates() + eskf_->rejects();
-    const double pbx = eskf_->pos().x(), pby = eskf_->pos().y();
-    double innov = 0.0, S = 0.0;
-    const auto res = eskf_->ApplyTrn(msg->data, mq, &innov, &S);
-    if (k < 40)
-        RCLCPP_INFO(get_logger(),
-            "UPD k=%d meas=%.2f h0=%.2f innov=%.2f S=%.1f acc=%d pb=(%.1f,%.1f)",
-            k, msg->data, mq.h, innov, S,
-            res == gdn::Eskf::UpdResult::kApplied ? 1 : 0, pbx, pby);
-}
+    void AttCb(const px4_msgs::msg::VehicleAttitude::ConstSharedPtr& msg) {
+        double qw = msg->q[0], qx = msg->q[1], qy = msg->q[2], qz = msg->q[3];
+        yaw_truth_ = std::atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz));
+    }
+
+    void MagCb(const geometry_msgs::msg::Vector3::ConstSharedPtr& msg) {
+        if (!eskf_->aligned()) return;
+        const Eigen::Vector3d z_meas(msg->x, msg->y, msg->z);
+        last_mag_meas_ = z_meas;
+        mag_cb_++;
+        if (!eskf_->yaw_aligned()) {
+            eskf_->AlignYawFromMag(z_meas);
+            RCLCPP_INFO(get_logger(), "OI-003: Instantaneous Mag Yaw Aligned at t=%.1f", t_cur_);
+            return;
+        }
+        if (mag_fusion_ == "auto")
+            eskf_->ApplyMagAuto(z_meas);
+        else if (mag_fusion_ == "heading")
+            eskf_->ApplyMagHeading(z_meas);
+        else if (mag_fusion_ == "full")
+            eskf_->ApplyMag(z_meas);
+    }
+
+    void TrnCb(const std_msgs::msg::Float64::ConstSharedPtr& msg) {
+        if (trn_model_ != "ideal") return;
+        const gdn::MapQuery mq = map_.Query(eskf_->pos().x(), eskf_->pos().y());
+        const int k = eskf_->updates() + eskf_->rejects();
+        const double pbx = eskf_->pos().x(), pby = eskf_->pos().y();
+        double innov = 0.0, S = 0.0;
+        const auto res = eskf_->ApplyTrn(msg->data, mq, &innov, &S);
+        if (k < 40)
+            RCLCPP_INFO(get_logger(), "UPD k=%d meas=%.2f h0=%.2f innov=%.2f S=%.1f acc=%d pb=(%.1f,%.1f)", k,
+                        msg->data, mq.h, innov, S, res == gdn::Eskf::UpdResult::kApplied ? 1 : 0, pbx, pby);
+    }
 
 // R1.1: height above ground (tilt-corrected, metres). The first reading after yaw
 // alignment fixes the altitude datum: AMSL height of p_z = 0 = map height under the
 // estimate + AGL + current p_z. The baro bias is calibrated at the same moment.
-void AglCb(const std_msgs::msg::Float64::SharedPtr msg) {
-    if (trn_model_ != "agl" || !eskf_->aligned() || !eskf_->yaw_aligned()) return;
-    const gdn::MapQuery mq = map_.Query(eskf_->pos().x(), eskf_->pos().y());
-    if (!mq.ok) return;
-    if (!eskf_->datum_set()) {
-        eskf_->SetAltitudeDatum(mq.h + msg->data + eskf_->pos().z(), datum_sigma_);
-        if (have_baro_) eskf_->InitBaroBias(last_baro_, 1.5);
-        z_initialized_ = true;
-        RCLCPP_INFO(get_logger(), "R1.1: altitude datum %.1f m AMSL (map %.1f + AGL %.1f), baro bias %.2f m",
-                    eskf_->altitude_datum(), mq.h, msg->data, eskf_->baro_bias());
-        return;
+    void AglCb(const std_msgs::msg::Float64::ConstSharedPtr& msg) {
+        if (trn_model_ != "agl" || !eskf_->aligned() || !eskf_->yaw_aligned()) return;
+        const gdn::MapQuery mq = map_.Query(eskf_->pos().x(), eskf_->pos().y());
+        if (!mq.ok) return;
+        if (!eskf_->datum_set()) {
+            eskf_->SetAltitudeDatum(mq.h + msg->data + eskf_->pos().z(), datum_sigma_);
+            if (have_baro_) eskf_->InitBaroBias(last_baro_, 1.5);
+            z_initialized_ = true;
+            RCLCPP_INFO(get_logger(), "R1.1: altitude datum %.1f m AMSL (map %.1f + AGL %.1f), baro bias %.2f m",
+                        eskf_->altitude_datum(), mq.h, msg->data, eskf_->baro_bias());
+            return;
+        }
+        // AGL alone is one equation in altitude and position: without a barometer the
+        // filter can't tell "higher" from "over lower ground" (TEST-017, 67 m RMS).
+        const rclcpp::Time now_t = now();
+        if ((!have_baro_ || (now_t - last_baro_time_).seconds() > 2.0) &&
+            (now_t - last_no_baro_warn_).seconds() > 10.0) {
+            RCLCPP_WARN(get_logger(),
+                        "AGL updates running without a barometer: altitude and "
+                        "position are not separable; expect large horizontal error");
+            last_no_baro_warn_ = now_t;
+        }
+        double innov = 0.0, S = 0.0;
+        const int k = eskf_->agl_updates() + eskf_->rej_agl();
+        const auto res = eskf_->ApplyAgl(msg->data, mq, &innov, &S);
+        if (k < 20)
+            RCLCPP_INFO(get_logger(), "AGL k=%d agl=%.2f innov=%.2f S=%.1f acc=%d alt=%.1f bb=%.2f", k, msg->data,
+                        innov, S, res == gdn::Eskf::UpdResult::kApplied ? 1 : 0, eskf_->altitude_amsl(),
+                        eskf_->baro_bias());
     }
-    // AGL alone is one equation in altitude and position: without a barometer the
-    // filter can't tell "higher" from "over lower ground" (TEST-017, 67 m RMS).
-    const rclcpp::Time now_t = now();
-    if ((!have_baro_ || (now_t - last_baro_time_).seconds() > 2.0) &&
-        (now_t - last_no_baro_warn_).seconds() > 10.0) {
-        RCLCPP_WARN(get_logger(), "AGL updates running without a barometer: altitude and "
-                    "position are not separable; expect large horizontal error");
-        last_no_baro_warn_ = now_t;
-    }
-    double innov = 0.0, S = 0.0;
-    const int k = eskf_->agl_updates() + eskf_->rej_agl();
-    const auto res = eskf_->ApplyAgl(msg->data, mq, &innov, &S);
-    if (k < 20)
-        RCLCPP_INFO(get_logger(), "AGL k=%d agl=%.2f innov=%.2f S=%.1f acc=%d alt=%.1f bb=%.2f",
-                    k, msg->data, innov, S, res == gdn::Eskf::UpdResult::kApplied ? 1 : 0,
-                    eskf_->altitude_amsl(), eskf_->baro_bias());
-}
 
-void BaroCb(const std_msgs::msg::Float64::SharedPtr msg) {
-    // baro measurement: z_meas = z_true + bias + noise (NED)
-    last_baro_ = msg->data; have_baro_ = true; last_baro_time_ = now();
-    // R1.2, "ideal" mode: the local frame's origin is the start point, so the vehicle
-    // starts at z = 0 and the first baro reading after alignment sets the baro bias.
-    // (This used to take z from vehicle_local_position, which is GNSS-derived.) In
-    // "agl" mode AglCb sets the altitude datum and the bias instead.
-    if (trn_model_ == "ideal" && !z_initialized_ && eskf_->aligned()) {
-        eskf_->InitBaroBias(msg->data, 1.5);
-        z_initialized_ = true;
-        RCLCPP_INFO(get_logger(), "R1.2: start altitude z=%.2f m, baro bias %.2f m from first baro",
-                    eskf_->pos().z(), eskf_->baro_bias());
-        return;
+    void BaroCb(const std_msgs::msg::Float64::ConstSharedPtr& msg) {
+        // baro measurement: z_meas = z_true + bias + noise (NED)
+        last_baro_ = msg->data;
+        have_baro_ = true;
+        last_baro_time_ = now();
+        // R1.2, "ideal" mode: the local frame's origin is the start point, so the vehicle
+        // starts at z = 0 and the first baro reading after alignment sets the baro bias.
+        // (This used to take z from vehicle_local_position, which is GNSS-derived.) In
+        // "agl" mode AglCb sets the altitude datum and the bias instead.
+        if (trn_model_ == "ideal" && !z_initialized_ && eskf_->aligned()) {
+            eskf_->InitBaroBias(msg->data, 1.5);
+            z_initialized_ = true;
+            RCLCPP_INFO(get_logger(), "R1.2: start altitude z=%.2f m, baro bias %.2f m from first baro",
+                        eskf_->pos().z(), eskf_->baro_bias());
+            return;
+        }
+        if (z_initialized_ && eskf_->aligned()) { eskf_->ApplyBaro(msg->data); }
     }
-    if (z_initialized_ && eskf_->aligned()) {
-        eskf_->ApplyBaro(msg->data);
-    }
-}
 
 rclcpp::Subscription<px4_msgs::msg::SensorCombined>::SharedPtr imu_sub_;
 rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr baro_sub_;
@@ -318,6 +339,7 @@ rclcpp::Time last_no_baro_warn_{0, 0, RCL_ROS_TIME};
 
 // Component registration for ROS 2 composition
 #include <rclcpp_components/register_node_macro.hpp>
+// cppcheck-suppress unknownMacro ; defined by rclcpp_components, which cppcheck does not read
 RCLCPP_COMPONENTS_REGISTER_NODE(EskfNode)
 
 // Standalone executable entry point (only compiled into the eskf_node
