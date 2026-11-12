@@ -1,0 +1,10 @@
+gate,check,count,where,fix
+clang-tidy,bugprone-narrowing-conversions,11,"consistency.hpp (5), mc_campaign.cpp (2), eskf_node.cpp (2), map_db.hpp, imu_sim.cpp","explicit static_cast; signed timestamp difference in ImuCb"
+clang-tidy,performance-unnecessary-value-param,9,"eskf_node.cpp (7 callbacks), map_viz_node.cpp, imu_model.hpp","ConstSharedPtr& / const MessageT& callbacks; const std::string&"
+clang-tidy,performance-inefficient-string-concatenation,3,imu_model.hpp,"build error messages with +="
+clang-tidy,clang-analyzer-security.FloatLoopCounter,2,selftest.cpp,"integer loop counters"
+clang-tidy,performance-enum-size,1,eskf.hpp,"UpdResult : std::uint8_t"
+clang-tidy,performance-move-const-arg,1,eskf.hpp,"Eskf(const EskfConfig&) instead of a no-op std::move"
+cppcheck,passedByValue,1,imu_model.hpp,"const std::string&"
+cppcheck,passedByValueCallback,1,ground_monitor.hpp,"GroundMonitor(const GroundConfig&)"
+cppcheck,unknownMacro,1,eskf_node.cpp,"inline suppression: RCLCPP_COMPONENTS_REGISTER_NODE comes from rclcpp_components"

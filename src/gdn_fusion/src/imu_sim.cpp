@@ -36,7 +36,8 @@ int main(int argc, char** argv) {
     for (long k = 0; k < n; ++k) {
         Eigen::Vector3d a(0, 0, -9.80665), w = Eigen::Vector3d::Zero();
         sim.Corrupt(&a, &w, dt);
-        std::fprintf(f, "%.4f,%.7e,%.7e,%.7e,%.7e,%.7e,%.7e\n", k * dt, a.x(), a.y(), a.z(), w.x(), w.y(), w.z());
+        std::fprintf(f, "%.4f,%.7e,%.7e,%.7e,%.7e,%.7e,%.7e\n", static_cast<double>(k) * dt, a.x(), a.y(), a.z(), w.x(),
+                     w.y(), w.z());
     }
     std::fclose(f);
     std::printf("imu_sim: %s, %.2f h at %.0f Hz, seed %llu -> %s\n", m.name.c_str(), hours, rate,

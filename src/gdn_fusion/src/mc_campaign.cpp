@@ -60,7 +60,7 @@ struct Table {
 double Percentile(std::vector<double> v, double p) {
     if (v.empty()) return 0.0;
     std::sort(v.begin(), v.end());
-    const double idx = p / 100.0 * (v.size() - 1);
+    const double idx = p / 100.0 * static_cast<double>(v.size() - 1);
     const size_t lo = static_cast<size_t>(idx);
     const size_t hi = lo + 1 < v.size() ? lo + 1 : lo;
     const double f = idx - static_cast<double>(lo);
@@ -589,9 +589,9 @@ int main(int argc_all, char** argv_all) {
     if (node_startup && !latch_t.empty())
         std::printf("airborne latch: %zu/%d seeds, t median %.2f s\n", latch_t.size(), nseeds,
                     Percentile(latch_t, 50));
-    std::printf("CEP50: %.1f m  CEP95: %.1f m  MAX: %.1f m  in-spec(<100 m): %.1f%%\n",
-                Percentile(pool, 50), Percentile(pool, 95), Percentile(pool, 100),
-                pool.empty() ? 0.0 : 100.0 * in_spec / pool.size());
+    std::printf("CEP50: %.1f m  CEP95: %.1f m  MAX: %.1f m  in-spec(<100 m): %.1f%%\n", Percentile(pool, 50),
+                Percentile(pool, 95), Percentile(pool, 100),
+                pool.empty() ? 0.0 : 100.0 * in_spec / static_cast<double>(pool.size()));
     std::printf("per-seed RMS: median %.1f m  p95 %.1f m  worst %.1f m  passing(<100 m): %d/%d\n",
                 Percentile(seed_rms, 50), Percentile(seed_rms, 95),
                 Percentile(seed_rms, 100), pass_seeds, nseeds);

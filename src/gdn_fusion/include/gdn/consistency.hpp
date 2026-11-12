@@ -58,20 +58,20 @@ public:
 
     size_t positions() const { return n_pos_; }
     size_t innovations() const { return n_innov_; }
-    double nees_mean() const { return n_pos_ ? nees_sum_ / n_pos_ : 0.0; }        // expect 2
+    double nees_mean() const { return n_pos_ ? nees_sum_ / static_cast<double>(n_pos_) : 0.0; }  // expect 2
     double nees_over9_pct() const { return Pct(n_nees_over9_, n_pos_); }         // expect 1.11
     double over3sigma_pct() const { return Pct(n_over3s_, n_pos_); }             // REQ-INT-001: <= 1
-    double nis_mean() const { return n_innov_ ? nis_sum_ / n_innov_ : 0.0; }     // expect 1
+    double nis_mean() const { return n_innov_ ? nis_sum_ / static_cast<double>(n_innov_) : 0.0; }  // expect 1
     double nis_over9_pct() const { return Pct(n_nis_over9_, n_innov_); }         // expect 0.27
     double nees_median() const { return Median(nees_); }                         // expect 1.386
     double nis_median() const { return Median(nis_); }                           // expect 0.455
 
 private:
-    static double Pct(size_t k, size_t n) { return n ? 100.0 * k / n : 0.0; }
+    static double Pct(size_t k, size_t n) { return n ? 100.0 * static_cast<double>(k) / static_cast<double>(n) : 0.0; }
     static double Median(std::vector<double> v) {
         if (v.empty()) return 0.0;
         const size_t m = v.size() / 2;
-        std::nth_element(v.begin(), v.begin() + m, v.end());
+        std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(m), v.end());
         return v[m];
     }
     std::vector<double> nees_, nis_;

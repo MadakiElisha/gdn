@@ -1,0 +1,7 @@
+gate,what it runs,findings on main,after this PR,local time s
+werror,"g++ and clang++, -Wall -Wextra -Wpedantic -Werror, ROS-free core",0,0,71
+cppcheck,"warning, performance, portability; whole package",3,0,15
+clang-tidy,"bugprone, clang-analyzer, performance, portability; core and both ROS nodes",27,0,250
+sanitize,"ASan + UBSan: selftest and 5 MC flights over 4 code paths",0,0,234
+format,"clang-format on changed C++ lines only",-,0,0.3
+selftest,"each gate against 12 planted defects and clean code",-,12 of 12,1.8

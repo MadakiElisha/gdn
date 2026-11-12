@@ -1,0 +1,13 @@
+# R1.9. Bug-finding and performance checks fail the build; style checks are off
+# (decided in R1.9). tools/quality.sh tidy runs it.
+#   bugprone-easily-swappable-parameters: flags every (double, double) signature in the
+#     maths; a style rule, not a bug.
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  portability-*,
+  -bugprone-easily-swappable-parameters
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/include/gdn/.*'

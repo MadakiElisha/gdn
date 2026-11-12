@@ -68,7 +68,7 @@ public:
 
     int rows() const { return ny_; }
     int cols() const { return nx_; }
-    float At(int i, int j) const { return A(i, j); }
+    float At(int i, int j) const { return static_cast<float>(A(i, j)); }
     double lat0() const { return lat0_; } double lon0() const { return lon0_; }
     double lat_c() const { return lat_c_; } double lon_c() const { return lon_c_; }
     double m_per_deg_lon() const { return m_per_deg_lon_; }

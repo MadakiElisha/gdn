@@ -4,6 +4,7 @@
 // ROS-free (pure Eigen). Formulation per Sola arXiv:1711.02508.
 #include <Eigen/Dense>
 #include <cmath>
+#include <cstdint>
 #include <utility>
 #include <algorithm>
 #include "gdn/map_db.hpp"
@@ -82,9 +83,9 @@ public:
     using H19 = Eigen::Matrix<double, 1, 19>;
     static constexpr double kG = 9.80665;
     static constexpr double kDeg = M_PI / 180.0;
-    enum class UpdResult { kApplied, kSlopeGate, kInnovGate };
+    enum class UpdResult : std::uint8_t { kApplied, kSlopeGate, kInnovGate };
 
-    explicit Eskf(EskfConfig cfg = EskfConfig{}) : cfg_(std::move(cfg)) {
+    explicit Eskf(const EskfConfig& cfg = EskfConfig{}) : cfg_(cfg) {
         g_ = V3(0, 0, kG);
         q_ = Eigen::Quaterniond::Identity();
         pos_ = vel_ = ba_ = bg_ = V3::Zero();

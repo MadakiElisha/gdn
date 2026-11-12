@@ -16,7 +16,7 @@ jobs:
   build-test:
     runs-on: ubuntu-24.04
     container: ros:jazzy-ros-base
-    timeout-minutes: 45
+    timeout-minutes: 60    # R1.9 added about 12 minutes (clang-tidy, sanitizers)
     defaults:
       run:
         shell: bash
@@ -27,11 +27,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0    # R1.9: the format check compares a PR with its base branch
 
       - name: Dependencies
         run: |
           apt-get install -y --no-install-recommends \
             build-essential cmake libeigen3-dev pkg-config \
+            clang clang-tidy clang-format cppcheck \
             ros-jazzy-rosbag2-storage-mcap ros-jazzy-rclcpp-components \
             python3-numpy python3-scipy python3-matplotlib python3-h5py \
             python3-yaml python3-pil python3-rasterio
@@ -39,8 +41,22 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           rosdep install --from-paths src --ignore-src -y --rosdistro jazzy
 
-      - name: Unit tests, -O2 and -O3 (no ROS)
+      # R1.9 code-quality gates (tools/quality.sh). First check each gate fails on a
+      # planted defect, so a gate that can't fail doesn't pass silently.
+      - name: Quality gates self-test (R1.9)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          tools/quality.sh selftest
+
+      - name: Unit tests, -O2 and -O3, warnings as errors (no ROS)
         run: tools/run_selftest.sh
+
+      - name: Compiler warnings as errors, g++ and clang++ (R1.9)
+        run: tools/quality.sh werror
+
+      - name: Formatting of the lines this PR changes (R1.9)
+        if: github.event_name == 'pull_request'
+        run: tools/quality.sh format "origin/${{ github.base_ref }}"
 
       - name: Cache px4_msgs build
         uses: actions/cache@v4
@@ -54,6 +70,7 @@ jobs:
         run: |
           source /opt/ros/jazzy/setup.bash
           colcon build --base-paths src --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            -DGDN_WERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             --event-handlers console_cohesion+
 
       - name: colcon test
@@ -62,6 +79,13 @@ jobs:
           source install/setup.bash
           colcon test --base-paths src --packages-select gdn_fusion --event-handlers console_direct+
           colcon test-result --verbose
+
+      # R1.9: bug-finding and performance checks; the ROS nodes use the compile flags
+      # colcon exported above. clang-tidy takes about 5 minutes (the ROS headers).
+      - name: Static analysis, cppcheck and clang-tidy (R1.9)
+        run: |
+          tools/quality.sh cppcheck
+          tools/quality.sh tidy
 
       - name: Data checksums and map rebuild
         run: tools/make_data.sh --verify-maps
@@ -159,6 +183,11 @@ jobs:
             --gnss-loss=150 | tee mc_flight001_gnss_loss.txt
           python3 tools/ci_check_mc.py mc_flight001_gnss_loss.txt --expect-imu recorded \
             --gnss-free-max-cep95 300=90 --gnss-free-max-over-3sigma 300=15 --gnss-free-max-cep95 600=95
+
+      # R1.9: the selftest and short MC runs through each code path, built with
+      # AddressSanitizer and UndefinedBehaviorSanitizer. About 5 minutes.
+      - name: Sanitizers, ASan and UBSan (R1.9)
+        run: tools/quality.sh sanitize
 
       - name: Keep MC report
         if: always()
