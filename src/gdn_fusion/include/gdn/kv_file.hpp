@@ -3,6 +3,7 @@
 // ROS-free. '#' starts a comment, blank lines are skipped, values may be quoted.
 // A key given twice is an error: which of the two counts would be a guess.
 #include <fstream>
+#include <istream>
 #include <set>
 #include <string>
 #include <vector>
@@ -19,12 +20,8 @@ inline std::string TrimKv(const std::string& s) {
     return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
 }
 
-inline bool ReadKeyValues(const std::string& path, std::vector<KeyValue>* out, std::string* err) {
-    std::ifstream f(path);
-    if (!f) {
-        *err = "cannot open " + path;
-        return false;
-    }
+// From any stream; `path` names it in error messages.
+inline bool ReadKeyValuesFrom(std::istream& f, const std::string& path, std::vector<KeyValue>* out, std::string* err) {
     out->clear();
     std::set<std::string> seen;
     std::string line;
@@ -47,6 +44,15 @@ inline bool ReadKeyValues(const std::string& path, std::vector<KeyValue>* out, s
         out->push_back(kv);
     }
     return true;
+}
+
+inline bool ReadKeyValues(const std::string& path, std::vector<KeyValue>* out, std::string* err) {
+    std::ifstream f(path);
+    if (!f) {
+        *err = "cannot open " + path;
+        return false;
+    }
+    return ReadKeyValuesFrom(f, path, out, err);
 }
 
 }  // namespace gdn
