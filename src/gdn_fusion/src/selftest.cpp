@@ -2,12 +2,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <random>
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
+#include "gdn/filter_config.hpp"
 #include "gdn/consistency.hpp"
 #include "gdn/ground_monitor.hpp"
 #include "gdn/imu_model.hpp"
@@ -18,6 +22,24 @@ static int g_fail = 0;
 #define CHECK(cond, name) do { \
     if (cond) std::printf("PASS  %s\n", name); \
     else { std::printf("FAIL  %s\n", name); g_fail++; } } while (0)
+
+// R1.10: the filter's tuning lives in config/filter/default.yaml, not in the code. Every
+// test starts from that file, as the node and the MC do.
+static const FilterConfig& DefaultConfig() {
+    static FilterConfig fc;
+    static bool loaded = false;
+    if (!loaded) {
+        std::string err;
+        if (!LoadFilterConfig(DataPath(kDefaultFilterConfig), &fc, &err)) {
+            std::printf("FAIL  config: %s (every filter test needs it; is GDN_ROOT set?)\n", err.c_str());
+            std::exit(1);
+        }
+        loaded = true;
+    }
+    return fc;
+}
+static EskfConfig Cfg() { return DefaultConfig().eskf; }
+static GroundConfig GCfg() { return DefaultConfig().ground; }
 
 // Planar test map centred on (lat_c, lon_c): h = base + slope_n*N + slope_e*E.
 static void WritePlaneMap(const std::string& path, double slope_n, double base,
@@ -70,8 +92,149 @@ static void WriteGeoMap(const std::string& path, double lat_c, double lon_c) {
     f.write(reinterpret_cast<const char*>(alt.data()), 4LL * nx * ny);
 }
 
+// The bit pattern of a double, for "bit for bit" comparisons.
+static uint64_t Bits(double x) {
+    uint64_t b = 0;
+    std::memcpy(&b, &x, sizeof b);
+    return b;
+}
+
+// TEST-028 (R1.10): the filter configuration file. The tuning lives in
+// config/filter/default.yaml only, so the loader must refuse anything that would let a
+// value differ silently from the file (a missing key, a typo, a key given twice, a bad
+// number), and the fingerprint printed with every result must name the values exactly.
+static void TestFilterConfig() {
+    const std::string def_path = DataPath(kDefaultFilterConfig);
+    FilterConfig d;
+    std::string err;
+    const bool loaded = LoadFilterConfig(def_path, &d, &err);
+    if (!loaded) std::printf("      %s\n", err.c_str());
+    CHECK(loaded && d.name == "default" && ValidateFilterConfig(d, &err),
+          "config: TEST-028 default.yaml loads, with every setting given");
+    const FilterConfig blank;
+    CHECK(!ValidateFilterConfig(blank, &err),
+          "config: TEST-028 the code holds no tuning (a config not read from a file is refused)");
+    std::printf("      %zu settings, fingerprint %s\n", ConfigFields(&d).size(), FilterFingerprint(d).c_str());
+
+    // Broken copies of the default file.
+    std::vector<std::string> lines;
+    {
+        std::ifstream f(def_path);
+        for (std::string l; std::getline(f, l);) lines.push_back(l);
+    }
+    auto edited = [&](const std::string& key, const std::string& repl) {  // repl "" drops the line
+        std::vector<std::string> out;
+        for (const auto& l : lines)
+            if (l.rfind(key + ":", 0) != 0)
+                out.push_back(l);
+            else if (!repl.empty())
+                out.push_back(repl);
+        return out;
+    };
+    const std::string tp = "/tmp/gdn_selftest_filter.yaml";
+    auto load_lines = [&](const std::vector<std::string>& ls, FilterConfig* x, std::string* e) {
+        {
+            std::ofstream f(tp);
+            for (const auto& l : ls) f << l << "\n";
+        }
+        return LoadFilterConfig(tp, x, e);
+    };
+    auto refused = [&](const std::vector<std::string>& ls, const std::string& expect) {
+        FilterConfig x;
+        std::string e;
+        const bool ok = load_lines(ls, &x, &e);
+        const bool good = !ok && e.find(expect) != std::string::npos;
+        if (!good)
+            std::printf("      expected an error with '%s', got: %s\n", expect.c_str(), ok ? "loaded" : e.c_str());
+        return good;
+    };
+    CHECK(refused(edited("r_agl", ""), "missing r_agl"), "config: TEST-028 a missing key is an error that names it");
+    std::vector<std::string> typo = lines, dup = lines;
+    typo.emplace_back("r_alg: 50");
+    dup.emplace_back("r_agl: 50");
+    CHECK(refused(typo, "unknown key 'r_alg'"), "config: TEST-028 a misspelt key is an error, not a silent default");
+    CHECK(refused(dup, "given twice"), "config: TEST-028 a key given twice is an error");
+    CHECK(refused(edited("r_agl", "r_agl: 1OO"), "bad value for r_agl") &&
+              refused(edited("static_n", "static_n: 500.5"), "bad value for static_n"),
+          "config: TEST-028 a value that isn't a number (or a whole number) is an error");
+    CHECK(refused(edited("r_agl", "r_agl: -100"), "r_agl must be > 0") &&
+              refused(edited("mag_fusion", "mag_fusion: magic"), "mag_fusion must be"),
+          "config: TEST-028 an out-of-range value is an error");
+    CHECK(refused(edited("schema", "schema: 2"), "schema"),
+          "config: TEST-028 a file of another schema version is refused");
+
+    // What the MC writes with --dump-config loads back to the same numbers, bit for bit.
+    { std::ofstream(tp) << DumpFilterConfig(d); }
+    FilterConfig r;
+    bool same = LoadFilterConfig(tp, &r, &err) && !ConfigFields(&d).empty() &&
+                FilterFingerprint(r) == FilterFingerprint(d) && FilterOverrides(d, r).empty();
+    const auto fd = ConfigFields(&d), fr = ConfigFields(&r);
+    for (size_t i = 0; same && i < fd.size() && i < fr.size(); ++i) {
+        if (const auto* p = std::get_if<double*>(&fd[i].ptr))
+            same = Bits(**p) == Bits(*std::get<double*>(fr[i].ptr));
+        else if (const auto* n = std::get_if<int*>(&fd[i].ptr))
+            same = **n == *std::get<int*>(fr[i].ptr);
+        else
+            same = *std::get<std::string*>(fd[i].ptr) == *std::get<std::string*>(fr[i].ptr);
+    }
+    CHECK(same, "config: TEST-028 a dumped config loads back bit for bit");
+
+    // The fingerprint changes when any one setting moves by the smallest step, and not
+    // with comments, key order or the file's name.
+    int unchanged = 0;
+    for (size_t i = 0; i < fd.size(); ++i) {
+        FilterConfig x = d;
+        const ConfigField f = ConfigFields(&x)[i];
+        if (auto* p = std::get_if<double*>(&f.ptr))
+            **p = std::nextafter(**p, 1e300);
+        else if (auto* n = std::get_if<int*>(&f.ptr))
+            **n += 1;
+        else
+            *std::get<std::string*>(f.ptr) += "x";
+        if (FilterFingerprint(x) == FilterFingerprint(d)) {
+            ++unchanged;
+            std::printf("      fingerprint ignores %s\n", f.key);
+        }
+    }
+    CHECK(!fd.empty() && unchanged == 0,
+          "config: TEST-028 the fingerprint changes when any one setting changes by 1 ulp");
+    std::vector<std::string> shuffled;
+    for (auto it = lines.rbegin(); it != lines.rend(); ++it)
+        shuffled.push_back(it->rfind("name:", 0) == 0 ? "name: renamed  # a different comment" : *it);
+    FilterConfig s;
+    CHECK(load_lines(shuffled, &s, &err) && s.name == "renamed" && FilterFingerprint(s) == FilterFingerprint(d),
+          "config: TEST-028 the fingerprint ignores comments, key order and the name");
+
+    // Overrides, as the MC's --set and the node's parameters apply them.
+    FilterConfig o = d;
+    const bool set_ok = SetFilterValue(&o, "r_agl", "50", &err) && o.eskf.r_agl == 50.0;
+    const bool typo_refused = !SetFilterValue(&o, "r_alg", "50", &err);
+    CHECK(set_ok && typo_refused && FilterOverrides(d, o) == "r_agl=50",
+          "config: TEST-028 an override changes one setting and is listed; a misspelt one is refused");
+
+    // Every file in config/filter/ loads (other vehicles' files will join the default).
+    int nfiles = 0, nbad = 0;
+    std::error_code ec;
+    for (const auto& ent : std::filesystem::directory_iterator(DataPath("config/filter"), ec)) {
+        if (ent.path().extension() != ".yaml") continue;
+        ++nfiles;
+        FilterConfig x;
+        if (!LoadFilterConfig(ent.path().string(), &x, &err)) {
+            ++nbad;
+            std::printf("      %s\n", err.c_str());
+        }
+    }
+    CHECK(nfiles >= 1 && nbad == 0, "config: TEST-028 every file in config/filter/ loads");
+}
+
 int main() {
     using V3 = Eigen::Vector3d;
+    try {
+        TestFilterConfig();
+    } catch (const std::exception& e) {
+        std::printf("FAIL  config: TEST-028 threw: %s\n", e.what());
+        g_fail++;
+    }
     const std::string mp = "/tmp/gdn_selftest_map.bin";
     WritePlaneMap(mp, 0.2, 500.0);
 
@@ -104,7 +267,7 @@ int main() {
     const Eigen::Quaterniond q_true(
         Eigen::AngleAxisd(0.05, V3::UnitY()) * Eigen::AngleAxisd(-0.03, V3::UnitX()));
     const V3 a_static = q_true.conjugate() * V3(0, 0, -Eskf::kG) + b_a;
-    Eskf eskf;
+    Eskf eskf(Cfg());
     bool aligned = false;
     for (int i = 0; i < 700 && !aligned; ++i) aligned = eskf.FeedStatic(a_static, b_g);
     CHECK(aligned, "eskf: static alignment converges");
@@ -118,7 +281,7 @@ int main() {
     CHECK(eskf.vel().norm() < 0.1 && eskf.pos().norm() < 1.0,
           "eskf: static propagation stays put");
 
-    EskfConfig test_cfg;
+    EskfConfig test_cfg = Cfg();
     test_cfg.r_trn = 1.0;
     Eskf nav(test_cfg);
     const V3 a0(0, 0, -Eskf::kG), w0 = V3::Zero();
@@ -137,7 +300,7 @@ int main() {
     CHECK(std::abs(nav.pos().y()) < 5.0, "eskf: unobservable axis not pumped");
 
     // TEST-013: Barometer update (OI-002) - vertical observability
-    EskfConfig baro_cfg;
+    EskfConfig baro_cfg = Cfg();
     baro_cfg.r_trn = 1.0;
     baro_cfg.r_baro = 1.0;
     baro_cfg.p0_baro_bias = 100.0;
@@ -169,7 +332,7 @@ int main() {
     {
         const Eigen::Vector3d m_ref(25.0, 0.0, 45.0);
         // Phase 1: yaw convergence, bias known zero, gateable 20-deg yaw error
-        EskfConfig mc1;
+        EskfConfig mc1 = Cfg();
         mc1.p0_mag_bias = 0.0;        // bias known: isolates yaw observability
         mc1.clamp_dtheta_deg = 5.0;   // unit-test convergence clamp
         mc1.mag_ref_north = 25.0; mc1.mag_ref_east = 0.0; mc1.mag_ref_down = 45.0; // Match test sim
@@ -193,7 +356,7 @@ int main() {
         // Phase 2: hard-iron bias estimation.
         // Use a fresh filter with standard p0_mag_bias (100.0).
         // Keep truth_bias small (norm < 5.0) to avoid triggering clamp_dvm=5.0 on the first step.
-        EskfConfig mc2;
+        EskfConfig mc2 = Cfg();
         mc2.clamp_dtheta_deg = 15.0;
         mc2.mag_ref_north = 25.0; mc2.mag_ref_east = 0.0; mc2.mag_ref_down = 45.0; // Match test sim
         Eskf m2(mc2);
@@ -220,7 +383,10 @@ int main() {
         const Eigen::Matrix3d R_true = q_true.toRotationMatrix();
         const V3 a_true = R_true.transpose() * V3(0.0, 0.0, -9.80665);
         auto run = [&](bool inflate, int* applied) {
-            EskfConfig c; c.mag_ref_north = 25.0; c.mag_ref_east = 0.0; c.mag_ref_down = 45.0;
+            EskfConfig c = Cfg();
+            c.mag_ref_north = 25.0;
+            c.mag_ref_east = 0.0;
+            c.mag_ref_down = 45.0;
             Eskf f(c);
             bool ok = false;
             for (int i = 0; i < 700 && !ok; ++i) ok = f.FeedStatic(V3(0.0, 0.0, -9.80665), V3::Zero());
@@ -246,7 +412,7 @@ int main() {
 
         // TEST-015: ZUPT pins horizontal states while static
     {
-        EskfConfig zc;
+        EskfConfig zc = Cfg();
         zc.mag_ref_north = 25.0; zc.mag_ref_east = 0.0; zc.mag_ref_down = 45.0;
         Eskf zt(zc);
         bool al = false;
@@ -274,7 +440,7 @@ int main() {
         const std::string mp_flat = "/tmp/gdn_selftest_map_flat.bin";
         WritePlaneMap(mp_flat, 0.0, 500.0);
         MapDb flat; flat.Load(mp_flat);
-        EskfConfig fc;
+        EskfConfig fc = Cfg();
         fc.r_agl = 4.0;            // 2 m sensor noise; the flat map is exact
         Eskf a(fc);
         bool ok = false;
@@ -301,7 +467,7 @@ int main() {
 
         // Warm start: the datum and baro bias are taken together at start-up, so a
         // 15 m bias doesn't need to be learned from AGL at all.
-        Eskf w;
+        Eskf w(Cfg());
         ok = false;
         for (int i = 0; i < 700 && !ok; ++i) ok = w.FeedStatic(a0, w0);
         w.TransferAlignYaw(0.0);
@@ -315,7 +481,8 @@ int main() {
 
         // Sign of the horizontal Jacobian: on a north slope, a vehicle that is really
         // 30 m north reads less AGL, and the update must move the estimate north.
-        EskfConfig sc; sc.r_agl = 1.0;
+        EskfConfig sc = Cfg();
+        sc.r_agl = 1.0;
         Eskf g(sc);
         ok = false;
         for (int i = 0; i < 700 && !ok; ++i) ok = g.FeedStatic(a0, w0);
@@ -360,7 +527,8 @@ int main() {
         auto heading = [](const Eskf& e) {
             const V3 f = e.q() * V3::UnitX(); return std::atan2(f.y(), f.x()); };
         {
-            Eskf e; GroundMonitor g;
+            Eskf e(Cfg());
+            GroundMonitor g(GCfg());
             CHECK(make(e, g), "ground: TEST-018 aligned on noisy IMU");
             int z = 0; V3 a, w;
             const double yaw0 = heading(e);
@@ -379,7 +547,9 @@ int main() {
         struct Roll { double acc, stop_s, latch_s; const char* name; };
         for (const Roll& r : {Roll{2.0, 0.05, 0.6, "ground: 2 m/s^2 roll stops ZUPT at once and latches"},
                               Roll{0.5, 0.15, 1.0, "ground: 0.5 m/s^2 roll stops ZUPT and latches"}}) {
-            Eskf e; GroundMonitor g; make(e, g);
+            Eskf e(Cfg());
+            GroundMonitor g(GCfg());
+            make(e, g);
             V3 a, w; int late = 0;
             for (int i = 0; i < 1000; ++i) { imu(V3::Zero(), V3::Zero(), a, w); g.Update(a, w, dt); }
             const double t_on = 10.0;
@@ -391,7 +561,9 @@ int main() {
         }
         // (d) A 0.2 s bump (someone touches the vehicle) must not latch, and ZUPT resumes.
         {
-            Eskf e; GroundMonitor g; make(e, g);
+            Eskf e(Cfg());
+            GroundMonitor g(GCfg());
+            make(e, g);
             V3 a, w; int after = 0;
             for (int i = 0; i < 500; ++i) { imu(V3::Zero(), V3::Zero(), a, w); g.Update(a, w, dt); }
             for (int i = 0; i < 20; ++i) { imu(V3(1.5, 0, 0), V3::Zero(), a, w); g.Update(a, w, dt); }
@@ -400,7 +572,9 @@ int main() {
         }
         // (e) Turning on the spot (0.1 rad/s, no acceleration) counts as motion.
         {
-            Eskf e; GroundMonitor g; make(e, g);
+            Eskf e(Cfg());
+            GroundMonitor g(GCfg());
+            make(e, g);
             V3 a, w; int z = 0;
             for (int i = 0; i < 500; ++i) { imu(V3::Zero(), V3::Zero(), a, w); g.Update(a, w, dt); }
             for (int i = 0; i < 100; ++i) { imu(V3::Zero(), V3(0, 0, 0.1), a, w); if (g.Update(a, w, dt) && i > 5) z++; }
@@ -410,15 +584,24 @@ int main() {
         // With the IMU monitor the velocity comes out right. Control: the old rule
         // (ZUPT until GNSS speed > 2 m/s) holds velocity at zero for the first second.
         auto takeoff = [&](bool gnss_rule) {
-            Eskf e; GroundMonitor g; make(e, g);
-            V3 a, w; double v_true = 0.0, t_z = 0.0;
+            Eskf e(Cfg());
+            GroundMonitor g(GCfg());
+            make(e, g);
+            V3 a, w;
+            double v_true = 0.0, t_z = 0.0;
             for (int i = 0; i < 1500; ++i) {
                 const double acc = i >= 1000 ? 2.0 : 0.0;
                 imu(V3(acc, 0, 0), V3::Zero(), a, w);
                 e.Propagate(a, w, dt);
-                v_true += acc * dt; t_z += dt;
-                if (gnss_rule) { if (v_true <= 2.0 && t_z >= 0.1) { e.ApplyZupt(); t_z = 0.0; } }
-                else if (g.Update(a, w, dt)) e.ApplyZupt();
+                v_true += acc * dt;
+                t_z += dt;
+                if (gnss_rule) {
+                    if (v_true <= 2.0 && t_z >= 0.1) {
+                        e.ApplyZupt();
+                        t_z = 0.0;
+                    }
+                } else if (g.Update(a, w, dt))
+                    e.ApplyZupt();
             }
             return std::abs(e.vel().x() - v_true);
         };
@@ -532,7 +715,8 @@ int main() {
             const std::string ps = "/tmp/gdn_selftest_map_slope.bin";
             WritePlaneMap(ps, 0.2, 500.0, 0.1);
             MapDb sm; sm.Load(ps);
-            EskfConfig c; c.r_agl = 4.0;
+            EskfConfig c = Cfg();
+            c.r_agl = 4.0;
             Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
             e.SetAltitudeDatum(1000.0, 5.0); e.InitBaroBias(2.0, 1.5);
             for (int k = 0; k < 20; ++k) {        // AGL couples position, altitude and baro bias
@@ -555,7 +739,9 @@ int main() {
         // (c) A clamped correction must leave a covariance that knows the rest of the
         // error. 5 m/s of velocity error, one ZUPT, 0.5 m/s velocity clamp.
         {
-            Eskf e; aligned(e); e.TransferAlignYaw(0.0);   // heading known: P_vel is just the inflation
+            Eskf e(Cfg());
+            aligned(e);
+            e.TransferAlignYaw(0.0);  // heading known: P_vel is just the inflation
             for (int k = 0; k < 50; ++k) e.Propagate(a0 + V3(1.0, 0, 0), w0, 0.1);   // 5 m/s of drift
             e.InflateForGap(0.0, 5.0);
             e.ApplyZupt();
@@ -573,24 +759,38 @@ int main() {
         // default), and heading-only must hold even then.
         const double loose_bg = 0.01 * Eskf::kDeg;
         auto tilt_after = [&](bool heading_only) {
-            EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            EskfConfig c = Cfg();
+            c.mag_ref_north = 21.5;
+            c.mag_ref_east = 1.3;
+            c.mag_ref_down = 42.3;
             c.q_gyro_bias_rw = loose_bg;
-            Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
+            Eskf e(c);
+            aligned(e);
+            e.TransferAlignYaw(0.0);
             const V3 m(21.5, 1.3, 42.3);
             for (int k = 0; k < 1200; ++k) {
                 e.Propagate(a0, w0, 0.1);
                 const V3 z = m + (k >= 600 ? V3(0, 0, 6.0) : V3::Zero());
-                if (heading_only) e.ApplyMagHeading(z); else e.ApplyMag(z);
+                if (heading_only)
+                    e.ApplyMagHeading(z);
+                else
+                    e.ApplyMag(z);
             }
             const V3 down_b = e.q().conjugate() * V3::UnitZ();       // body view of "down"
             return std::acos(std::clamp(down_b.z(), -1.0, 1.0)) / Eskf::kDeg;
         };
         int auto_false = -1;
         auto tilt_auto = [&]() {
-            EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            EskfConfig c = Cfg();
+            c.mag_ref_north = 21.5;
+            c.mag_ref_east = 1.3;
+            c.mag_ref_down = 42.3;
             c.q_gyro_bias_rw = loose_bg;
-            Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
-            std::mt19937 rng(23); std::normal_distribution<double> nm(0.0, 2.0);
+            Eskf e(c);
+            aligned(e);
+            e.TransferAlignYaw(0.0);
+            std::mt19937 rng(23);
+            std::normal_distribution<double> nm(0.0, 2.0);
             const V3 m(21.5, 1.3, 42.3);
             for (int k = 0; k < 1200; ++k) {
                 e.Propagate(a0, w0, 0.1);
@@ -618,7 +818,10 @@ int main() {
         // (0.3 uT residual hard iron, unknown to the filter), turning 360 deg in 60 s,
         // 2 uT noise. Heading-only fusion assumes calibration (see ApplyMagHeading).
         {
-            EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            EskfConfig c = Cfg();
+            c.mag_ref_north = 21.5;
+            c.mag_ref_east = 1.3;
+            c.mag_ref_down = 42.3;
             Eskf e(c); aligned(e); e.TransferAlignYaw(10.0 * Eskf::kDeg);
             std::mt19937 rng(21); std::normal_distribution<double> nm(0.0, 2.0);
             const double rate = 2.0 * M_PI / 60.0;
@@ -640,7 +843,10 @@ int main() {
         // reading. Zero true bias, straight then turning, 120 s: the bias estimate must
         // stay put and the heading must stay honest.
         {
-            EskfConfig c; c.mag_ref_north = 21.5; c.mag_ref_east = 1.3; c.mag_ref_down = 42.3;
+            EskfConfig c = Cfg();
+            c.mag_ref_north = 21.5;
+            c.mag_ref_east = 1.3;
+            c.mag_ref_down = 42.3;
             Eskf e(c); aligned(e); e.TransferAlignYaw(0.0);
             std::mt19937 rng(22); std::normal_distribution<double> nm(0.0, 2.0);
             const V3 m(21.5, 1.3, 42.3);
@@ -793,7 +999,7 @@ int main() {
         using V3 = Eigen::Vector3d;
         const V3 a0(0, 0, -Eskf::kG);
         auto aligned = [&]() {
-            Eskf e;
+            Eskf e(Cfg());
             for (int k = 0; k < 600 && !e.aligned(); ++k) e.FeedStatic(a0, V3::Zero());
             e.TransferAlignYaw(0.0);
             return e;
@@ -868,7 +1074,7 @@ int main() {
               h.accel_noise_density.maxCoeff() < 5e-3 && h.gyro_noise_density.minCoeff() > 1e-5 &&
               h.gyro_noise_density.maxCoeff() < 1e-3 && h.accel_bias_rw > 0.0 && h.gyro_bias_rw > 0.0,
               "imu: TEST-024 H30WP model loads, with white noise and drift from the fit");
-        const EskfConfig c;
+        const EskfConfig c = Cfg();
         const double ra = c.q_accel_bias_rw / h.accel_bias_rw, rg = c.q_gyro_bias_rw / h.gyro_bias_rw;
         std::printf("      filter / H30WP: accel white %.1fx, gyro white %.1fx, accel bias rw %.1fx, gyro bias rw %.1fx\n",
                     c.q_accel_nd / h.accel_noise_density.maxCoeff(), c.q_gyro_nd / h.gyro_noise_density.maxCoeff(),
@@ -899,7 +1105,7 @@ int main() {
               (std::string("imu: TEST-025 ") + name + " model loads, with white noise and drift from the fit").c_str());
         // Which IMU LIO feeds the filter with is open (R6.4): the defaults must not be
         // overconfident for these two either (TEST-025: 1.4x to 16x above them).
-        const EskfConfig c;
+        const EskfConfig c = Cfg();
         const double r[4] = {c.q_accel_nd / m.accel_noise_density.maxCoeff(), c.q_gyro_nd / m.gyro_noise_density.maxCoeff(),
                              c.q_accel_bias_rw / m.accel_bias_rw, c.q_gyro_bias_rw / m.gyro_bias_rw};
         std::printf("      filter / %s: accel white %.1fx, gyro white %.1fx, accel bias rw %.1fx, gyro bias rw %.1fx\n",

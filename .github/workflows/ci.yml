@@ -106,25 +106,25 @@ jobs:
         run: |
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin | tee mc.txt
-          python3 tools/ci_check_mc.py mc.txt --max-cep50 20 --min-passing 17 --expect-imu h30wp
+          python3 tools/ci_check_mc.py mc.txt --expect-filter default --max-cep50 20 --min-passing 17 --expect-imu h30wp
 
       - name: Monte Carlo, Zermatt, 24 seeds (AGL model, R1.1)
         run: |
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl | tee mc_zermatt_agl.txt
-          python3 tools/ci_check_mc.py mc_zermatt_agl.txt --max-cep50 25 --min-passing 15 --expect-imu h30wp
+          python3 tools/ci_check_mc.py mc_zermatt_agl.txt --expect-filter default --max-cep50 25 --min-passing 15 --expect-imu h30wp
 
       - name: Monte Carlo, Zermatt, 24 seeds (AGL model, node start-up path, R1.2)
         run: |
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl --startup=node | tee mc_zermatt_node.txt
-          python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-cep50 15 --min-passing 19 --expect-imu h30wp
+          python3 tools/ci_check_mc.py mc_zermatt_node.txt --expect-filter default --max-cep50 15 --min-passing 19 --expect-imu h30wp
 
       # R1.5/R1.4: REQ-INT-001 (error > 3 x published sigma in at most 1% of samples)
       # on Zermatt, node start-up. Blocking since R1.4 (TEST-021: 0.00% on these 24
       # seeds, 0.46% on 100; it was about 14% before; TEST-024: 0.11% here, 0.60% on 100).
       - name: Consistency, Zermatt node start-up (REQ-INT-001)
-        run: python3 tools/ci_check_mc.py mc_zermatt_node.txt --max-over-3sigma 1 --max-nees-median 2.8
+        run: python3 tools/ci_check_mc.py mc_zermatt_node.txt --expect-filter default --max-over-3sigma 1 --max-nees-median 2.8
 
       # R1.3: onboard map differs from the truth world (REQ-DB-002). An SRTM-like map
       # (3x coarser, 6 m correlated noise, 3 m bias), 5 error patterns x 20 flights,
@@ -135,7 +135,7 @@ jobs:
           python3 tools/mc_map_ensemble.py --world data/maps/zermatt.bin --csv data/flight_zermatt_csv \
             --recipe "--coarsen 3 --noise 6 --corr 200 --bias 3" --maps 5 --per-map 20 --tag ci_srtm \
             -- --model=agl --startup=node | tee mc_zermatt_dbmap.txt
-          python3 tools/ci_check_mc.py mc_zermatt_dbmap.txt --max-cep50 35 --min-passing 80 --expect-imu h30wp
+          python3 tools/ci_check_mc.py mc_zermatt_dbmap.txt --expect-filter default --max-cep50 35 --min-passing 80 --expect-imu h30wp
 
       # R1.7: GNSS lost mid-flight with a covariance handover, scored from the loss over
       # 5 and 10 minutes (docs/requirements.md), on the 15 min Zermatt flight (make_data.sh).
@@ -147,7 +147,7 @@ jobs:
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_long_csv data/maps/zermatt.bin --model=agl --startup=node \
             --gnss-loss=150 | tee mc_zermatt_gnss_loss.txt
-          python3 tools/ci_check_mc.py mc_zermatt_gnss_loss.txt --expect-imu h30wp \
+          python3 tools/ci_check_mc.py mc_zermatt_gnss_loss.txt --expect-filter default --expect-imu h30wp \
             --gnss-free-max-cep95 300=35 --gnss-free-max-over-3sigma 300=1 --gnss-free-min-never-over-100 300=22 \
             --gnss-free-max-cep95 600=45 --gnss-free-max-over-3sigma 600=3
 
@@ -158,7 +158,7 @@ jobs:
           source env.sh
           tools/mc_run.sh 24 data/flight_zermatt_csv data/maps/zermatt.bin --model=agl --startup=node \
             --start-error=60 | tee mc_zermatt_start60.txt
-          python3 tools/ci_check_mc.py mc_zermatt_start60.txt --min-acquired 22 --max-over-3sigma 1 \
+          python3 tools/ci_check_mc.py mc_zermatt_start60.txt --expect-filter default --min-acquired 22 --max-over-3sigma 1 \
             --expect-imu h30wp
 
       - name: Fetch flight001 (release data-v1)
@@ -168,7 +168,7 @@ jobs:
         run: |
           source env.sh
           tools/mc_run.sh 100 data/flight001_csv data/maps/terrain_db_sigma4.bin --model=agl --baro-drift=5 | tee mc_flight001_agl.txt
-          python3 tools/ci_check_mc.py mc_flight001_agl.txt --max-cep50 32 --max-cep95 80 --min-passing 97 \
+          python3 tools/ci_check_mc.py mc_flight001_agl.txt --expect-filter default --max-cep50 32 --max-cep95 80 --min-passing 97 \
             --max-over-3sigma 1 --max-nees-median 2.8 --max-nis-over9 1 --expect-imu recorded
 
       # R1.7: GNSS lost at 150 s on the real recorded IMU. Regression guard only: this fails
@@ -181,7 +181,7 @@ jobs:
           source env.sh
           tools/mc_run.sh 24 data/flight001_csv data/maps/terrain_db_sigma4.bin --model=agl --baro-drift=5 \
             --gnss-loss=150 | tee mc_flight001_gnss_loss.txt
-          python3 tools/ci_check_mc.py mc_flight001_gnss_loss.txt --expect-imu recorded \
+          python3 tools/ci_check_mc.py mc_flight001_gnss_loss.txt --expect-filter default --expect-imu recorded \
             --gnss-free-max-cep95 300=90 --gnss-free-max-over-3sigma 300=15 --gnss-free-max-cep95 600=95
 
       # R1.9: the selftest and short MC runs through each code path, built with

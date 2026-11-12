@@ -53,7 +53,7 @@ out_dir = ROOT / "data/maps/ensemble"
 out_dir.mkdir(parents=True, exist_ok=True)
 env = {"GDN_ROOT": str(ROOT), "PATH": "/usr/bin:/bin"}
 
-imu_line = scen_line = ""
+imu_line = scen_line = filter_line = ""
 acq = defaultdict(lambda: [0, 0])     # start error -> [under 100 m at 120 s, flights], summed over maps
 vert = []                             # per map: altitude error p50, p95, max
 per_seed = defaultdict(lambda: {"err": [], "over": [], "nees": [], "t": []})
@@ -70,6 +70,10 @@ for k in range(a.maps):
     line = next((l for l in res.splitlines() if l.startswith("per-seed RMS")), "")
     imu_line = next((l for l in res.splitlines() if l.startswith("imu:")), imu_line if k else "")
     scen_line = next((l for l in res.splitlines() if l.startswith("scenario:")), scen_line)
+    fl = next((l for l in res.splitlines() if l.startswith("filter:")), "")
+    if k and fl != filter_line:   # R1.10: the same args give the same config; check anyway
+        sys.exit(f"map {k}: filter configuration changed between runs:\n  {filter_line}\n  {fl}")
+    filter_line = fl
     print(f"map {k:2d}: {info.split('vs truth: ')[-1]} | {line.split('passing')[-1].strip()}")
     for m in re.finditer(r"^acquisition \(REQ-ACQ-001\): start error ([0-9.]+) m: .*?: (\d+)/(\d+) flights", res, re.M):
         acq[m.group(1)][0] += int(m.group(2)); acq[m.group(1)][1] += int(m.group(3))
@@ -94,6 +98,8 @@ nees = np.concatenate([np.array(d["nees"]) for d in per_seed.values()])
 rms = np.array([np.sqrt(np.mean(np.square(d["err"]))) for d in per_seed.values()])
 n = len(rms); n_pass = int((rms < 100.0).sum())
 print(imu_line)   # R1.6: which IMU model the results are for
+if filter_line:
+    print(filter_line)   # R1.10: which filter configuration, with its fingerprint
 if scen_line:
     print(scen_line)   # R1.7: GNSS loss / start error
 print(f"map ensemble: {a.maps} maps x {a.per_map} flights, recipe '{a.recipe}', "

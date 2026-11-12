@@ -41,18 +41,19 @@ This is the technical reference for the estimator. For the project overview see 
 | pub | `/gdn/sigma` | `std_msgs/Float64` | horizontal position 1-sigma, m (1 Hz) |
 
 Node parameters: `map_path` (relative paths resolve against `$GDN_ROOT`), `trn_model`
-(`agl` or `ideal`), `r_trn`, `slope_min`, `gate_sigma`, `gate_abs_m`, `clamp_dv`, and
-`mag_ref_north`, `mag_ref_east`, `mag_ref_down` (the local field in uT; the defaults
-are the bench's, SITL passes the Gazebo world's), and `mag_fusion` (`full`, or `align`
-to use the magnetometer for the initial yaw only; a diagnostic for OI-012).
+(`agl` or `ideal`: which measurement topic it uses), `filter_config` (default
+`config/filter/default.yaml`, see Configuration below), and one parameter for every key
+of that file, defaulting to the file's value. So `-p r_agl:=50` or
+`-p mag_ref_down:=45` overrides one setting (SITL passes the Gazebo world's field as
+`mag_ref_*`); the start-up log names the file, the fingerprint and the overrides.
 
 IMU holes: each `sensor_combined` holds the mean rate over `gyro_integral_dt`. When
 the time since the previous message is longer than that, samples were lost upstream.
 The node then calls `Eskf::InflateForGap`, which widens the attitude covariance by
-twice the current rate times the hole plus 1 degree, and the velocity covariance by
-2 m/s^2 times the hole. If messages routinely cover much less than their spacing, it
-logs an error (on PX4, set `IMU_INTEG_RATE` to the DDS rate). Defaults come from `EskfConfig`, so
-the node, selftest and Monte Carlo always run the same configuration.
+`gap_att_rate_scale` (2) times the current rate times the hole plus `gap_att_floor_deg`
+(1 degree), and the velocity covariance by `gap_vel_accel` (2 m/s^2) times the hole. If
+messages routinely cover much less than their spacing, it logs an error (on PX4, set
+`IMU_INTEG_RATE` to the DDS rate).
 
 `map_viz_node` draws the map as a terrain mesh in the RViz `map` frame (ENU, x east,
 y north, z = 0 at the map centre), using the map's own metres per degree. Its
@@ -114,15 +115,34 @@ core; the node drops IMU gaps above 0.25 s. Covariance: P ← ΦPΦᵀ + Qc·h, 
 7. **Barometer** (`ApplyBaro`): H has 1 at δp_z and δb_baro, so it observes the sum
    z + bias.
 
-**Configuration** (`EskfConfig` defaults):
+**Configuration** (R1.10, TEST-028). Every tuning value is in one file,
+`config/filter/default.yaml`, with what each one is for and where its value came from.
+The code holds none: `EskfConfig` and `GroundConfig` start out unset (NaN), so a filter
+built without a loaded file goes visibly wrong. `gdn/filter_config.hpp` reads the file:
 
-| Group | Values |
-|---|---|
-| TRN | `r_trn`=400 (σ=20 m), `slope_min`=0.02, `gate_sigma`=3, `gate_abs_m`=40 |
-| AGL | `r_agl`=100 (σ=10 m, sensor plus map error), `gate_agl_sigma`=3, `gate_agl_abs_m`=40; node `datum_sigma_m`=5 |
-| Clamps | `clamp_dtheta_deg`=180 (relaxed for mag alignment), `clamp_dv`=0.5, `clamp_dva`=5e-3, `clamp_dvg_deg`=0.05, `clamp_dvm`=5 |
-| Baro | `r_baro`=4, `q_baro_bias`=0.05 (was 1e-3; see TEST-017), `p0_baro_bias`=25, `gate_baro_sigma`=5 |
-| Mag | `r_mag`=4, `q_mag_bias`=1e-5, `p0_mag_bias`=100, `gate_mag_sigma`=5; reference field N/E/D = 21.5/1.3/42.3 uT (WMM, Zurich) |
+- **Strict.** Every key is required, an unknown key or one given twice is an error, and
+  values are range-checked. A typo can't fall back to a value nobody chose.
+- **One file for everyone.** The node (`filter_config`), the MC (`--config`) and the
+  selftest load the same file, so they can't drift apart. Before R1.10 they had: the
+  altitude datum was 5.0 m in the node and 5.4 m in the MC (now 5.4 m in both).
+- **Traceable.** The node's log and every MC report carry a `filter:` line: the name,
+  the file, a fingerprint (a 64-bit FNV-1a hash of every value, as 12 hex digits) and
+  any overrides. Same fingerprint, same numbers. `mc_campaign --dump-config=FILE`
+  writes the values run as a file `--config` reads back bit for bit;
+  `tools/ci_check_mc.py --expect-filter default` fails a run that isn't the default
+  file without overrides; `tools/score_requirements.py` refuses to put reports from
+  different configurations on one scorecard.
+- **Overrides** for experiments: `mc_campaign --set=KEY=VALUE` (and the older `--r-agl`,
+  `--q-baro`, `--q-*`, `--mag` shorthands), or node parameters.
+  `tools/config_sensitivity.py` halves and doubles each setting through `--set` and
+  scores the result (TEST-028 ranks them).
+
+Groups in the file: TRN (`r_trn`, gates), altimeter (`r_agl`, gates, `datum_sigma_m`),
+barometer, IMU process noise, static alignment, starting covariance (`p0_*`,
+`yaw_sigma_*`), on-ground detection and ZUPT (`ground_*`, `zupt_sigma_v`), magnetometer
+(`mag_fusion`, noise, `mag_auto_*`, the reference field `mag_ref_*`), gain limits
+(`clamp_*`) and IMU holes (`gap_*`, node only). Other vehicles or sites get their own
+file in `config/filter/`; the selftest loads every file there.
 
 **Numerical hygiene:** every covariance write passes `Repair()`: an LLT check, and on
 failure an eigenvalue clamp to at least 1e-9.
@@ -174,7 +194,7 @@ keep their recorded IMU (`mc_campaign --imu`). The default model is the H30WP's 
 fit (`config/imu/h30wp.yaml`, from a 2 h bench log; `tools/allan_fit.py` fits the drift
 as an upper envelope over 30 s to 10 min, so it doesn't promise a better IMU than was
 measured where the GNSS-free windows are scored). Every MC report names the model on
-its `imu:` line. The filter's IMU process noise is in `EskfConfig` (`q_accel_nd`,
+its `imu:` line. The filter's IMU process noise is in the filter config (`q_accel_nd`,
 `q_gyro_nd`, `q_accel_bias_rw`, `q_gyro_bias_rw`); the selftest (TEST-024) keeps it at
 or above the H30WP's, with the bias random walks within 10x of it, and (TEST-025) not
 below the Mid-360S's or OAK-D Lite's either, since LIO and VIO may feed it from those.

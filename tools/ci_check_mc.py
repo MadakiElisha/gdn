@@ -29,6 +29,9 @@ ap.add_argument("--max-nis-over9", type=float,
 # R1.6: results are labelled with the IMU model they used ("imu: NAME ..." line).
 ap.add_argument("--expect-imu",
                 help="fail unless the report's imu: line names this model (e.g. h30wp, placeholder-px4-default, recorded)")
+# R1.10: results name the filter configuration ("filter: NAME (FILE), fingerprint F[; overrides ...]").
+ap.add_argument("--expect-filter",
+                help="fail unless the report's filter: line names this configuration, with no overrides (e.g. default)")
 # R1.7: "GNSS-free D s: ..." lines (mc_campaign --gnss-loss) and the acquisition line
 # (--start-error). Each GNSS-free option takes D=VALUE and can be repeated.
 ap.add_argument("--gnss-free-max-cep95", action="append", default=[], metavar="D=M",
@@ -63,6 +66,11 @@ imu = re.search(r"^imu: (\S+)", text, re.M)
 print("imu: " + (imu.group(1) if imu else "(no imu: line)"))
 if a.expect_imu is not None and (not imu or imu.group(1) != a.expect_imu):
     failures.append(f"IMU model {imu.group(1) if imu else 'not stated'}, expected {a.expect_imu}")
+filt = re.search(r"^filter: (\S+) \(.*$", text, re.M)
+print("filter: " + (filt.group(0)[8:] if filt else "(no filter: line)"))
+if a.expect_filter is not None and (not filt or filt.group(1) != a.expect_filter or "; overrides" in filt.group(0)):
+    failures.append(f"filter configuration {filt.group(0)[8:] if filt else 'not stated'}, "
+                    f"expected {a.expect_filter} with no overrides")
 if a.max_cep50 is not None and cep50 > a.max_cep50:
     failures.append(f"CEP50 {cep50:.1f} m > {a.max_cep50} m")
 if a.max_cep95 is not None and cep95 > a.max_cep95:

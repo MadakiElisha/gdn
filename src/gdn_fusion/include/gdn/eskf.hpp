@@ -8,71 +8,60 @@
 #include <utility>
 #include <algorithm>
 #include "gdn/map_db.hpp"
+#include "gdn/unset.hpp"
 
 namespace gdn {
 
+// The filter's settings. No values here: they come from a config file
+// (config/filter/default.yaml, read by gdn/filter_config.hpp, R1.10), which also says
+// what each one is for and where its value came from. Units below.
 struct EskfConfig {
-    double r_trn = 400.0;
-    double slope_min = 0.02;
-    double gate_sigma = 3.0;
-    double gate_abs_m = 40.0;
-    // Altimeter / height-above-ground (R1.1). r_agl lumps sensor noise and onboard-map
-    // error. 100 m^2 (10 m sigma) came out best in the flight001 MC sweep (TEST-017).
-    double r_agl = 100.0;
-    double gate_agl_sigma = 3.0;
-    double gate_agl_abs_m = 40.0;
-    double clamp_dtheta_deg = 180.0;  // Relaxed to allow coarse mag yaw alignment without covariance collapse  // relaxed: 0.2 deg broke mag convergence
-    double clamp_dp = 5.0;
-    double clamp_dv = 0.5;
-    double clamp_dva = 0.005;
-    double clamp_dvg_deg = 0.05;
-    double clamp_dvm = 5.0;      // uT per update (mag bias clamp)
-    // IMU process noise (densities), against the H30WP's Allan fit (config/imu/h30wp.yaml,
-    // TEST-024): white noise 33x (accel) and 3.7x (gyro) the bench values, since flight
-    // adds vibration (q_accel_nd is still open, OI-013); bias random walks 5.3x and 4.4x,
-    // never below the sensor and never so loose that attitude wanders (selftest TEST-024).
-    double q_accel_nd = 0.02;                   // m/s^2/sqrt(Hz)
-    double q_gyro_nd = 0.02 * M_PI / 180.0;     // rad/s/sqrt(Hz)
-    double q_accel_bias_rw = 5e-4;              // m/s^3/sqrt(Hz)
-    double q_gyro_bias_rw = 0.001 * M_PI / 180.0;  // rad/s^2/sqrt(Hz); 0.01 deg before R1.6 hardware
-    double still_rate = 0.05;
-    int    static_n = 500;
-    double max_gyro_mean = 0.02;
-    double max_grav_dev = 0.5;
-    double max_accel_var = 1.0;
-    // Barometer (OI-002)
-    // Baro-bias random walk, m^2/s. 0.05 lets the bias move about 4 m in 5 minutes
-    // (1 sigma), enough to follow a pressure change. 0.001 couldn't track drift and
-    // leaked it into position (TEST-017 sweep).
-    double q_baro_bias = 0.05;
-    double p0_baro_bias = 25.0;
-    double r_baro = 4.0;
-    double gate_baro_sigma = 5.0;
-    // Magnetometer (OI-003)
-    double q_mag_bias = 1e-5;     // (uT/s)^2/s : mag bias random walk PSD
-    double p0_mag_bias = 100.0;   // uT^2 : initial mag bias variance (sigma=10uT)
-    double r_mag = 4.0;           // uT^2 : mag measurement noise (sigma=2uT)
-    double gate_mag_sigma = 5.0;  // 5-sigma innovation gate for mag (Mahalanobis)
-    // Heading-only fusion (R1.4) assumes a calibrated compass; this is the residual hard
-    // iron after calibration, uT (1 sigma), treated as measurement noise.
-    double mag_heading_cal_sigma = 0.5;
-    // ApplyMagAuto (R1.4): 3-axis update only while the measured field looks like the
-    // Earth field, averaged over about 1 s (time constant mag_auto_tau, in updates):
-    // strength within mag_auto_norm_tol uT and dip within mag_auto_dip_tol_deg of the
-    // reference. Otherwise heading only.
-    double mag_auto_norm_tol = 2.0;
-    double mag_auto_dip_tol_deg = 2.0;
-    double mag_auto_tau = 10.0;
-    // Hysteresis: after a disturbance, stay heading-only until the field has looked clean
-    // for this many updates. Off by default: at these tolerances auto doesn't flap, and a
-    // 30-update hold cost the Zermatt MC (99/100 and 1.77% over 3 sigma, against 100/100
-    // and 0.46%) because manoeuvres trip the check briefly. With tighter tolerances noise
-    // lets single 3-axis updates through a disturbance, each kicking the tilt (up to 13 deg
-    // in the TEST-021 sweep); set a hold of about 30 then.
-    int mag_auto_hold = 0;
-    double mag_ref_north = 21.5;  // WMM Zurich  // uT : reference field N
-    double mag_ref_east = 1.3;   // WMM Zurich    // uT : reference field E
-    double mag_ref_down = 42.3;  // WMM Zurich   // uT : reference field D
+    double r_trn = kUnset;                    // m^2, TRN ("ideal") measurement variance
+    double slope_min = kUnset;                // terrain slope below which TRN doesn't update
+    double gate_sigma = kUnset;               // TRN innovation gate, sigma
+    double gate_abs_m = kUnset;               // TRN innovation gate, m
+    double r_agl = kUnset;                    // m^2, height-above-ground measurement variance
+    double gate_agl_sigma = kUnset;           // AGL innovation gate, sigma
+    double gate_agl_abs_m = kUnset;           // AGL innovation gate, m
+    double clamp_dtheta_deg = kUnset;         // gain limits per update: attitude, deg
+    double clamp_dv = kUnset;                 //   velocity, m/s
+    double clamp_dva = kUnset;                //   accel bias, m/s^2
+    double clamp_dvg_deg = kUnset;            //   gyro bias, deg/s
+    double clamp_dvm = kUnset;                //   mag bias, uT
+    double q_accel_nd = kUnset;               // m/s^2/sqrt(Hz)
+    double q_gyro_nd = kUnset;                // rad/s/sqrt(Hz)
+    double q_accel_bias_rw = kUnset;          // m/s^3/sqrt(Hz)
+    double q_gyro_bias_rw = kUnset;           // rad/s^2/sqrt(Hz)
+    double still_rate = kUnset;               // static alignment: rate below which a sample is still, rad/s
+    int static_n = kUnsetInt;                 //   still samples needed
+    double max_gyro_mean = kUnset;            //   rad/s
+    double max_grav_dev = kUnset;             //   m/s^2
+    double max_accel_var = kUnset;            //   (m/s^2)^2
+    double q_baro_bias = kUnset;              // m^2/s
+    double p0_baro_bias = kUnset;             // m^2
+    double r_baro = kUnset;                   // m^2
+    double gate_baro_sigma = kUnset;          // sigma
+    double q_mag_bias = kUnset;               // (uT/s)^2/s
+    double p0_mag_bias = kUnset;              // uT^2
+    double r_mag = kUnset;                    // uT^2
+    double gate_mag_sigma = kUnset;           // sigma (Mahalanobis)
+    double mag_heading_cal_sigma = kUnset;    // uT
+    double mag_auto_norm_tol = kUnset;        // uT
+    double mag_auto_dip_tol_deg = kUnset;     // deg
+    double mag_auto_tau = kUnset;             // updates
+    int mag_auto_hold = kUnsetInt;            // updates
+    double mag_ref_north = kUnset;            // uT, Earth field at the operating area (NED)
+    double mag_ref_east = kUnset;             // uT
+    double mag_ref_down = kUnset;             // uT
+    double zupt_sigma_v = kUnset;             // m/s, zero-velocity update noise
+    double gate_zupt_chi2 = kUnset;           // ZUPT gate on the 3-dof Mahalanobis distance squared
+    double p0_pos = kUnset;                   // m^2, starting position variance per axis
+    double p0_vel = kUnset;                   // (m/s)^2
+    double p0_tilt_sigma_deg = kUnset;        // deg, roll and pitch after static alignment
+    double p0_accel_bias = kUnset;            // (m/s^2)^2
+    double p0_gyro_bias_sigma_deg = kUnset;   // deg/s
+    double yaw_sigma_transfer_deg = kUnset;   // deg, heading after TransferAlignYaw
+    double yaw_sigma_mag_align_deg = kUnset;  // deg, heading after AlignYawFromMag
 };
 
 class Eskf {
@@ -85,7 +74,7 @@ public:
     static constexpr double kDeg = M_PI / 180.0;
     enum class UpdResult : std::uint8_t { kApplied, kSlopeGate, kInnovGate };
 
-    explicit Eskf(const EskfConfig& cfg = EskfConfig{}) : cfg_(cfg) {
+    explicit Eskf(const EskfConfig& cfg) : cfg_(cfg) {
         g_ = V3(0, 0, kG);
         q_ = Eigen::Quaterniond::Identity();
         pos_ = vel_ = ba_ = bg_ = V3::Zero();
@@ -166,7 +155,7 @@ public:
         const Eigen::Matrix3d Rz = rz.toRotationMatrix();
         q_ = rz * q_; pos_ = Rz * pos_; vel_ = Rz * vel_;
         x_.setZero();
-        ResetCovariance(1.0 * kDeg);
+        ResetCovariance(cfg_.yaw_sigma_transfer_deg * kDeg);
         yaw_aligned_ = true;
     }
 
@@ -288,15 +277,18 @@ public:
         
         // Innovation: we want nominal velocity to be 0
         Eigen::Vector3d y = -vel_;
-        
-        const double r_zupt = 0.05 * 0.05; // 0.05 m/s noise
+
+        const double r_zupt = cfg_.zupt_sigma_v * cfg_.zupt_sigma_v;
         Eigen::Matrix3d R = r_zupt * Eigen::Matrix3d::Identity();
         Eigen::Matrix3d S = (H * P_ * H.transpose()) + R;
         
         // Very loose gate to prevent lockout if drift already happened
         double d2 = y.transpose() * S.inverse() * y;
-        if (d2 > 100.0) { n_rej_++; return UpdResult::kInnovGate; }
-        
+        if (d2 > cfg_.gate_zupt_chi2) {
+            n_rej_++;
+            return UpdResult::kInnovGate;
+        }
+
         Eigen::Matrix3d S_inv = S.inverse();
         Eigen::Matrix<double, 19, 3> K = P_ * H.transpose() * S_inv;
         // Zero velocity says nothing about heading (rotating a parked vehicle about the
@@ -607,7 +599,7 @@ public:
         x_.setZero();
         // Reset covariance to flight-phase values (mirrors GNSS TransferAlignYaw)
         // This opens up pos/vel/gyro-bias covariances so TRN can correct takeoff transients.
-        ResetCovariance(5.0 * kDeg);
+        ResetCovariance(cfg_.yaw_sigma_mag_align_deg * kDeg);
         yaw_aligned_ = true;
     }
 
@@ -624,16 +616,17 @@ public:
 private:
     void ResetCovariance(double yaw_bump_rad) {
         P_.setZero();
-        P_.block<3,3>(0,0).diagonal().setConstant(100.0);
-        P_.block<3,3>(3,3).diagonal().setConstant(1.0);
+        P_.block<3, 3>(0, 0).diagonal().setConstant(cfg_.p0_pos);
+        P_.block<3, 3>(3, 3).diagonal().setConstant(cfg_.p0_vel);
         // Pitch and Roll are heavily constrained by gravity during static alignment.
-        P_(6,6) = (0.5*kDeg) * (0.5*kDeg);
-        P_(7,7) = (0.5*kDeg) * (0.5*kDeg);
+        P_(6, 6) = (cfg_.p0_tilt_sigma_deg * kDeg) * (cfg_.p0_tilt_sigma_deg * kDeg);
+        P_(7, 7) = (cfg_.p0_tilt_sigma_deg * kDeg) * (cfg_.p0_tilt_sigma_deg * kDeg);
         // Yaw is completely unobservable from static gravity.
         P_(8,8) = (180.0*kDeg) * (180.0*kDeg);
         if (yaw_bump_rad > 0) P_(8, 8) = yaw_bump_rad * yaw_bump_rad;
-        P_.block<3,3>(9,9).diagonal().setConstant(0.01);
-        P_.block<3,3>(12,12).diagonal().setConstant((0.1*kDeg) * (0.1*kDeg));
+        P_.block<3, 3>(9, 9).diagonal().setConstant(cfg_.p0_accel_bias);
+        P_.block<3, 3>(12, 12).diagonal().setConstant((cfg_.p0_gyro_bias_sigma_deg * kDeg) *
+                                                      (cfg_.p0_gyro_bias_sigma_deg * kDeg));
         P_(15,15) = cfg_.p0_baro_bias;
         P_.block<3,3>(16,16).diagonal().setConstant(cfg_.p0_mag_bias);
     }
@@ -663,8 +656,6 @@ private:
 public:
     int clamps() const { return n_clamp_; }   // gain-limit events (R1.4)
 private:
-    static V3 Clamp(const V3& v, double lim) {
-        const double n = v.norm(); return (n > lim) ? v * (lim / n) : v; }
     static M19 Repair(const M19& P) {
         Eigen::LLT<M19> llt(P);
         if (llt.info() == Eigen::Success) return P;
