@@ -38,6 +38,10 @@ fi
 PIDS=()
 cleanup() {
   echo; echo "sim_run: stopping"
+  # GDN first, with SIGINT (its clean shutdown), so its run log (R1.11) is closed and
+  # indexed; after a hard kill it needs "ros2 bag reindex". Up to 15 s.
+  pkill -INT -f "gdn_fusion/eskf_node" 2>/dev/null
+  for _ in $(seq 1 30); do pgrep -f "gdn_fusion/eskf_node" >/dev/null || break; sleep 0.5; done
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
   sleep 1
   pkill -f "px4_sitl_default/bin/px4" 2>/dev/null

@@ -1,0 +1,10 @@
+seq,t,level,text
+1256,0.0,0,"static alignment: ba=0.0067 m/s2, bg=0.0015 deg/s"
+1258,0.0,0,heading from magnetometer at t=0.0
+2495,1794580406.07637,1,IMU sample dropped: dt 0.284 s (count 1)
+29082,1794580520.030247,0,"altitude datum 2593.1 m AMSL (map 2593.0 + AGL 0.2), baro bias 0.35 m"
+29118,1794580520.186441,0,airborne latch set at t=1794580520.2 (IMU motion for 0.5 s): ZUPT off
+43545,1794580581.647014,1,IMU gap absorbed 0.116 s (count 1)
+43545,1794580581.647014,1,IMU hole of 104 ms (rate 85 dps): attitude uncertainty widened (count 1)
+65123,1794580673.6882138,1,IMU gap absorbed 0.114 s (count 2)
+65123,1794580673.6882138,1,IMU hole of 102 ms (rate 0 dps): attitude uncertainty widened (count 2)

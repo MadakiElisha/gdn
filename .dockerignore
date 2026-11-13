@@ -1,0 +1,5 @@
+# The dev image (docker/Dockerfile) only needs its own files and the package
+# manifests (for rosdep). The workspace itself is mounted, not copied.
+*
+!docker/
+!src/*/package.xml
