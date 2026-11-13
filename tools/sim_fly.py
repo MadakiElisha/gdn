@@ -88,6 +88,7 @@ class Flyer(Node):
         self.t_takeoff = None
         self.gps_off_sent = False
         self.landing = False
+        self.done = False
         self.create_timer(0.1, self.step)
 
     def on_pos(self, m):
@@ -118,6 +119,11 @@ class Flyer(Node):
         mode.position = True
         self.pub_mode.publish(mode)
         if self.landing:
+            # PX4 disarms by itself once it has landed (COM_DISARM_LAND). Then this
+            # script is done, and tools/sim_run.sh goes on to score and stop the run.
+            if not self.armed and not self.done:
+                self.done = True
+                self.get_logger().info("landed and disarmed, done")
             return
         target = self.route[self.idx]
         if self.pos is not None and self.t_takeoff is None:
@@ -185,7 +191,14 @@ def main():
                     help="inject a GPS failure this many seconds after reaching cruise height")
     a = ap.parse_args()
     rclpy.init()
-    rclpy.spin(Flyer(a))
+    node = Flyer(a)
+    try:
+        while rclpy.ok() and not node.done:   # until landed and disarmed (or Ctrl+C)
+            rclpy.spin_once(node, timeout_sec=0.1)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

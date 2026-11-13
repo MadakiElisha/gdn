@@ -1,0 +1,51 @@
+name: docker
+
+# R2.1: the dev image still builds, and the simulation loop runs in it. Only when the
+# image's files change (agreed: about 40 minutes, so not on every PR). No GPU on the
+# hosted runners, so this is the CPU check: versions, GDN build and selftest, the world
+# check, and a short headless SITL flight. The GPU check (tools/docker_check.sh --gpu)
+# runs on a machine with an NVIDIA GPU.
+on:
+  pull_request:
+    paths:
+      - "docker/**"
+      - ".dockerignore"
+      - "tools/docker_dev.sh"
+      - "tools/docker_check.sh"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The image is about 10 GB and the runner has about 14 GB free; remove toolchains
+      # this job doesn't use.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
+
+      - name: Build the dev image
+        run: tools/docker_dev.sh build --progress=plain
+
+      - name: Check the image (CPU)
+        run: tools/docker_check.sh
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-check-logs
+          path: log/docker_check/
+          if-no-files-found: ignore
