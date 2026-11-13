@@ -128,6 +128,14 @@ Done when: MC results with R1.1 to R1.7 all switched on are written up as a new 
 report, scored against R1.8. At this point we expect the large-start-error cases to
 fail; Phase 4 fixes those.
 
+**Phase 1 done (TEST-030).** With R1.1 to R1.7 all on (checked: `score_requirements.py
+--phase1` refuses a run with any of them off), fixed-wing on SRTM-like maps scores 1 pass
+and 25 fails, as in TEST-026. The pass is acquisition from 60 m on Zermatt. The 150 and
+500 m start errors fail, as expected until R4.1. The GNSS-loss cases fail on runaways
+(OI-009), integrity and altitude (OI-014), with CEP95 near the limits. Zermatt's results
+are byte-identical to TEST-026 (R1.9 to R1.11 changed none). flight001 now uses the
+node's start-up instead of the truth one, which costs it about 6 m of CEP95.
+
 ## Phase 2: simulation environment
 
 Goal: a closed-loop simulation good enough that passing it means something. PX4 flies

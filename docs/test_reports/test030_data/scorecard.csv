@@ -1,0 +1,27 @@
+scenario,class,requirement,what,measured,limit,verdict
+"Zermatt 15 min, GNSS lost at 150 s",fixed-wing,REQ-NAV-003,CEP95 at 5 min,62.4 m,50 m,FAIL
+"Zermatt 15 min, GNSS lost at 150 s",fixed-wing,REQ-NAV-003,max at 5 min,77/100 flights,"100 m, 99%",FAIL
+"Zermatt 15 min, GNSS lost at 150 s",fixed-wing,REQ-INT-001,over 3 sigma at 5 min,4.22%,1%,FAIL
+"Zermatt 15 min, GNSS lost at 150 s",fixed-wing,REQ-NAV-003,CEP95 at 10 min,80.8 m,75 m,FAIL
+"Zermatt 15 min, GNSS lost at 150 s",fixed-wing,REQ-NAV-003,max at 10 min,37/100 flights,"100 m, 99%",FAIL
+"Zermatt 15 min, GNSS lost at 150 s",fixed-wing,REQ-INT-001,over 3 sigma at 10 min,6.31%,1%,FAIL
+"Zermatt 15 min, GNSS lost at 150 s",fixed-wing,REQ-NAV-010,altitude p95,10.2 m,5 m,FAIL
+"flight001 (real IMU), GNSS lost at 150 s",fixed-wing,REQ-NAV-003,CEP95 at 5 min,91.2 m,50 m,FAIL
+"flight001 (real IMU), GNSS lost at 150 s",fixed-wing,REQ-NAV-003,max at 5 min,45/100 flights,"100 m, 99%",FAIL
+"flight001 (real IMU), GNSS lost at 150 s",fixed-wing,REQ-INT-001,over 3 sigma at 5 min,13.06%,1%,FAIL
+"flight001 (real IMU), GNSS lost at 150 s",fixed-wing,REQ-NAV-003,CEP95 at 10 min,101.8 m,75 m,FAIL
+"flight001 (real IMU), GNSS lost at 150 s",fixed-wing,REQ-NAV-003,max at 10 min,23/100 flights,"100 m, 99%",FAIL
+"flight001 (real IMU), GNSS lost at 150 s",fixed-wing,REQ-INT-001,over 3 sigma at 10 min,8.91%,1%,FAIL
+"flight001 (real IMU), GNSS lost at 150 s",fixed-wing,REQ-NAV-010,altitude p95,15.4 m,5 m,FAIL
+"Zermatt 177 s, start error",fixed-wing,REQ-INT-001,"over 3 sigma, whole run",3.86%,1%,FAIL
+"Zermatt 177 s, start error",fixed-wing,REQ-ACQ-001,from 60 m,99/100 flights,"100 m at 120 s, 99%",PASS
+"Zermatt 177 s, start error",fixed-wing,REQ-INT-001,"over 3 sigma, whole run",30.88%,1%,FAIL
+"Zermatt 177 s, start error",fixed-wing,REQ-ACQ-001,from 150 m,84/100 flights,"100 m at 120 s, 99%",FAIL
+"Zermatt 177 s, start error",fixed-wing,REQ-INT-001,"over 3 sigma, whole run",94.98%,1%,FAIL
+"Zermatt 177 s, start error",fixed-wing,REQ-ACQ-001,from 500 m,7/100 flights,"100 m at 120 s, 99%",FAIL
+"flight001, start error",fixed-wing,REQ-INT-001,"over 3 sigma, whole run",17.41%,1%,FAIL
+"flight001, start error",fixed-wing,REQ-ACQ-001,from 60 m,61/100 flights,"100 m at 120 s, 99%",FAIL
+"flight001, start error",fixed-wing,REQ-INT-001,"over 3 sigma, whole run",58.07%,1%,FAIL
+"flight001, start error",fixed-wing,REQ-ACQ-001,from 150 m,24/100 flights,"100 m at 120 s, 99%",FAIL
+"flight001, start error",fixed-wing,REQ-INT-001,"over 3 sigma, whole run",96.13%,1%,FAIL
+"flight001, start error",fixed-wing,REQ-ACQ-001,from 500 m,1/100 flights,"100 m at 120 s, 99%",FAIL

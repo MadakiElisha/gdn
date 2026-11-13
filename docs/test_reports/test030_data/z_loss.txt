@@ -1,0 +1,17 @@
+map  0: mean +2.2 m, RMS 8.0 m, max 61.1 m | (<100 m): 20/20
+map  1: mean +2.9 m, RMS 8.4 m, max 59.3 m | (<100 m): 20/20
+map  2: mean +1.9 m, RMS 8.0 m, max 71.9 m | (<100 m): 20/20
+map  3: mean -0.4 m, RMS 7.3 m, max 58.2 m | (<100 m): 20/20
+map  4: mean +5.5 m, RMS 9.3 m, max 59.0 m | (<100 m): 20/20
+imu: h30wp (WHEELTEC H30WP (Yesense), 2.25 h bench log 2026-11-09 by tools/h30wp_log.py, first 15 min dropped; the room warmed after the AC went off (TEST-024), 2.0 h static) on imu_truth.csv
+filter: default (config/filter/default.yaml), fingerprint 9025345f59ba
+scenario: GNSS (simulated, 5 Hz, 1.5 m and 0.1 m/s per axis) until t=150 s, then lost; the filter keeps its covariance (handover). Scored from the loss.
+map ensemble: 5 maps x 20 flights, recipe '--coarsen 3 --noise 6 --corr 200 --bias 3', mc: --model=agl --startup=node --gnss-loss=150, pooled n=120100
+mc setup: model agl, startup node (IMU ground, mag auto), baro drift 0.0 m
+CEP50: 26.5 m  CEP95: 80.8 m  MAX: 242.7 m  in-spec(<100 m): 97.2%
+per-seed RMS: median 38.3 m  p95 54.4 m  worst 61.6 m  passing(<100 m): 100/100
+consistency: NEES mean 6.78 median 3.80 (consistent: 2, 1.39), outside 3-sigma ellipse 23.5% (1.1%)
+consistency: error > 3 x published sigma 6.31% (REQ-INT-001: at most 1%)
+GNSS-free 300 s: CEP50 21.1 m  CEP95 62.4 m  max 154.1 m  over 3 sigma 4.22%  flights never over 100 m: 77/100
+GNSS-free 600 s: CEP50 26.5 m  CEP95 80.8 m  max 242.7 m  over 3 sigma 6.31%  flights never over 100 m: 37/100
+vertical: altitude error p50 6.2 m  p95 10.2 m  max 13.8 m (largest of the 5 maps)

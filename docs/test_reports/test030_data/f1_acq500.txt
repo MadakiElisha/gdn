@@ -1,0 +1,16 @@
+map  0: mean +2.3 m, RMS 6.8 m, max 23.9 m | (<100 m): 1/20
+map  1: mean +3.2 m, RMS 7.1 m, max 26.3 m | (<100 m): 0/20
+map  2: mean +2.6 m, RMS 6.9 m, max 26.7 m | (<100 m): 0/20
+map  3: mean +1.6 m, RMS 6.6 m, max 25.5 m | (<100 m): 0/20
+map  4: mean +3.4 m, RMS 7.2 m, max 27.3 m | (<100 m): 0/20
+imu: recorded (imu.csv as logged, plus a per-flight offset of 0.05 m/s^2 and 0.02 deg/s)
+filter: default (config/filter/default.yaml), fingerprint ec8c98aece91; overrides mag_fusion=align
+scenario: no GNSS; start error 500 m in a random direction, filter told sigma 500 m per axis
+map ensemble: 5 maps x 20 flights, recipe '--coarsen 3 --noise 6 --corr 200 --bias 3', mc: --model=agl --baro-drift=5 --startup=node --mag=align --start-error=500, pooled n=48100
+mc setup: model agl, startup node (IMU ground, mag align), baro drift 5.0 m
+CEP50: 598.1 m  CEP95: 2972.4 m  MAX: 8453.1 m  in-spec(<100 m): 1.6%
+per-seed RMS: median 612.2 m  p95 2620.4 m  worst 4352.9 m  passing(<100 m): 1/100
+consistency: NEES mean 4134.28 median 641.00 (consistent: 2, 1.39), outside 3-sigma ellipse 97.6% (1.1%)
+consistency: error > 3 x published sigma 96.13% (REQ-INT-001: at most 1%)
+vertical: altitude error p50 63.5 m  p95 118.1 m  max 133.6 m (largest of the 5 maps)
+acquisition (REQ-ACQ-001): start error 500 m: under 100 m at 120 s after take-off: 1/100 flights (pooled over 5 maps)
