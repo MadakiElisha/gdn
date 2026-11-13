@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <set>
+#include <sstream>
 #include <string>
 #include <variant>
 #include <vector>
@@ -187,9 +188,24 @@ inline bool SetFilterValue(FilterConfig* c, const std::string& key, const std::s
     return false;
 }
 
+// From key-value pairs read from a file or text (`path` names the source in errors).
+inline bool FilterConfigFromKeyValues(const std::vector<KeyValue>& kvs, const std::string& path, FilterConfig* out,
+                                      std::string* err);
+
 inline bool LoadFilterConfig(const std::string& path, FilterConfig* out, std::string* err) {
     std::vector<KeyValue> kvs;
-    if (!ReadKeyValues(path, &kvs, err)) return false;
+    return ReadKeyValues(path, &kvs, err) && FilterConfigFromKeyValues(kvs, path, out, err);
+}
+
+// From the text of a config file, e.g. the one a run log carries (R1.11).
+inline bool ParseFilterConfig(const std::string& text, const std::string& label, FilterConfig* out, std::string* err) {
+    std::istringstream is(text);
+    std::vector<KeyValue> kvs;
+    return ReadKeyValuesFrom(is, label, &kvs, err) && FilterConfigFromKeyValues(kvs, label, out, err);
+}
+
+inline bool FilterConfigFromKeyValues(const std::vector<KeyValue>& kvs, const std::string& path, FilterConfig* out,
+                                      std::string* err) {
     FilterConfig c;
     std::set<std::string> seen;
     for (const KeyValue& kv : kvs) {

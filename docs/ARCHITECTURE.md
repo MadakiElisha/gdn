@@ -9,7 +9,10 @@ This is the technical reference for the estimator. For the project overview see 
   and is compiled unchanged into the unit tests (`gdn_selftest`), the Monte Carlo
   driver (`mc_campaign`) and the ROS 2 node.
 - **ROS 2 is a thin I/O wrapper** (`src/gdn_fusion/src/eskf_node.cpp`): topics,
-  parameters, telemetry.
+  parameters, telemetry and the run log. The node's decisions (start-up, ZUPT, altitude
+  datum, magnetometer mode, IMU holes) live in the ROS-free `gdn::NavCore`
+  (`gdn/nav_core.hpp`, R1.11), which the offline replay (`gdn_replay`) runs too.
+- **Every run is logged and can be replayed bit for bit** (R1.11, "Run log" below).
 - **Every claim is backed by a deterministic replay or a statistical campaign**, with
   pre-registered metrics and decision rules.
 - **Vehicle-agnostic core**: the core contains no airframe model, so fixed-wing,
@@ -17,12 +20,15 @@ This is the technical reference for the estimator. For the project overview see 
   noise tuning and the terrain database. All validation to date is fixed-wing-like.
 
 ```
-[IMU + TRN meas + baro + mag] -> eskf_node (thin wrapper)
-          |                          |
-          v                          v
-     gdn::Eskf (core)  <-------  gdn::MapDb (terrain)
-          |
-          v
+[IMU + AGL/TRN + baro + mag] -> eskf_node (thin wrapper) ---> run log (MCAP) ---> gdn_replay
+                                     |                                               |
+                                     v                                               v
+                     gdn::NavCore (decisions) <------------- the same code ---------+
+                          |               |
+                          v               v
+                 gdn::Eskf (filter)   gdn::MapDb (terrain)
+                          |
+                          v
    /gdn/odom, /gdn/sigma  ->  replay_scorer / RViz / downstream
 ```
 
@@ -62,6 +68,46 @@ moved by `datum_offset_m`) or `terrain` (the map height plus `terrain_clearance_
 
 In closed-loop SITL (`docs/SIMULATION.md`), `tools/sim_adapter.py` publishes the same
 `/gdn/*` measurement topics from Gazebo's sensors, so the node runs unchanged.
+
+## Run log (R1.11)
+
+Every node run writes one MCAP file (`log/gdn_runs/gdn_<UTC time>/`, parameters
+`log_enable` and `log_dir`), with everything needed to replay and diagnose it offline:
+
+| Topic | Type | What |
+|---|---|---|
+| `/gdn/log/run_info` | `gdn_msgs/RunInfo` | first message: the config's values, name and fingerprint, overrides, map path and fingerprint, origin, `trn_model`, the build's `git describe` |
+| the input topics | as received | `sensor_combined`, `mag_meas`, `agl_meas`, `baro_meas`, `trn_meas`, and PX4's local position and attitude (reference only) |
+| `/gdn/log/state` | `gdn_msgs/NavState` | the state after every input: position, velocity, attitude, biases, covariance diagonal, flags |
+| `/gdn/log/update` | `gdn_msgs/NavUpdate` | every measurement and ZUPT: sensor, decision (applied, gated, or skipped and why), innovation, its predicted variance, NIS, whether a gain limit acted |
+| `/gdn/log/event` | `gdn_msgs/NavEvent` | start-up steps (static alignment, heading, altitude datum, airborne latch), IMU holes, dropped samples |
+
+Messages are written in the order the node processed them (log times strictly
+increasing), and each record carries the number of the input that caused it. About 45
+kB/s with zstd: 7.7 MB for the 3 minute Zermatt bench run, about 160 MB per hour.
+
+- **Replay.** `gdn_replay LOG` feeds the logged inputs, in order, through `gdn::NavCore`
+  with the logged configuration, map and origin, and checks every state, update record
+  and event against the log bit for bit (exit 0 identical, 1 different, 2 error). The
+  map must match the logged fingerprint. `NavCore` reads no clock (time is the IMU
+  timestamps), so the replay is exact. CI runs it on a bench run
+  (`tools/log_check.sh`), together with a copy of the log changed by 1 ulp, which it
+  must catch.
+- **What if.** `gdn_replay LOG --set=KEY=VALUE --out=DIR` (or `--config=FILE`) replays
+  a real or simulated run with other settings and writes the result as a new log.
+- **Diagnosis.** `tools/plot_run_log.py LOG [LOG2]` draws the horizontal error against
+  PX4's position, the altimeter innovations against their gate, and every update
+  decision per sensor, and prints the decision counts. `--export DIR` writes small CSVs.
+- **Update records.** `Eskf::last_update()` holds what the last update did; `UpdResult`
+  is unchanged, so the MC is unaffected. Reasons: applied, not aligned, no heading, no
+  datum, off map, flat (TRN slope gate), weak field, innovation gate, numeric, bad
+  input, init (used for heading, datum or baro bias), not used (this mode doesn't use
+  that input).
+- **A killed node** (kill -9, power loss) leaves an MCAP without its index, which
+  `gdn_replay` can't open (it says so). `ros2 bag reindex DIR -s mcap` rebuilds it, and
+  the log then replays identically up to what had been written: tested with the node
+  killed about 45 s into a bench run, 37.6 s were in the file. The writer buffers, so
+  the last seconds before a crash are lost.
 
 ## Filter formulation
 

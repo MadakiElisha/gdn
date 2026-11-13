@@ -10,6 +10,10 @@
 #   GDN_DB_MAP=path   onboard map for the node only (R1.3), e.g. a degraded map from
 #                     tools/make_data.sh --db-maps; the node is put in GDN_MAP's frame
 #   GDN_LOG_DIR=dir   where logs go        (default /tmp/gdn_bench)
+#   GDN_BAG_RATE=r    playback rate        (default 1; tools/log_check.sh uses 2)
+#   GDN_NODE_ARGS     extra eskf_node arguments, e.g. "-p log_dir:=/tmp/runs"
+# The node writes its run log (R1.11) to log/gdn_runs/ unless GDN_NODE_ARGS says otherwise;
+# node.log names it ("run log: ...").
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 # shellcheck disable=SC1091
@@ -59,8 +63,9 @@ gdn_stop() {
 }
 gdn_stop -9; sleep 2
 
+# shellcheck disable=SC2086
 ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$DB_MAP" \
-  -p origin_lat:="$ORIGIN_LAT" -p origin_lon:="$ORIGIN_LON" > "$LOG/node.log" 2>&1 9>&- & NPID=$!
+  -p origin_lat:="$ORIGIN_LAT" -p origin_lon:="$ORIGIN_LON" ${GDN_NODE_ARGS:-} > "$LOG/node.log" 2>&1 9>&- & NPID=$!
 python3 tools/trn_sensor_sim.py > "$LOG/sim.log" 2>&1 9>&- & SPID=$!
 BPID=
 if [ "${BENCH_NO_BARO:-0}" != "1" ]; then
@@ -75,7 +80,7 @@ for _ in $(seq 1 30); do
 done
 ros2 node list
 
-ros2 bag play "$BAG" 9>&-
+ros2 bag play "$BAG" -r "${GDN_BAG_RATE:-1}" 9>&-
 
 kill -INT $CPID 2>/dev/null; sleep 2
 kill $NPID $SPID $BPID $MPID 2>/dev/null
@@ -90,3 +95,4 @@ awk '/horiz err/ {for(i=1;i<=NF;i++){if($i=="t=")t=$(i+1); if($i=="err")e=$(i+1)
   || echo "(scorer log not available)"
 grep -h "RMS 60-300s" "$LOG/scorer.log" 2>/dev/null
 echo "=== logs: $LOG/{node,sim,baro,mag,scorer}.log ==="
+grep -ho "run log: [^ ]*" "$LOG/node.log" 2>/dev/null | head -1

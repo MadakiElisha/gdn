@@ -21,7 +21,7 @@ EIGEN_INC="${EIGEN_INC:-$(pkg-config --cflags-only-I eigen3 2>/dev/null | sed 's
 EIGEN_INC="${EIGEN_INC:-/usr/include/eigen3}"
 OUT="${TMPDIR:-/tmp}/gdn_quality"; mkdir -p "$OUT"
 CORE=("$PKG/src/selftest.cpp" "$PKG/src/mc_campaign.cpp" "$PKG/src/imu_sim.cpp")    # ROS-free
-NODES=("$PKG/src/eskf_node.cpp" "$PKG/src/map_viz_node.cpp")                          # need ROS
+NODES=("$PKG/src/eskf_node.cpp" "$PKG/src/map_viz_node.cpp" "$PKG/src/gdn_replay.cpp")   # need ROS
 WARN=(-Wall -Wextra -Wpedantic -Werror)    # the same set as CMakeLists.txt with GDN_WERROR=ON
 INC=(-std=c++17 -I "$PKG/include" -isystem "$EIGEN_INC")
 export GDN_ROOT="${GDN_ROOT:-$ROOT}"

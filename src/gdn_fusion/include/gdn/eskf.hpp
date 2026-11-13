@@ -5,6 +5,7 @@
 #include <Eigen/Dense>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <algorithm>
 #include "gdn/map_db.hpp"
@@ -73,6 +74,34 @@ public:
     static constexpr double kG = 9.80665;
     static constexpr double kDeg = M_PI / 180.0;
     enum class UpdResult : std::uint8_t { kApplied, kSlopeGate, kInnovGate };
+
+    // R1.11: what the last update did, for the run log. Every Apply* fills it, with the
+    // exact reason when nothing was applied (UpdResult lumps several into kSlopeGate).
+    enum class Sensor : std::uint8_t { kNone, kTrn, kAgl, kBaro, kMag3, kMagHeading, kZupt, kGnss };
+    enum class Reason : std::uint8_t {
+        kApplied,     // the update was applied
+        kNotAligned,  // no static alignment yet
+        kNoHeading,   // heading not aligned yet
+        kNoDatum,     // altitude datum not set yet
+        kOffMap,      // the map has no height there
+        kFlat,        // terrain too flat for TRN (slope_min)
+        kWeakField,   // horizontal magnetic field under 1 uT: no heading in it
+        kInnovGate,   // innovation outside the gate
+        kNumeric,     // innovation variance not positive, or NaN
+        kBadInput,    // the caller's noise values are not positive
+        kInit,        // used to initialise (heading, altitude datum, baro bias), not as an update
+        kNotUsed,     // input this configuration doesn't use (e.g. TRN in "agl" mode)
+    };
+    struct UpdateInfo {
+        Sensor sensor = Sensor::kNone;
+        Reason reason = Reason::kNotAligned;
+        int dim = 0;                                            // innovation size (1, 3 or 4); 0 if none was formed
+        double y[4] = {};                                       // innovation
+        double s[4] = {};                                       // its predicted variance (diagonal of S)
+        double nis = std::numeric_limits<double>::quiet_NaN();  // y' S^-1 y
+        bool limited = false;                                   // a gain limit (clamp_*) scaled the correction
+    };
+    const UpdateInfo& last_update() const { return upd_; }
 
     explicit Eskf(const EskfConfig& cfg) : cfg_(cfg) {
         g_ = V3(0, 0, kG);
@@ -161,22 +190,33 @@ public:
 
     UpdResult ApplyTrn(double meas, const MapQuery& mq,
                        double* innov_out = nullptr, double* s_out = nullptr) {
-        if (!aligned_ || !yaw_aligned_ || !mq.ok) return UpdResult::kSlopeGate;
-        if (std::hypot(mq.dn, mq.de) < cfg_.slope_min) return UpdResult::kSlopeGate;
+        if (!aligned_ || !yaw_aligned_ || !mq.ok) {
+            Note(Sensor::kTrn, !aligned_ ? Reason::kNotAligned : !yaw_aligned_ ? Reason::kNoHeading : Reason::kOffMap);
+            return UpdResult::kSlopeGate;
+        }
+        if (std::hypot(mq.dn, mq.de) < cfg_.slope_min) {
+            Note(Sensor::kTrn, Reason::kFlat);
+            return UpdResult::kSlopeGate;
+        }
         H19 H = H19::Zero();
         H(0, 0) = mq.dn; H(0, 1) = mq.de;
         const double innov = meas - mq.h - H * x_;
         const double S = (H * P_ * H.transpose())(0, 0) + cfg_.r_trn;
         if (innov_out) *innov_out = innov;
         if (s_out) *s_out = S;
-        if (S <= 0 || std::abs(innov) / std::sqrt(S) > cfg_.gate_sigma ||
-            std::abs(innov) > cfg_.gate_abs_m) { n_rej_++; n_rej_trn_++; return UpdResult::kInnovGate; }
+        Note1(Sensor::kTrn, innov, S);
+        if (S <= 0 || std::abs(innov) / std::sqrt(S) > cfg_.gate_sigma || std::abs(innov) > cfg_.gate_abs_m) {
+            upd_.reason = S <= 0 ? Reason::kNumeric : Reason::kInnovGate;
+            n_rej_++;
+            n_rej_trn_++;
+            return UpdResult::kInnovGate;
+        }
         V19 K = (P_ * H.transpose()) / S;
         // Terrain height says nothing about the baro or mag bias. Zero their gain rows
         // before the update (R1.4), so the Joseph form below neither corrects them nor
         // shrinks their variance. Zeroing dx afterwards (as before) still contracted P.
         K(15) = 0.0; K.segment<3>(16).setZero();
-        LimitGain(K, innov);
+        LimitGainNoted(K, innov);
         V19 dx = K * innov;
         x_ += dx;
         const M19 IKH = M19::Identity() - K * H;
@@ -235,21 +275,32 @@ public:
     // horizontal information (H has no north/east part there).
     UpdResult ApplyAgl(double agl, const MapQuery& mq,
                        double* innov_out = nullptr, double* s_out = nullptr) {
-        if (!aligned_ || !yaw_aligned_ || !datum_set_ || !mq.ok) return UpdResult::kSlopeGate;
+        if (!aligned_ || !yaw_aligned_ || !datum_set_ || !mq.ok) {
+            Note(Sensor::kAgl, !aligned_       ? Reason::kNotAligned
+                               : !yaw_aligned_ ? Reason::kNoHeading
+                               : !datum_set_   ? Reason::kNoDatum
+                                               : Reason::kOffMap);
+            return UpdResult::kSlopeGate;
+        }
         H19 H = H19::Zero();
         H(0, 0) = -mq.dn; H(0, 1) = -mq.de; H(0, 2) = -1.0;
         const double innov = agl - (h0_ - pos_.z() - mq.h);
         const double S = (H * P_ * H.transpose())(0, 0) + cfg_.r_agl;
         if (innov_out) *innov_out = innov;
         if (s_out) *s_out = S;
-        if (S <= 0 || std::abs(innov) / std::sqrt(S) > cfg_.gate_agl_sigma ||
-            std::abs(innov) > cfg_.gate_agl_abs_m) { n_rej_++; n_rej_agl_++; return UpdResult::kInnovGate; }
+        Note1(Sensor::kAgl, innov, S);
+        if (S <= 0 || std::abs(innov) / std::sqrt(S) > cfg_.gate_agl_sigma || std::abs(innov) > cfg_.gate_agl_abs_m) {
+            upd_.reason = S <= 0 ? Reason::kNumeric : Reason::kInnovGate;
+            n_rej_++;
+            n_rej_agl_++;
+            return UpdResult::kInnovGate;
+        }
         V19 K = (P_ * H.transpose()) / S;
         // States this update must not touch get a zero gain row. The Joseph form below
         // is valid for any gain, so the covariance stays consistent with what was
         // actually applied (unlike zeroing dx after the fact).
         K.segment<3>(16).setZero();                  // mag bias
-        LimitGain(K, innov);
+        LimitGainNoted(K, innov);
         V19 dx = K * innov;
         x_ += dx;
         const M19 IKH = M19::Identity() - K * H;
@@ -269,8 +320,11 @@ public:
     }
 
     UpdResult ApplyZupt() {
-        if (!aligned_) return UpdResult::kSlopeGate;
-        
+        if (!aligned_) {
+            Note(Sensor::kZupt, Reason::kNotAligned);
+            return UpdResult::kSlopeGate;
+        }
+
         // H observes velocity error (indices 3,4,5)
         Eigen::Matrix<double, 3, 19> H = Eigen::Matrix<double, 3, 19>::Zero();
         H.block<3,3>(0, 3) = Eigen::Matrix3d::Identity();
@@ -284,7 +338,9 @@ public:
         
         // Very loose gate to prevent lockout if drift already happened
         double d2 = y.transpose() * S.inverse() * y;
+        Note3(Sensor::kZupt, y, S, d2);
         if (d2 > cfg_.gate_zupt_chi2) {
+            upd_.reason = Reason::kInnovGate;
             n_rej_++;
             return UpdResult::kInnovGate;
         }
@@ -305,7 +361,7 @@ public:
             K.block<3,3>(12, 0) = Pu * K.block<3,3>(12, 0);
             K.block<4,3>(15, 0).setZero();          // baro bias, mag bias
         }
-        LimitGain<3>(K, y, false);
+        LimitGainNoted<3>(K, y, false);
         V19 dx = K * y;
 
         x_ += dx;
@@ -329,20 +385,28 @@ public:
     }
 
     UpdResult ApplyBaro(double z_meas) {
-        if (!aligned_) return UpdResult::kSlopeGate;
+        if (!aligned_) {
+            Note(Sensor::kBaro, Reason::kNotAligned);
+            return UpdResult::kSlopeGate;
+        }
         const double z_hat = pos_.z() + baro_bias_;
         const double innov = z_meas - z_hat;
         H19 H = H19::Zero();
         H(0, 2) = 1.0;
         H(0, 15) = 1.0;
         const double S = (H * P_ * H.transpose())(0, 0) + cfg_.r_baro;
-        if (S <= 1e-12) return UpdResult::kInnovGate;
+        Note1(Sensor::kBaro, innov, S);
+        if (S <= 1e-12) {
+            upd_.reason = Reason::kNumeric;
+            return UpdResult::kInnovGate;
+        }
         if (std::abs(innov) / std::sqrt(S) > cfg_.gate_baro_sigma) {
+            upd_.reason = Reason::kInnovGate;
             n_rej_++; n_rej_baro_++; return UpdResult::kInnovGate;
         }
         V19 K = (P_ * H.transpose()) / S;
         K.segment<3>(16).setZero();        // baro says nothing about mag bias (R1.4)
-        LimitGain(K, innov);
+        LimitGainNoted(K, innov);
         V19 dx = K * innov;
         x_ += dx;
         const M19 IKH = M19::Identity() - K * H;
@@ -363,7 +427,10 @@ public:
 
     // Magnetometer update (OI-003). Observes attitude and mag bias.
     UpdResult ApplyMag(const Eigen::Vector3d& z_meas) {
-        if (!aligned_) return UpdResult::kSlopeGate;
+        if (!aligned_) {
+            Note(Sensor::kMag3, Reason::kNotAligned);
+            return UpdResult::kSlopeGate;
+        }
         const Eigen::Matrix3d R = q_.toRotationMatrix();
         const Eigen::Vector3d m_ref(cfg_.mag_ref_north, cfg_.mag_ref_east, cfg_.mag_ref_down);
         const Eigen::Vector3d m_hat = R.transpose() * m_ref + mag_bias_;
@@ -377,17 +444,23 @@ public:
         const Eigen::Matrix3d S = (H * P_ * H.transpose()) + cfg_.r_mag * Eigen::Matrix3d::Identity();
         // Use LLT to check for positive-definiteness (numerical stability)
         Eigen::LLT<Eigen::Matrix3d> llt(S);
-        if (llt.info() != Eigen::Success) return UpdResult::kInnovGate;
-        
+        if (llt.info() != Eigen::Success) {
+            Note3(Sensor::kMag3, y, S, std::numeric_limits<double>::quiet_NaN());
+            upd_.reason = Reason::kNumeric;
+            return UpdResult::kInnovGate;
+        }
+
         const Eigen::Matrix3d S_inv = S.inverse();
         const double d2 = y.transpose() * S_inv * y;
+        Note3(Sensor::kMag3, y, S, d2);
         // Explicit NaN guard: NaN > gate is false in C++, which would bypass the gate!
         if (std::isnan(d2) || d2 > cfg_.gate_mag_sigma * cfg_.gate_mag_sigma) {
+            upd_.reason = std::isnan(d2) ? Reason::kNumeric : Reason::kInnovGate;
             n_rej_++; n_rej_mag_++; return UpdResult::kInnovGate;
         }
         
         Eigen::Matrix<double, 19, 3> K = P_ * H.transpose() * S_inv;
-        LimitGain<3>(K, y, true);
+        LimitGainNoted<3>(K, y, true);
         V19 dx = K * y;
         
         x_ += dx;
@@ -432,20 +505,28 @@ public:
     // residual (mag_heading_cal_sigma, uT) as noise next to the sensor noise. Noise in
     // radians = those over the horizontal field strength.
     UpdResult ApplyMagHeading(const Eigen::Vector3d& z_meas) {
-        if (!aligned_ || !yaw_aligned_) return UpdResult::kSlopeGate;
+        if (!aligned_ || !yaw_aligned_) {
+            Note(Sensor::kMagHeading, !aligned_ ? Reason::kNotAligned : Reason::kNoHeading);
+            return UpdResult::kSlopeGate;
+        }
         const Eigen::Matrix3d R = q_.toRotationMatrix();
         const V3 m_ref(cfg_.mag_ref_north, cfg_.mag_ref_east, cfg_.mag_ref_down);
         mag_innov_rms_ = 0.98 * mag_innov_rms_ + 0.02 * (z_meas - (R.transpose() * m_ref + mag_bias_)).norm();
         const V3 m_n = R * (z_meas - mag_bias_);
         const double h2 = m_n.head<2>().squaredNorm();
-        if (h2 < 1.0) return UpdResult::kSlopeGate;            // under 1 uT horizontal: no heading
+        if (h2 < 1.0) {  // under 1 uT horizontal: no heading
+            Note(Sensor::kMagHeading, Reason::kWeakField);
+            return UpdResult::kSlopeGate;
+        }
         const double innov = std::remainder(std::atan2(m_ref.y(), m_ref.x()) -
                                             std::atan2(m_n.y(), m_n.x()), 2.0 * M_PI);
         H19 H = H19::Zero();
         H.block<1, 3>(0, 6) = R.row(2);
         const double r = (cfg_.r_mag + cfg_.mag_heading_cal_sigma * cfg_.mag_heading_cal_sigma) / h2;
         const double S = (H * P_ * H.transpose())(0, 0) + r;
+        Note1(Sensor::kMagHeading, innov, S);
         if (!(S > 0.0) || std::isnan(innov) || std::abs(innov) / std::sqrt(S) > cfg_.gate_mag_sigma) {
+            upd_.reason = !(S > 0.0) || std::isnan(innov) ? Reason::kNumeric : Reason::kInnovGate;
             n_rej_++; n_rej_mag_++; return UpdResult::kInnovGate;
         }
         V19 K = (P_ * H.transpose()) / S;
@@ -453,7 +534,7 @@ public:
         K.segment<3>(6) = u * u.dot(K.segment<3>(6));          // heading only, no tilt
         K(15) = 0.0;                                           // nothing to say about baro
         K.segment<3>(16).setZero();                            // nor about the mag bias
-        LimitGain(K, innov);
+        LimitGainNoted(K, innov);
         const V19 dx = K * innov;
         x_ += dx;
         const M19 IKH = M19::Identity() - K * H;
@@ -480,7 +561,10 @@ public:
     // noise alone is 2 uT and 2.4 deg), heading only when they don't, and for
     // mag_auto_hold updates after they agree again.
     UpdResult ApplyMagAuto(const Eigen::Vector3d& z_meas) {
-        if (!aligned_ || !yaw_aligned_) return UpdResult::kSlopeGate;
+        if (!aligned_ || !yaw_aligned_) {
+            Note(Sensor::kMag3, !aligned_ ? Reason::kNotAligned : Reason::kNoHeading);
+            return UpdResult::kSlopeGate;
+        }
         const V3 m_ref(cfg_.mag_ref_north, cfg_.mag_ref_east, cfg_.mag_ref_down);
         const V3 v = q_.toRotationMatrix() * (z_meas - mag_bias_);
         const double dnorm = v.norm() - m_ref.norm();
@@ -509,7 +593,12 @@ public:
     // monitor's job (R4.4, REQ-INT-005). Baro and mag biases get zero gain rows (R1.4).
     UpdResult ApplyGnss(const Eigen::Vector2d& pos_ne, const Eigen::Vector2d& vel_ne,
                         double sigma_pos, double sigma_vel) {
-        if (!aligned_ || !yaw_aligned_ || sigma_pos <= 0 || sigma_vel <= 0) return UpdResult::kSlopeGate;
+        if (!aligned_ || !yaw_aligned_ || sigma_pos <= 0 || sigma_vel <= 0) {
+            Note(Sensor::kGnss, !aligned_       ? Reason::kNotAligned
+                                : !yaw_aligned_ ? Reason::kNoHeading
+                                                : Reason::kBadInput);
+            return UpdResult::kSlopeGate;
+        }
         Eigen::Matrix<double, 4, 19> H = Eigen::Matrix<double, 4, 19>::Zero();
         H(0, 0) = H(1, 1) = 1.0;                       // position N, E
         H(2, 3) = H(3, 4) = 1.0;                       // velocity N, E
@@ -518,9 +607,10 @@ public:
         Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
         R.diagonal() << sigma_pos * sigma_pos, sigma_pos * sigma_pos, sigma_vel * sigma_vel, sigma_vel * sigma_vel;
         const Eigen::Matrix4d S = H * P_ * H.transpose() + R;
+        NoteN<4>(Sensor::kGnss, y, S, y.dot(S.inverse() * y));
         Eigen::Matrix<double, 19, 4> K = P_ * H.transpose() * S.inverse();
         K.row(15).setZero(); K.block<3, 4>(16, 0).setZero();
-        LimitGain<4>(K, y, false);
+        LimitGainNoted<4>(K, y, false);
         x_ += K * y;
         const M19 IKH = M19::Identity() - K * H;
         P_ = Repair(IKH * P_ * IKH.transpose() + K * R * K.transpose());
@@ -614,6 +704,43 @@ public:
     int rejects() const { return n_rej_; }
 
 private:
+    // R1.11 update record. Note: a skipped update; Note1/Note3/NoteN: an innovation was
+    // formed (reason kApplied until a gate says otherwise).
+    void Note(Sensor s, Reason r) {
+        upd_ = UpdateInfo{};
+        upd_.sensor = s;
+        upd_.reason = r;
+    }
+    void Note1(Sensor s, double y, double S) {
+        Note(s, Reason::kApplied);
+        upd_.dim = 1;
+        upd_.y[0] = y;
+        upd_.s[0] = S;
+        upd_.nis = y * y / S;
+    }
+    template <int M>
+    void NoteN(Sensor s, const Eigen::Matrix<double, M, 1>& y, const Eigen::Matrix<double, M, M>& S, double nis) {
+        Note(s, Reason::kApplied);
+        upd_.dim = M;
+        for (int i = 0; i < M; ++i) {
+            upd_.y[i] = y(i);
+            upd_.s[i] = S(i, i);
+        }
+        upd_.nis = nis;
+    }
+    void Note3(Sensor s, const V3& y, const Eigen::Matrix3d& S, double nis) { NoteN<3>(s, y, S, nis); }
+    // LimitGain, recording whether a limit scaled the gain.
+    template <int M>
+    void LimitGainNoted(Eigen::Matrix<double, 19, M>& K, const Eigen::Matrix<double, M, 1>& y, bool with_mag_bias) {
+        const int before = n_clamp_;
+        LimitGain<M>(K, y, with_mag_bias);
+        upd_.limited = n_clamp_ != before;
+    }
+    void LimitGainNoted(V19& K, double y) {
+        const int before = n_clamp_;
+        LimitGain(K, y);
+        upd_.limited = n_clamp_ != before;
+    }
     void ResetCovariance(double yaw_bump_rad) {
         P_.setZero();
         P_.block<3, 3>(0, 0).diagonal().setConstant(cfg_.p0_pos);
@@ -668,6 +795,7 @@ private:
     double baro_bias_;
     Eigen::Quaterniond q_;
     V19 x_; M19 P_, Qc_;
+    UpdateInfo upd_;
     int n_ = 0, n_upd_ = 0, n_rej_ = 0;
     int n_zupt_ = 0;
     int n_rej_trn_ = 0, n_rej_baro_ = 0, n_rej_mag_ = 0;

@@ -90,6 +90,17 @@ jobs:
       - name: Data checksums and map rebuild
         run: tools/make_data.sh --verify-maps
 
+      # R1.11: the run log. The bench flies the Zermatt bag through eskf_node (at 2x), which
+      # writes its run log; gdn_replay must reproduce every logged state, update and event
+      # bit for bit, find a 1-ulp change in a copy of the log, and refuse the wrong map
+      # (tools/log_check.sh, TEST-029). About 2 minutes.
+      - name: Run log, record and replay (R1.11)
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          python3 tools/make_zermatt_bag.py
+          tools/log_check.sh
+
       # R1.6: the Zermatt flights have an error-free IMU (imu_truth.csv), so their MC runs
       # apply the H30WP model (config/imu/h30wp.yaml, Allan fit of a 2 h bench log,
       # TEST-024) and say so; flight001 is a real log and keeps its recorded IMU.

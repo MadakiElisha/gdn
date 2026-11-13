@@ -12,6 +12,7 @@
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
 #include "gdn/filter_config.hpp"
+#include "gdn/nav_core.hpp"
 #include "gdn/consistency.hpp"
 #include "gdn/ground_monitor.hpp"
 #include "gdn/imu_model.hpp"
@@ -225,6 +226,165 @@ static void TestFilterConfig() {
         }
     }
     CHECK(nfiles >= 1 && nbad == 0, "config: TEST-028 every file in config/filter/ loads");
+}
+
+// TEST-029 (R1.11): the run log. Every update must say what it did and why, and the
+// node's logic (NavCore) must be deterministic, so a logged run can be replayed bit for
+// bit, and must report every input, update and start-up step to its log.
+struct RecordingSink : NavSink {
+    std::vector<StateVec> states;
+    std::vector<std::pair<std::uint64_t, Eskf::UpdateInfo>> updates;
+    std::vector<std::string> events;
+    void State(std::uint64_t, const NavCore& c) override { states.push_back(c.State()); }
+    void Update(std::uint64_t seq, double, const Eskf::UpdateInfo& u) override { updates.emplace_back(seq, u); }
+    void Event(std::uint64_t, double, EventLevel, const std::string& text, bool) override { events.push_back(text); }
+};
+
+// A synthetic run through NavCore: parked, then south at 2 m/s^2 for 5 s and 10 m/s for
+// 10 s over a sloping map. IMU 100 Hz; mag, baro and AGL 10 Hz. Includes one IMU hole,
+// one repeated timestamp and one wild AGL reading. `nudge` changes one accel sample by
+// 1e-6 m/s^2 (a 1-ulp change can vanish in the rounding of the next additions). Returns the number of measurement
+// inputs fed.
+static int FeedSyntheticRun(NavCore* c, bool nudge) {
+    using V3 = Eigen::Vector3d;
+    std::mt19937_64 rng(29);
+    std::normal_distribution<double> n(0.0, 1.0);
+    const FilterConfig& fc = DefaultConfig();
+    const V3 m_ref(fc.eskf.mag_ref_north, fc.eskf.mag_ref_east, fc.eskf.mag_ref_down);
+    std::uint64_t t_us = 1000000;
+    double pn = 0.0, vn = 0.0;
+    int meas = 0;
+    for (int i = 0; i < 2300; ++i) {
+        const double tt = i * 0.01;
+        const double acc = (tt >= 8.0 && tt < 13.0) ? -2.0 : 0.0;  // south
+        vn += acc * 0.01;
+        pn += vn * 0.01;
+        V3 a(acc + 0.02 * n(rng), 0.02 * n(rng), -Eskf::kG + 0.02 * n(rng));
+        const V3 w(1e-4 * n(rng), 1e-4 * n(rng), 1e-4 * n(rng));
+        if (nudge && i == 1500) a.x() += 1e-6;
+        std::uint64_t step = 10000;
+        std::uint32_t integ = 10000;
+        if (i == 1200) step = 60000;  // a 50 ms hole: the message covers 10 ms of 60
+        if (i == 1300) step = 0;      // a repeated timestamp: dropped
+        t_us += step;
+        c->Imu(t_us, a, w, integ);
+        if (i % 10 == 5) {
+            c->Mag(m_ref + V3(0.5 * n(rng), 0.5 * n(rng), 0.5 * n(rng)));
+            ++meas;
+        }
+        if (i % 10 == 7) {
+            c->Baro(3.0 + 0.5 * n(rng));  // z = 0, baro bias 3 m
+            ++meas;
+        }
+        if (i % 10 == 9) {
+            // AGL over the plane h = 500 + 0.2 n; the vehicle stays at 502 m AMSL.
+            const double agl = 502.0 - (500.0 + 0.2 * pn) + 0.5 * n(rng);
+            c->Agl(i == 1909 ? agl + 500.0 : agl);  // one wild reading
+            ++meas;
+        }
+        if (i % 50 == 3) {
+            c->Trn(500.0);  // not used in "agl" mode
+            ++meas;
+        }
+    }
+    return meas;
+}
+
+static void TestRunLog() {
+    using V3 = Eigen::Vector3d;
+    const FilterConfig& fc = DefaultConfig();
+    const std::string mp = "/tmp/gdn_selftest_log_map.bin";
+    WritePlaneMap(mp, 0.2, 500.0);
+    MapDb map;
+    map.Load(mp);
+    using R = Eskf::Reason;
+
+    // Each update says why it wasn't applied.
+    {
+        Eskf e(fc.eskf);
+        const MapQuery q = map.Query(0.0, 0.0), off = map.Query(1e6, 0.0);
+        e.ApplyAgl(2.0, q);
+        const bool r1 = e.last_update().reason == R::kNotAligned && e.last_update().sensor == Eskf::Sensor::kAgl;
+        for (int i = 0; i < 700 && !e.aligned(); ++i) e.FeedStatic(V3(0, 0, -Eskf::kG), V3::Zero());
+        e.ApplyAgl(2.0, q);
+        const bool r2 = e.last_update().reason == R::kNoHeading;
+        e.TransferAlignYaw(0.0);
+        e.ApplyAgl(2.0, q);
+        const bool r3 = e.last_update().reason == R::kNoDatum;
+        e.SetAltitudeDatum(502.0, 5.0);
+        e.ApplyAgl(2.0, off);
+        const bool r4 = e.last_update().reason == R::kOffMap;
+        MapDb flat;
+        WritePlaneMap("/tmp/gdn_selftest_log_flat.bin", 0.0, 500.0);
+        flat.Load("/tmp/gdn_selftest_log_flat.bin");
+        e.ApplyTrn(500.0, flat.Query(0.0, 0.0));
+        const bool r5 = e.last_update().reason == R::kFlat && e.last_update().sensor == Eskf::Sensor::kTrn;
+        e.ApplyMagHeading(V3(0.1, 0.1, 50.0));
+        const bool r6 = e.last_update().reason == R::kWeakField;
+        CHECK(
+            r1 && r2 && r3 && r4 && r5 && r6,
+            "eskf: TEST-029 a skipped update says why (not aligned, no heading, no datum, off map, flat, weak field)");
+
+        // Applied and gated updates carry their innovation, its variance and the NIS.
+        double innov = 0.0, S = 0.0;
+        const auto res = e.ApplyAgl(3.0, q, &innov, &S);
+        const Eskf::UpdateInfo& u = e.last_update();
+        CHECK(res == Eskf::UpdResult::kApplied && u.reason == R::kApplied && u.dim == 1 && u.y[0] == innov &&
+                  u.s[0] == S && std::abs(u.nis - innov * innov / S) < 1e-12,
+              "eskf: TEST-029 an applied update logs its innovation, variance and NIS");
+        const auto rg = e.ApplyAgl(300.0, q, &innov, &S);
+        CHECK(rg == Eskf::UpdResult::kInnovGate && e.last_update().reason == R::kInnovGate &&
+                  e.last_update().nis > fc.eskf.gate_agl_sigma * fc.eskf.gate_agl_sigma,
+              "eskf: TEST-029 a gated update logs how far outside the gate it was");
+        const V3 m_ref(fc.eskf.mag_ref_north, fc.eskf.mag_ref_east, fc.eskf.mag_ref_down);
+        e.ApplyMagAuto(m_ref);
+        const bool clean3 = e.last_update().sensor == Eskf::Sensor::kMag3 && e.last_update().dim == 3;
+        for (int i = 0; i < 40; ++i) e.ApplyMagAuto(m_ref * 1.3);  // field too strong: disturbed
+        CHECK(clean3 && e.last_update().sensor == Eskf::Sensor::kMagHeading,
+              "eskf: TEST-029 the mag record names the update auto chose (3-axis or heading)");
+    }
+
+    // NavCore: the same inputs give the same states, bit for bit; a 1e-6 change on one input shows.
+    RecordingSink s1, s2, s3;
+    NavCore c1(fc, map, TrnModel::kAgl, &s1), c2(fc, map, TrnModel::kAgl, &s2), c3(fc, map, TrnModel::kAgl, &s3);
+    const int meas = FeedSyntheticRun(&c1, false);
+    FeedSyntheticRun(&c2, false);
+    FeedSyntheticRun(&c3, true);
+    bool same = !s1.states.empty() && s1.states.size() == s2.states.size();
+    for (size_t i = 0; same && i < s1.states.size(); ++i)
+        for (int k = 0; k < kStateSize; ++k) same = same && Bits(s1.states[i][k]) == Bits(s2.states[i][k]);
+    bool differs = s3.states.size() == s1.states.size();
+    if (differs) {
+        differs = false;
+        for (size_t i = 0; !differs && i < s1.states.size(); ++i)
+            for (int k = 0; k < kStateSize; ++k) differs = differs || Bits(s1.states[i][k]) != Bits(s3.states[i][k]);
+    }
+    std::printf("      synthetic run: %zu states, %zu update records, %zu events, final pos (%.1f, %.1f) m\n",
+                s1.states.size(), s1.updates.size(), s1.events.size(), c1.eskf().pos().x(), c1.eskf().pos().y());
+    CHECK(same && differs, "nav: TEST-029 the same inputs give the same states bit for bit; 1e-6 on one input shows");
+
+    // Every input leaves a state; every measurement and every ZUPT an update record.
+    int zupts = 0, gated = 0, notused = 0;
+    for (const auto& [seq, u] : s1.updates) {
+        zupts += u.sensor == Eskf::Sensor::kZupt;
+        gated += u.sensor == Eskf::Sensor::kAgl && u.reason == R::kInnovGate;
+        notused += u.sensor == Eskf::Sensor::kTrn && u.reason == R::kNotUsed;
+    }
+    std::printf("      inputs %llu, measurements %d, ZUPTs %d, AGL gated %d, TRN not used %d\n",
+                static_cast<unsigned long long>(c1.inputs()), meas, zupts, gated, notused);
+    CHECK(c1.inputs() == 2300 + static_cast<std::uint64_t>(meas) && s1.states.size() == c1.inputs() &&
+              s1.updates.size() == static_cast<size_t>(meas + zupts) && zupts > 0 && gated >= 1 && notused == 46,
+          "nav: TEST-029 every input leaves a state, every measurement and ZUPT an update record");
+
+    // Start-up steps, IMU holes and dropped samples are events.
+    auto has = [&](const char* what) {
+        return std::any_of(s1.events.begin(), s1.events.end(),
+                           [&](const std::string& e) { return e.find(what) != std::string::npos; });
+    };
+    for (const auto& e : s1.events) std::printf("      event: %s\n", e.c_str());
+    CHECK(has("static alignment") && has("heading from magnetometer") && has("altitude datum") && has("airborne") &&
+              has("IMU hole") && has("dropped"),
+          "nav: TEST-029 start-up steps, IMU holes and dropped samples are logged as events");
 }
 
 int main() {
@@ -1114,6 +1274,12 @@ int main() {
               (std::string("eskf: TEST-025 default process noise is not below the ") + name + "'s").c_str());
     }
 
+    try {
+        TestRunLog();
+    } catch (const std::exception& e) {
+        std::printf("FAIL  nav: TEST-029 threw: %s\n", e.what());
+        g_fail++;
+    }
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

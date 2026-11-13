@@ -128,6 +128,11 @@ The node (`eskf_node`) talks to the rest of the system over these topics today.
 | out | `/gdn/odom` | `nav_msgs/Odometry` | fused position, velocity, attitude |
 | out | `/gdn/sigma` | `std_msgs/Float64` | horizontal 1-sigma, m |
 
+Every run of the node writes a run log (R1.11): one MCAP file in `log/gdn_runs/` with
+every input, every update and gate decision, the state after every input, and the
+configuration and map it ran with. `gdn_replay` replays a log offline through the same
+code and reproduces the run bit for bit, or with other settings ("what if").
+
 The filter's settings (noise values, gates, limits) are all in one file,
 `config/filter/default.yaml` (R1.10). The node, the unit tests and the Monte Carlo load
 the same file, so they always run the same configuration, and each result names it with
@@ -289,6 +294,7 @@ still stand.
 | `map_viz_node` | Publishes the terrain as an RViz mesh, plus the estimated path. |
 | `gdn_selftest` | Unit tests for the core. Run by `tools/run_selftest.sh` and `colcon test`. |
 | `mc_campaign` | Monte Carlo driver. Replays IMU and truth CSVs through the core with seeded sensor errors. |
+| `gdn_replay` | Replays a run log through the node's core (R1.11): checks it reproduces bit for bit, or runs it with other settings. |
 
 ## Tools
 
@@ -299,6 +305,7 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | Setup and data | `setup_ubuntu.sh` (machine setup), `make_data.sh` (derived data and checksum checks), `fetch_data.sh` / `pack_data.sh` (download or publish the flight001 recording) |
 | Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `quality.sh` (warnings, cppcheck, clang-tidy, sanitizers, formatting; R1.9), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
 | Sensor simulators | `trn_sensor_sim.py` (terrain height under the vehicle), `baro_sim.py`, `mag_sim.py`; all fed by PX4 truth from the bag |
+| Run logs (R1.11) | `plot_run_log.py` (draw a run log: error, innovations, every update decision; export CSVs), `log_check.sh` (record a bench run and replay it, as CI does) |
 | Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
 | Terrain maps | `generate_terrain.py` then `export_map_db.py` then `make_sigma4_map.py` (synthetic map); `fetch_terrain.py` and `make_zermatt_map.py` (SRTM); `export_map_bin.py`, `terrain_map.py` (older helpers) |
 | Synthetic flights | `gen_zermatt_flight.py` (IMU and truth CSVs over Zermatt), `make_zermatt_bag.py` (the same as a PX4-style bag) |
@@ -352,6 +359,10 @@ Source `env.sh` first in every terminal.
 | Replay bench on any bag and map | `GDN_BAG=... GDN_MAP=... tools/bench.sh` |
 | Bench with RViz | `tools/bench_viz.sh` |
 | Just the node | `ros2 run gdn_fusion eskf_node --ros-args -p map_path:=data/maps/zermatt.bin` |
+| Replay a run log, checked bit for bit (R1.11) | `ros2 run gdn_fusion gdn_replay log/gdn_runs/gdn_...` (every node run writes one) |
+| Replay a run with other settings | `gdn_replay LOG --set=r_agl=200 --out=/tmp/whatif` |
+| Diagnose a run log | `python3 tools/plot_run_log.py LOG [LOG2] --out run.png` |
+| Run-log check, as CI runs it | `tools/log_check.sh` |
 | Check sensor rates from PX4 | `ros2 run gdn_sensors sensor_monitor` |
 
 ## How we validate

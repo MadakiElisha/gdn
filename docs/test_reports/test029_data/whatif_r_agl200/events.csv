@@ -1,0 +1,5 @@
+seq,t,level,text
+623,0.0,0,"static alignment: ba=0.0291 m/s2, bg=0.1534 deg/s"
+629,5.7,0,heading from magnetometer at t=5.7
+668,6.0,0,"altitude datum 3039.9 m AMSL (map 2596.9 + AGL 443.0), baro bias 4.10 m"
+3709,30.529999999999998,0,airborne latch set at t=30.5 (IMU motion for 0.5 s): ZUPT off

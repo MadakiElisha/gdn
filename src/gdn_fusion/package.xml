@@ -18,6 +18,8 @@
   <depend>visualization_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>gdn_msgs</depend>
+  <depend>rosbag2_cpp</depend>
 
   <!-- Python tools (tools/*.py): sensor sims, scorer, map + data generation -->
   <exec_depend>rclpy</exec_depend>

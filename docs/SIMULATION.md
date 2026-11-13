@@ -124,6 +124,21 @@ tools/sim_replay.sh /tmp/gdn_sim/sitl_bag -p mag_fusion:=align      # any eskf_n
 Replays of one bag vary by up to about 40% between runs (playback timing isn't
 deterministic), so compare a few runs before trusting a small difference.
 
+Since R1.11 there is an exact way: every node run writes a run log
+(`log/gdn_runs/gdn_<time>/`, named in `node.log`). `gdn_replay` replays it through the
+same code with no timing in the way, so the same settings give the same result bit for
+bit and a difference is the setting's:
+
+```bash
+ros2 run gdn_fusion gdn_replay log/gdn_runs/gdn_...                      # checks it reproduces
+ros2 run gdn_fusion gdn_replay log/gdn_runs/gdn_... --set=mag_fusion=align --out=/tmp/align
+python3 tools/plot_run_log.py log/gdn_runs/gdn_... /tmp/align --out cmp.png
+```
+
+The replay keeps the inputs the node received; it can't show what a change in the
+flight itself (PX4 reacting to GDN, R5.1) would do. That still needs `sim_replay.sh`
+or a new flight.
+
 ## Things that were wrong and how they're handled
 
 These bit during the first runs. They're fixed in the scripts, but worth knowing if
