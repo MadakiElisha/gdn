@@ -1,0 +1,27 @@
+PASS  score: reads fixed-wing CEP95 and max per window
+PASS  score: reads the vertical and integrity limits
+PASS  score: reads the acquisition start error and time
+PASS  score: reads every scored limit from docs/requirements.md
+PASS  score: CEP95 under the limits passes
+PASS  score: 99 of 100 flights never over the max passes
+PASS  score: CEP95 over the limit fails
+PASS  score: 98 of 100 flights fails the 99% max rule
+PASS  score: integrity over 1% and altitude p95 over 5 m fail
+PASS  score: acquisition: each start error up to 500 m is scored
+PASS  score: integrity is scored on every scenario set, start-error runs too
+PASS  score: start errors over 500 m aren't scored
+PASS  score: a max limit the MC doesn't count (30 m) is NOT SCORED, CEP95 still is
+PASS  score: a perfect-map run isn't scored (REQ-DB-002)
+PASS  score: reports from one filter configuration score together; two configurations are refused
+PASS  score: phase 1: a report with R1.1 to R1.7 all on passes
+PASS  score: phase 1: the naive TRN model is refused (R1.1)
+PASS  score: phase 1: truth start-up and the GNSS-speed ground rule are refused (R1.2)
+PASS  score: phase 1: a perfect onboard map is refused (R1.3)
+PASS  score: phase 1: 3-axis-only magnetometer is refused (R1.4)
+PASS  score: phase 1: heading-only start is allowed on a recorded flight only (no attitude truth for a mag)
+PASS  score: phase 1: a report without the 3-sigma check is refused (R1.5)
+PASS  score: phase 1: the placeholder IMU is refused (R1.6)
+PASS  score: phase 1: a run with neither GNSS loss nor start error is refused (R1.7)
+PASS  score: phase 1: a tuned configuration is refused: Phase 1 is scored at the defaults
+PASS  score: phase 1: a report that doesn't say how the MC ran is refused, not assumed
+SCORE SELFCHECK PASSED

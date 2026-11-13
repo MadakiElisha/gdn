@@ -96,8 +96,21 @@ def read_export(path):
 
 
 def load(path):
+    """A run log directory or an --export directory. Exits with a clear message when it
+    is neither, instead of rosbag2's "No storage could be initialized"."""
     p = Path(path)
-    return read_export(p) if (p / "states.csv").exists() else read_mcap(p)
+    if not p.is_dir():
+        hint = (" (a what-if log is written by gdn_replay LOG --set=KEY=VALUE --out=DIR: run that first)"
+                if not p.exists() else "")
+        sys.exit(f"ERROR: {path}: no such run log directory{hint}")
+    if (p / "states.csv").exists():
+        return read_export(p)
+    if not any(p.glob("*.mcap")):
+        sys.exit(f"ERROR: {path}: not a run log (no .mcap file) nor an --export directory (no states.csv)")
+    if not (p / "metadata.yaml").exists():
+        sys.exit(f"ERROR: {path}: the log has no index (the node didn't close cleanly). "
+                 f"Run: ros2 bag reindex {path} -s mcap")
+    return read_mcap(p)
 
 
 def style(ax):

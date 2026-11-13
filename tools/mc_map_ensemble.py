@@ -53,7 +53,7 @@ out_dir = ROOT / "data/maps/ensemble"
 out_dir.mkdir(parents=True, exist_ok=True)
 env = {"GDN_ROOT": str(ROOT), "PATH": "/usr/bin:/bin"}
 
-imu_line = scen_line = filter_line = ""
+imu_line = scen_line = filter_line = setup_line = ""
 acq = defaultdict(lambda: [0, 0])     # start error -> [under 100 m at 120 s, flights], summed over maps
 vert = []                             # per map: altitude error p50, p95, max
 per_seed = defaultdict(lambda: {"err": [], "over": [], "nees": [], "t": []})
@@ -74,6 +74,14 @@ for k in range(a.maps):
     if k and fl != filter_line:   # R1.10: the same args give the same config; check anyway
         sys.exit(f"map {k}: filter configuration changed between runs:\n  {filter_line}\n  {fl}")
     filter_line = fl
+    # How the MC ran (model, start-up, mag, baro drift), as it says itself: the "MC
+    # campaign:" line without its seed count, window and sample count. The Phase 1 check
+    # (score_requirements.py --phase1) reads it.
+    m = re.search(r"^MC campaign: \d+ seeds, (.*?), window ", res, re.M)
+    su = "mc setup: " + m.group(1) if m else ""
+    if k and su != setup_line:
+        sys.exit(f"map {k}: MC setup changed between runs:\n  {setup_line}\n  {su}")
+    setup_line = su
     print(f"map {k:2d}: {info.split('vs truth: ')[-1]} | {line.split('passing')[-1].strip()}")
     for m in re.finditer(r"^acquisition \(REQ-ACQ-001\): start error ([0-9.]+) m: .*?: (\d+)/(\d+) flights", res, re.M):
         acq[m.group(1)][0] += int(m.group(2)); acq[m.group(1)][1] += int(m.group(3))
@@ -104,6 +112,8 @@ if scen_line:
     print(scen_line)   # R1.7: GNSS loss / start error
 print(f"map ensemble: {a.maps} maps x {a.per_map} flights, recipe '{a.recipe}', "
       f"mc: {' '.join(a.mc_args)}, pooled n={len(pool)}")
+if setup_line:
+    print(setup_line)
 print(f"CEP50: {np.percentile(pool, 50):.1f} m  CEP95: {np.percentile(pool, 95):.1f} m  "
       f"MAX: {pool.max():.1f} m  in-spec(<100 m): {100 * np.mean(pool < 100):.1f}%")
 print(f"per-seed RMS: median {np.median(rms):.1f} m  p95 {np.percentile(rms, 95):.1f} m  "

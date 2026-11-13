@@ -117,29 +117,30 @@ limit).
 
 ## Where we stand today
 
-Scored by `tools/score_requirements.py` in TEST-026 (November 2026, after R1.6 and
-R1.7): fixed-wing, SRTM-like onboard maps, 100 flights per scenario. **1 pass, 25
-fails.**
+Scored by `tools/score_requirements.py --phase1` in TEST-030 (November 2026, the end of
+Phase 1: R1.1 to R1.7 all on): fixed-wing, SRTM-like onboard maps, 100 flights per
+scenario. **1 pass, 25 fails**, as in the TEST-026 baseline. Zermatt is unchanged;
+flight001 now uses the node's start-up instead of the truth one.
 
 - **GNSS-free windows (REQ-NAV-003), GNSS lost 150 s after take-off.**
   - Zermatt (30 m/s): CEP95 62.4 m at 5 min and 80.8 m at 10 min (limits 50 and 75 m).
     77 and 37 flights in 100 never over 100 m (99 needed). Fail.
-  - flight001, real IMU (15 m/s): CEP95 85.5 and 95.8 m; 55 and 26 flights never over
+  - flight001, real IMU (15 m/s): CEP95 91.2 and 101.8 m; 45 and 23 flights never over
     100 m. Fail.
   - The typical error is close to the limits. The flights that run away to the wrong
     terrain contour are what fails (OI-009).
   - On a perfect map (a regression check, not a score), Zermatt would pass everything:
     CEP95 20.2 and 22.5 m, 100 of 100 flights, 0.00% over 3 sigma.
 - **Integrity (REQ-INT-001).** 4.2% to 13.1% over 3 sigma in the GNSS-free windows, and
-  3.9% to 95% in the start-error runs (1% allowed). Fails wherever there is map error,
+  3.9% to 96% in the start-error runs (1% allowed). Fails wherever there is map error,
   until integrity monitoring and map-aware TRN (R4.1, R4.4).
-- **Vertical (REQ-NAV-010).** Altitude p95 is 10.2 m (Zermatt) and 15.2 m (flight001) on
+- **Vertical (REQ-NAV-010).** Altitude p95 is 10.2 m (Zermatt) and 15.4 m (flight001) on
   SRTM-like maps, so it fails. On a perfect map it is 1.5 m. Altitude follows the map's
   error (OI-014). Barometer drift: with 15 m of drift over 5 minutes, p95 is 9.9 m
   (TEST-017).
 - **Acquisition (REQ-ACQ-001).** Under 100 m 120 s after take-off:
   - Zermatt: 99, 84 and 7 flights in 100 from 60, 150 and 500 m. Only 60 m passes.
-  - flight001: 69, 22 and 2. Fails.
+  - flight001: 61, 24 and 1. Fails.
 
   As expected until acquisition (R4.1).
 - **Map error (REQ-DB-002).** Every score above uses synthetic SRTM-like map error
