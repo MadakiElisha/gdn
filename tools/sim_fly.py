@@ -2,9 +2,15 @@
 """Fly PX4 (SITL) on a terrain-following lawnmower over the map, in offboard mode.
 
 PX4 still flies on its own GNSS-based estimator here: GDN runs alongside in shadow
-mode (roadmap Stage A). --gps-off-at T injects a GPS failure T seconds after take-off
-(Stage B). PX4 then has no position and will fail-safe, while GDN keeps estimating.
-That's expected until PX4 can use GDN's output (R5.1).
+mode (roadmap Stage A). --gps-off-at T cuts GPS T seconds after take-off (Stage B).
+PX4 then loses its position and fails safe, while GDN keeps estimating. That's expected
+until PX4 can use GDN's output (R5.1).
+
+The cut sets PX4's EKF2_GPS_CTRL to 0 (through px4-param in --px4-dir), so PX4's
+estimator stops using GPS. PX4's failure injection (VEHICLE_CMD_INJECT_FAILURE, the
+`failure gps off` command) doesn't work here: in PX4 1.16 only the MAVLink simulator
+(Gazebo Classic, jMAVSim) acts on it, and gz_bridge passes every GPS reading on. With
+it, PX4 kept a 0.2 m position through every Stage B run until TEST-032.
 
 The route is planned from the same terrain map GDN uses. A "carrot" setpoint moves
 along the legs at --speed. Its height is the highest terrain within --lookahead
@@ -18,6 +24,8 @@ Needs the PX4 uXRCE-DDS link (MicroXRCEAgent) and px4_msgs 1.16.
 """
 import argparse
 import math
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -62,6 +70,7 @@ class Flyer(Node):
     def __init__(self, a):
         super().__init__("gdn_sim_fly")
         self.a = a
+        self.px4_param = a.px4_param
         alt, hdr = load_map(a.map)
         self.route, self.ground = plan_route(alt.astype(np.float64), hdr, a.legs, a.leg_len, a.spacing,
                                              (a.centre_n, a.centre_e), a.clearance, a.lookahead)
@@ -87,6 +96,8 @@ class Flyer(Node):
         self.k = 0
         self.t_takeoff = None
         self.gps_off_sent = False
+        self.gps_off_proc = None
+        self.failsafe = False
         self.landing = False
         self.done = False
         self.create_timer(0.1, self.step)
@@ -98,6 +109,18 @@ class Flyer(Node):
     def on_status(self, m):
         self.nav_state = m.nav_state
         self.armed = m.arming_state == VehicleStatus.ARMING_STATE_ARMED
+
+    def check_gps_cut(self):
+        """Report how the px4-param call that cuts GPS ended, once it has."""
+        if self.gps_off_proc is None or self.gps_off_proc.poll() is None:
+            return
+        out = (self.gps_off_proc.stdout.read() or "").strip().replace("\n", " | ")
+        if self.gps_off_proc.returncode == 0:
+            self.get_logger().info(f"PX4 took EKF2_GPS_CTRL 0 ({out or 'no output'})")
+        else:
+            self.get_logger().error(f"px4-param failed (exit {self.gps_off_proc.returncode}): {out}; "
+                                    "GPS is still on")
+        self.gps_off_proc = None
 
     def now_us(self):
         return int(self.get_clock().now().nanoseconds / 1000)
@@ -118,7 +141,13 @@ class Flyer(Node):
         mode.timestamp = self.now_us()
         mode.position = True
         self.pub_mode.publish(mode)
-        if self.landing:
+        self.check_gps_cut()
+        if (self.gps_off_sent and not self.failsafe and self.nav_state is not None
+                and self.nav_state != VehicleStatus.NAVIGATION_STATE_OFFBOARD):
+            self.failsafe = True
+            self.get_logger().warn(f"PX4 left offboard {self.k / 10.0 - self.t_takeoff:.0f} s into the route, "
+                                   f"after the GPS cut (nav_state {self.nav_state}): its fail-safe flies now")
+        if self.landing or self.failsafe:
             # PX4 disarms by itself once it has landed (COM_DISARM_LAND). Then this
             # script is done, and tools/sim_run.sh goes on to score and stop the run.
             if not self.armed and not self.done:
@@ -144,7 +173,7 @@ class Flyer(Node):
             self.command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1, 6)
             self.command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1)
             self.get_logger().info("offboard + arm requested")
-        if self.k > 15 and self.k % 50 == 0 and not self.armed:
+        if self.k > 15 and self.k % 50 == 0 and not self.armed and self.t_takeoff is None:
             self.command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1, 6)
             self.command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1)
         if self.pos is None:
@@ -157,10 +186,12 @@ class Flyer(Node):
             return
         t_flight = self.k / 10.0 - self.t_takeoff
         if self.a.gps_off_at is not None and not self.gps_off_sent and t_flight >= self.a.gps_off_at:
-            self.command(VehicleCommand.VEHICLE_CMD_INJECT_FAILURE,
-                         VehicleCommand.FAILURE_UNIT_SENSOR_GPS, VehicleCommand.FAILURE_TYPE_OFF)
+            # Not waited for here: the setpoint stream must keep going at 10 Hz.
+            self.gps_off_proc = subprocess.Popen([str(self.px4_param), "set", "EKF2_GPS_CTRL", "0"],
+                                                 cwd=self.px4_param.parent.parent / "rootfs",
+                                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             self.gps_off_sent = True
-            self.get_logger().warn(f"GPS failure injected at t={t_flight:.0f} s "
+            self.get_logger().warn(f"GPS cut at t={t_flight:.0f} s: EKF2_GPS_CTRL 0 "
                                    "(PX4 will fail-safe; GDN keeps estimating)")
         # Advance the carrot at --speed (route points are 10 m apart, ticks 0.1 s),
         # but hold it while the vehicle is more than 25 m behind or 10 m off in height.
@@ -188,8 +219,13 @@ def main():
     ap.add_argument("--lookahead", type=float, default=200.0, help="m of track used for the envelope")
     ap.add_argument("--speed", type=float, default=10.0, help="carrot speed, m/s")
     ap.add_argument("--gps-off-at", type=float, default=None, dest="gps_off_at",
-                    help="inject a GPS failure this many seconds after reaching cruise height")
+                    help="cut GPS this many seconds after reaching cruise height")
+    ap.add_argument("--px4-dir", default=os.environ.get("PX4_DIR", str(Path.home() / "PX4-Autopilot-1.16")),
+                    dest="px4_dir", help="PX4 checkout with SITL built, for px4-param (default $PX4_DIR)")
     a = ap.parse_args()
+    a.px4_param = Path(a.px4_dir) / "build/px4_sitl_default/bin/px4-param"
+    if a.gps_off_at is not None and not a.px4_param.exists():
+        sys.exit(f"sim_fly: --gps-off-at needs {a.px4_param} (set --px4-dir or PX4_DIR)")
     rclpy.init()
     node = Flyer(a)
     try:

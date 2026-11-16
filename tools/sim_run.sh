@@ -130,10 +130,11 @@ timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/Ve
 #   integrates the IMU at 250 Hz by default. Then each message GDN gets covers only
 #   4 of every 10 ms and 60% of the motion is lost, which wrecks the attitude on a
 #   multirotor. At 100 Hz every message covers its whole interval.
-# - SYS_FAILURE_EN 1: allow the GPS-failure injection used by Stage B.
 # - NAV_DLL_ACT 0: arm without QGroundControl (the x500 airframe requires a GCS link).
+# - EKF2_GPS_CTRL 7 (PX4's default): GPS on. A Stage B cut sets it to 0 mid-flight
+#   (sim_fly.py --gps-off-at); PX4 keeps parameters between runs, so set it back here.
 ( cd "$PX4_DIR/build/px4_sitl_default/rootfs" && ../bin/px4-param set IMU_INTEG_RATE 100 \
-    && ../bin/px4-param set SYS_FAILURE_EN 1 && ../bin/px4-param set NAV_DLL_ACT 0 ) >> "$LOG/px4.log" 2>&1
+    && ../bin/px4-param set NAV_DLL_ACT 0 && ../bin/px4-param set EKF2_GPS_CTRL 7 ) >> "$LOG/px4.log" 2>&1
 
 # Gazebo -> ROS for the sensors GDN needs (raw, not PX4's estimates).
 SENS="/world/$WORLD/model/$MODEL_INSTANCE/link/base_link/sensor"
@@ -196,7 +197,7 @@ echo
 grep -h "altitude datum" "$LOG/gdn.log" | tail -1 || echo "sim_run: warning, GDN hasn't set its datum yet (see $LOG/gdn.log)"
 
 echo "sim_run: flying (Ctrl+C to stop early)"
-python3 tools/sim_fly.py --map "$MAP" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"
+python3 tools/sim_fly.py --map "$MAP" --px4-dir "$PX4_DIR" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"
 sleep 20     # let it land and the scorer catch the end
 kill -INT "$(pgrep -f replay_scorer.py)" 2>/dev/null
 kill -INT "$(pgrep -f "ros2 bag record")" 2>/dev/null; sleep 4

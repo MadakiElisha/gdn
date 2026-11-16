@@ -7,7 +7,7 @@ it never sees GPS, and its estimate is drawn live against the true path.
 | Stage | What you see | Status |
 |---|---|---|
 | A. Shadow mode | The drone flies a terrain-following lawnmower route. RViz shows GDN's estimated path (red) against the true path (white) over the terrain. | This page. Runs end to end; GDN drifts on the multirotor (see "Current result") |
-| B. GPS cut | Same flight, GPS failure injected mid-route (`GPS_OFF_AT`). PX4 on its own loses position and fails safe. GDN keeps estimating. | This page |
+| B. GPS cut | Same flight, GPS cut mid-route (`GPS_OFF_AT`). PX4 on its own loses position within about 5 s and fails safe (a blind landing). GDN keeps estimating. | This page. Works since TEST-032; before it, the cut never reached PX4 |
 | C. Flying on GDN | PX4 uses GDN's position and finishes the route with GPS off. | Needs R5.1 |
 
 ## What runs
@@ -102,7 +102,19 @@ tools/docker_dev.sh shell --gpu --gui      # a shell, with Gazebo and RViz windo
 GDN_GPU=nvidia source env.sh
 tools/sim_run.sh                    # Stage A
 GPS_OFF_AT=120 tools/sim_run.sh     # Stage B: GPS cut 2 minutes into the route
+python3 tools/check_gps_cut.py log/gdn_runs/gdn_<time>   # did PX4 really lose GPS?
 ```
+
+**How the GPS cut works.** `sim_fly.py` sets PX4's `EKF2_GPS_CTRL` to 0 (through
+`px4-param`), so PX4's estimator stops using GPS. Within about 5 s PX4 marks its position
+invalid, leaves offboard and lands blind, and its uncertainty (eph) climbs to hundreds of
+metres. PX4's failure injection (`failure gps off`, `VEHICLE_CMD_INJECT_FAILURE`) isn't
+used: in PX4 1.16 only the MAVLink simulator (Gazebo Classic, jMAVSim) acts on it. Under
+Gazebo Harmonic it was acknowledged and ignored, so until TEST-032 every Stage B run
+actually flew on GPS. `sim_run.sh` sets `EKF2_GPS_CTRL` back to 7 at start, since PX4
+keeps its parameters between runs. After a cut, PX4's position is no reference any more:
+the scorer and RViz use Gazebo's truth, and `plot_run_log.py` only draws the error while
+PX4's position was valid.
 
 Two windows open:
 - **Gazebo:** the x500 on its pad in the Alps. The camera can be moved with the mouse.
@@ -119,7 +131,7 @@ Everything is logged to `/tmp/gdn_sim/`:
 | `gdn.log` | `altitude datum ... AMSL` at start-up, then `DBG` lines once a second. `rej=...(m..` counts rejected magnetometer updates; thousands means the attitude has gone wrong. |
 | `adapter.log` | `field in NED ...` every 10 s should stay constant. `radar AGL minus map-predicted AGL: mean ..., rms ...` every 10 s. Small (about 1 m) means the rendered terrain matches the map. If it says `no radar altimeter data`, GPU rendering isn't working, and AGL falls back to the map at the true position. |
 | `scorer.log` | horizontal error every 20 s, and the summary |
-| `fly.log` | route progress, GPS failure injection |
+| `fly.log` | route progress; on Stage B, the GPS cut, PX4 taking it, and PX4 leaving offboard |
 | `px4.log`, `gz.log`, `agent.log`, `bridge.log` | if something doesn't start |
 
 Useful variations:
@@ -153,6 +165,16 @@ true position, not the rendered radar):
   now Stage A is the test bench for the estimator, not a demonstration that it
   works. `GDN_NODE_ARGS="-p mag_fusion:=align"` (magnetometer for initial yaw only)
   is about 5x better, still far from the R1.8 limits.
+- **Why, measured on three flights in the dev image (TEST-032):**
+  - The altimeter readings are good: 0.32 m RMS against the map at the true position.
+  - Velocity isn't observed. The estimate slows on the straight legs, and the error
+    grows to hundreds of metres.
+  - The filter is overconfident with altimeter updates on: 15 to 81% of the time over
+    its own 3σ. With them off it never is.
+  - Once the estimate leaves the map (1 to 2 km off), no altimeter update applies, and
+    it runs away at 20 to 40 m/s. That's the "hallucination" at the end of a long flight.
+  - No setting fixes it: each wins on one flight and loses on another. The fix is
+    velocity aiding (Phase 3).
 
 To try a change on the exact same flight without flying again:
 

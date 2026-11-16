@@ -1,0 +1,15 @@
+# tools/check_gps_cut.py, before the fix (the project lead's runs of 2026-11-16 in the dev image; at least one flown with GPS_OFF_AT=60):
+$ python3 tools/check_gps_cut.py log/gdn_runs/gdn_20261116_080824
+FAIL  GPS lost expected; airborne t+127 to t+160 s: PX4 eph max 0.2 m, horizontal position invalid in 0 of 2785 samples
+$ python3 tools/check_gps_cut.py log/gdn_runs/gdn_20261116_081427
+FAIL  GPS lost expected; airborne t+126 to t+1054 s: PX4 eph max 0.2 m, horizontal position invalid in 0 of 77318 samples
+$ python3 tools/check_gps_cut.py log/gdn_runs/gdn_20261116_083410
+FAIL  GPS lost expected; airborne t+127 to t+839 s: PX4 eph max 0.2 m, horizontal position invalid in 0 of 59331 samples
+$ python3 tools/check_gps_cut.py log/gdn_runs/gdn_20261116_084914
+FAIL  GPS lost expected; airborne t+128 to t+1056 s: PX4 eph max 0.2 m, horizontal position invalid in 0 of 77314 samples
+
+# after the fix: Stage B run in the dev image (GPS_OFF_AT=40, --legs 1 --leg-len 600)
+$ python3 tools/check_gps_cut.py log/gdn_runs/gdn_20261116_112059
+PASS  GPS lost expected; airborne t+126 to t+273 s: PX4 eph max 386.8 m, horizontal position invalid in 6880 of 12066 samples; GPS lost from t+189 s
+$ python3 tools/check_gps_cut.py log/gdn_runs/gdn_20261116_084914 --expect kept
+PASS  GPS kept expected; airborne t+128 to t+1056 s: PX4 eph max 0.2 m, horizontal position invalid in 0 of 77314 samples

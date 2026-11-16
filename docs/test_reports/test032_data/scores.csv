@@ -1,0 +1,21 @@
+flight,variant,settings_changed,window_s,rms_m,max_m,over_3sigma_pct,vel_rms_m_s
+081427,as flown,the run's own,544,805.6,1701.8,81.2,10.06
+081427,no altimeter,r_agl=1000000000,544,399.0,930.5,0.0,2.65
+081427,"no altimeter, compass at start only","r_agl=1000000000, mag_fusion=align",544,192.8,1000.5,0.0,2.40
+081427,altimeter sigma 20 m, not 10 (r_agl 400),r_agl=400,544,637.8,1335.6,42.5,4.53
+081427,compass at start only (align),mag_fusion=align,544,648.1,1529.7,51.1,14.23
+081427,compass heading only,mag_fusion=heading,544,125.1,517.7,25.8,4.10
+081427,altimeter can't tilt (code test),none: a scratch code change,544,574.5,1318.8,50.5,6.05
+081427,altimeter can't tilt or touch biases (code test),none: a scratch code change,544,637.4,1072.4,81.2,6.13
+083410,as flown,the run's own,272,105.4,431.0,15.0,2.87
+083410,no altimeter,r_agl=1000000000,272,99.4,230.9,0.0,3.14
+083410,"no altimeter, compass at start only","r_agl=1000000000, mag_fusion=align",272,998.1,2080.6,0.0,9.01
+083410,altimeter sigma 20 m, not 10 (r_agl 400),r_agl=400,272,108.5,426.5,11.5,3.12
+083410,compass at start only (align),mag_fusion=align,272,118.4,432.6,13.0,4.34
+083410,compass heading only,mag_fusion=heading,272,181.7,542.5,13.7,5.17
+084914,as flown,the run's own,830,520.8,1324.0,52.6,8.19
+084914,no altimeter,r_agl=1000000000,830,695.4,1689.9,0.0,2.52
+084914,"no altimeter, compass at start only","r_agl=1000000000, mag_fusion=align",830,1321.2,3580.0,0.0,10.25
+084914,altimeter sigma 20 m, not 10 (r_agl 400),r_agl=400,830,24.6,101.0,0.0,0.76
+084914,compass at start only (align),mag_fusion=align,830,1547.3,4803.7,59.2,14.89
+084914,compass heading only,mag_fusion=heading,830,1726.2,4733.1,39.6,9.81
