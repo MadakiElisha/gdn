@@ -1,0 +1,30 @@
+PASS  image gdn-dev:e0d6b413c780 is built
+PASS  image is built from the current docker/ files (e0d6b413c780)
+PASS  image base is the pinned digest (osrf/ros:jazzy-desktop@sha256:2f520187e84304fffb60d19c9a7d8e2e79d563a6e579a090427e5994eb1b8c45)
+PASS  Ubuntu 24.04 (noble)
+PASS  ROS 2 distribution (jazzy)
+PASS  Gazebo Harmonic (gz sim 8) (8)
+PASS  PX4 commit (v1.16.2) (54f0455ffcd755534539a7cf33a09a20bf71d29d)
+PASS  PX4 SITL is built
+PASS  Micro XRCE-DDS Agent (v2.4.3) (73622810d984349b80bbac0ef55fc0b694d62222)
+PASS  MicroXRCEAgent is installed
+PASS  ros_gz_bridge is installed
+PASS  Gazebo Python bindings import
+PASS  the workspace is the host's (same path)
+PASS  files written in the workspace belong to the host user
+PASS  the container's build is kept apart from the host's
+PASS  GDN builds (colcon, Release)
+PASS  selftest passes (tools/run_selftest.sh)
+PASS  the Zermatt world is generated
+PASS  world physics check (tools/check_sim_world.py)
+PASS  the NVIDIA GPU is visible in the container (nvidia-smi)
+PASS  the rendered radar altimeter agrees with the map (tools/check_sim_radar.py, GPU)
+DOCKER CHECK PASSED
+
+check_sim_radar.py (from log/docker_check/check.log):
+  control, mirrored north-south  : median   188.8 m
+  control, shifted 50 m east     : median    13.5 m
+  control, shifted 50 m north    : median     6.0 m
+  PASS  pad within 0.2 m
+  PASS  median within 1.0 m
+ogre2: 26/26 within 2.5 m; median +0.34 m, max |error| 1.36 m

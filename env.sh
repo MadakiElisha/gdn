@@ -15,6 +15,15 @@ else
   echo "[gdn] ROS 2 Jazzy not found at /opt/ros/jazzy - run tools/setup_ubuntu.sh first" >&2
 fi
 
+# Gazebo's command line ("gz sim", "gz topic") finds its commands through
+# GZ_CONFIG_PATH. ROS 2 sets it to its own gz_*_vendor folders only; where ROS has
+# some of those packages but not gz_sim_vendor (the dev image, R2.1), the system
+# Gazebo Harmonic's "sim" command in /usr/share/gz is hidden and "gz sim" just prints
+# help. Add the system folder after ROS's.
+if [ -d /usr/share/gz ] && [[ ":${GZ_CONFIG_PATH:-}:" != *":/usr/share/gz:"* ]]; then
+  export GZ_CONFIG_PATH="${GZ_CONFIG_PATH:+$GZ_CONFIG_PATH:}/usr/share/gz"
+fi
+
 # Middleware. Fast DDS is the Jazzy default and is what the PX4 uXRCE-DDS
 # agent talks to. Override with e.g. GDN_RMW=rmw_zenoh_cpp before sourcing.
 export RMW_IMPLEMENTATION="${GDN_RMW:-rmw_fastrtps_cpp}"

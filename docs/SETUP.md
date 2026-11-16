@@ -221,7 +221,9 @@ rendering broke the terrain visuals when this was first tried (OI-007, since fix
 ## Live PX4 SITL
 
 See [SIMULATION.md](SIMULATION.md). In short: `tools/setup_sim.sh` once, then
-`GDN_GPU=nvidia source env.sh && tools/sim_run.sh`. PX4 must be v1.16.x to match the
+`GDN_GPU=nvidia source env.sh && tools/sim_run.sh`. Or use the pinned dev image instead
+of installing PX4 and Gazebo on the host: `tools/docker_dev.sh build`, then
+`tools/docker_dev.sh shell --gpu --gui` (SIMULATION.md, "the dev image"). PX4 must be v1.16.x to match the
 `px4_msgs` submodule (`release/1.16`). With mismatched message definitions, topics
 appear but nothing decodes. Keep the PX4 checkout outside the GDN workspace.
 

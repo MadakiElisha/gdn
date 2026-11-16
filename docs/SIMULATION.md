@@ -56,6 +56,46 @@ tools/migrate_flight001.sh    # once: px4_msgs is now 1.16, and the old bag need
 On a laptop with hybrid graphics, check that rendering uses the NVIDIA GPU (see
 `docs/SETUP.md`, "GPU for simulation").
 
+### Or: the dev image (Docker, R2.1)
+
+The same toolchain, pinned, in a Docker image, so every machine runs the same PX4,
+Gazebo and ROS 2. Nothing is installed on the host except Docker (and, for `--gpu`,
+the NVIDIA Container Toolkit).
+
+```bash
+tools/docker_dev.sh build                  # once; downloads 3 to 4 GB, then builds PX4
+tools/docker_check.sh                      # the image is the pinned one, and the loop flies in it
+tools/docker_check.sh --gpu                # plus the GPU and the rendered radar altimeter
+tools/docker_dev.sh shell --gpu --gui      # a shell, with Gazebo and RViz windows on your desktop
+#   inside:  colcon build --base-paths src --cmake-args -DCMAKE_BUILD_TYPE=Release
+#            tools/sim_run.sh
+```
+
+- **What's in it** (pins in `docker/versions.env`):
+  - Ubuntu 24.04 and ROS 2 Jazzy desktop, the base image pinned by digest;
+  - Gazebo Harmonic;
+  - PX4 v1.16.2 with SITL built, in `/opt/PX4-Autopilot`;
+  - the Micro XRCE-DDS Agent v2.4.3;
+  - `ros_gz_bridge`, the Gazebo Python bindings, and every GDN build dependency.
+- **The workspace is mounted, not copied,** at the same path as on the host, so you
+  edit on the host and build and run in the container.
+  - The container keeps its own `build/` and `install/` (stored in `.docker/`), so a
+    host build and a container build never mix. A host build can point at a Python the
+    container doesn't have.
+  - `log/` is shared, so run logs land where the host sees them.
+- **The user inside is you** (same name and UID), so files it writes stay yours.
+- **The network is the host's.** ROS 2 topics and Gazebo pass between container and
+  host, so RViz on the host sees a simulation running in the container.
+- **The image name carries a hash of the `docker/` files.** After a change there,
+  `docker_dev.sh` asks for a rebuild instead of running an old image.
+- **CI** builds the image and runs `tools/docker_check.sh` (CPU) on PRs that change the
+  Docker files (`.github/workflows/docker.yml`).
+- **A slow connection:** the build retries interrupted downloads (git, apt, pip). On a
+  very slow link it can still take hours; it resumes from the last finished step if
+  run again.
+- **Portainer** (or `docker ps`) shows the running container, its logs and a console.
+  It can't show Gazebo or RViz; use `--gui`, or RViz on the host.
+
 ## Fly
 
 ```bash

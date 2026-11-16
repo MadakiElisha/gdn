@@ -28,3 +28,6 @@ data/maps/*
 
 # Per-unit sensor config written by tools/livox_setup.py (lidar and host IPs)
 config/sensors/mid360s.json
+
+# R2.1 dev image: the container's own build/ and install/ (tools/docker_dev.sh)
+.docker/

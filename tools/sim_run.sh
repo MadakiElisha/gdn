@@ -36,17 +36,32 @@ if [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ] || [ tools/m
 fi
 
 PIDS=()
+# Everything a run starts, by name. Killing the PIDs above isn't enough: for
+# "ros2 run ..." the PID is the launcher, and the program it started survives it.
+# A bridge or map_viz_node left from an earlier run doubles every Gazebo message
+# and keeps redrawing the old path in RViz.
+SIM_PROCS=("px4_sitl_default/bin/px4" "gz sim" "MicroXRCEAgent" "ros_gz_bridge/parameter_bridge"
+           "tools/sim_adapter.py" "tools/replay_scorer.py" "tools/sim_fly.py" "gdn_fusion/map_viz_node"
+           "rviz2 -d $ROOT/sim/gdn_sim.rviz" "ros2 bag record -s mcap -o $LOG/sitl_bag")
+stop_sim() {
+  # GDN first, with SIGINT (its clean shutdown), so its run log (R1.11) is closed and
+  # indexed; after a hard kill it needs "ros2 bag reindex". Up to 15 s.
+  pkill -INT -f "gdn_fusion/eskf_node" 2>/dev/null
+  for _ in $(seq 1 30); do pgrep -f "gdn_fusion/eskf_node" >/dev/null || break; sleep 0.5; done
+  pkill -INT -f "ros2 bag record -s mcap -o $LOG/sitl_bag" 2>/dev/null   # closes the bag
+  for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
+  for n in "${SIM_PROCS[@]}"; do pkill -f "$n" 2>/dev/null; done
+  sleep 1
+  pkill -9 -f "gdn_fusion/eskf_node" 2>/dev/null
+  for n in "${SIM_PROCS[@]}"; do pkill -9 -f "$n" 2>/dev/null; done
+}
 cleanup() {
   echo; echo "sim_run: stopping"
-  for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
-  sleep 1
-  pkill -f "px4_sitl_default/bin/px4" 2>/dev/null
-  pkill -f "gz sim" 2>/dev/null
-  pkill -f MicroXRCEAgent 2>/dev/null
+  stop_sim
   echo "sim_run: logs in $LOG"
 }
 trap cleanup EXIT INT TERM
-pkill -f "px4_sitl_default/bin/px4" 2>/dev/null; pkill -f "gz sim" 2>/dev/null; pkill -f MicroXRCEAgent 2>/dev/null
+stop_sim   # anything left from an earlier run
 sleep 1
 
 # Gazebo paths and plugins exactly as PX4 sets them, plus GDN's models.

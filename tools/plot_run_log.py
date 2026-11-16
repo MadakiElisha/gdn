@@ -113,6 +113,24 @@ def load(path):
     return read_mcap(p)
 
 
+def start_of_clock(d):
+    """The filter's time is 0 until its first propagation after static alignment, so
+    the records before that (skipped "not aligned" updates, the alignment events) carry
+    t = 0. On a bag that starts near 0 that's harmless; in SITL the IMU clock is Unix
+    time, and t = 0 put them 1.8e9 s before the rest. Put them at the first real time."""
+    ts = [r[0] for r in d["states"] if r[0] > 0]
+    if not ts:
+        return
+    first = min(ts)
+    for r in d["states"]:
+        if r[0] <= 0:
+            r[0] = first
+    for k in ("updates", "events"):
+        for r in d[k]:
+            if r[1] <= 0:
+                r[1] = first
+
+
 def style(ax):
     ax.set_facecolor(SURF)
     for s in ("top", "right"):
@@ -132,6 +150,8 @@ def draw(runs, labels, out):
                             gridspec_kw={"height_ratios": [1.2, 1.0, 1.0], "hspace": 0.18})
     for ax in axs:
         style(ax)
+    for d in runs:   # records from before the filter's clock started carry t = 0
+        start_of_clock(d)
     t0 = min(np.array(d["states"])[:, 0].min() for d in runs)
     cols = [C1, C2]
     summary = []

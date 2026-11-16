@@ -1,0 +1,6 @@
+key,value
+version,1639e97874-dirty
+config,default
+fingerprint,8fc7669fc7ef
+overrides,"mag_ref_north=0.9, mag_ref_east=22.5, mag_ref_down=-41.8"
+map,zermatt.bin
