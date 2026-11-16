@@ -58,6 +58,31 @@ Reproduce with `tools/sim_run.sh`, then `tools/sim_replay.sh` on the bag
 it records. Note that bag replays of the same flight vary by roughly 40% between
 runs because playback timing isn't deterministic.
 
+**TEST-032 (2026-11-16, dev image, rendered radar).** Three Stage A/B flights, each
+replayed exactly (`gdn_replay`) with one change at a time:
+- **Measurements:** the altimeter (0.32 m RMS against the map at the true position), the
+  IMU stream (100% covered) and the biases are fine.
+- **What goes wrong:** velocity isn't observed. GDN's speed drains on straight legs (10
+  to 2 to 3 m/s within a minute): IMU propagation through a slightly wrong pitch, and the
+  altimeter updates through the cross-covariances.
+- **Overconfidence:** with altimeter updates on, the error is over GDN's own 3σ 15 to 81%
+  of the time; with them off, never.
+- **The runaway at the end of a long flight:** when the estimate is 1 to 2 km off, it
+  leaves the map, every altimeter reading is skipped, and it runs away at 20 to 40 m/s on
+  the IMU and baro. That's the "hallucination" seen in RViz; landing adds only the last
+  seconds (the one-way latch, R2.5).
+- **Settings:** no setting fixes it. `r_agl` 400, heading-only or align-only mag, and
+  altimeter off each win on one flight and lose on another, from 25 m to 1.7 km. So one
+  SITL flight can't rank a setting. `r_agl` 400 is the only one never clearly worse (806 →
+  638, 105 → 109, 521 → 25 m), the same lead as OI-009: test it in that MC sweep.
+- **Code tests:** keeping the altimeter off the attitude (or the attitude and IMU biases)
+  helps a little on one flight. Not kept.
+- **The fix stays velocity aiding (Phase 3)** plus integrity monitoring (R4.4) to catch
+  "confident and wrong".
+- **Stage B fixed:** until TEST-032, Stage B (`GPS_OFF_AT`) never actually cut PX4's GPS.
+  PX4's failure injection isn't acted on under Gazebo Harmonic. The cut now uses
+  `EKF2_GPS_CTRL`, and `tools/check_gps_cut.py` checks it.
+
 ### OI-013: filter IMU white noise not yet set from in-flight data (open, bias part settled)
 The H30WP's bench fit (TEST-024, `config/imu/h30wp.yaml`) settled the bias random walks.
 The accel white noise still needs the IMU in flight.

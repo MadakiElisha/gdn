@@ -1,0 +1,7 @@
+[INFO] [1794828179.690828313] [gdn_sim_fly]: route: 121 points, 1.2 km, about 2 min at 10.0 m/s; height above pad 60 to 112 m
+[INFO] [1794828181.196411447] [gdn_sim_fly]: offboard + arm requested
+[INFO] [1794828204.496906654] [gdn_sim_fly]: at cruise height (57 m above pad), starting the route
+[WARN] [1794828244.497383641] [gdn_sim_fly]: GPS cut at t=40 s: EKF2_GPS_CTRL 0 (PX4 will fail-safe; GDN keeps estimating)
+[INFO] [1794828244.596394585] [gdn_sim_fly]: PX4 took EKF2_GPS_CTRL 0 (EKF2_GPS_CTRL: curr: 7 -> new: 0)
+[WARN] [1794828248.696404982] [gdn_sim_fly]: PX4 left offboard 44 s into the route, after the GPS cut (nav_state 1): its fail-safe flies now
+[INFO] [1794828338.196304294] [gdn_sim_fly]: landed and disarmed, done

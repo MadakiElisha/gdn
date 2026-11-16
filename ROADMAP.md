@@ -148,7 +148,7 @@ each later item lands in a working system:
 | Stage | What it shows | Needs | Status |
 |---|---|---|---|
 | A. Shadow mode | PX4 flies a terrain-following route on GPS; GDN estimates without GPS, drawn against truth in RViz | R2.1, a first world and vehicle | Runs end to end (checked headless, without a GPU, and in the dev image: TEST-031). GDN drifts badly on the multirotor (OI-012), so this stage is now the estimator test bench. The rendered radar altimeter is checked on the dev PC's GPU (TEST-031: 26/26 within 2.5 m) |
-| B. GPS cut | The same flight with a GPS failure injected mid-route; PX4 alone fails safe, GDN carries on | Stage A | Built (`GPS_OFF_AT`) |
+| B. GPS cut | The same flight with a GPS failure injected mid-route; PX4 alone fails safe, GDN carries on | Stage A | Works (`GPS_OFF_AT`, TEST-032): PX4 loses its position within about 5 s and lands blind. Until TEST-032 the cut never reached PX4 (its failure injection isn't acted on under Gazebo Harmonic); it now sets `EKF2_GPS_CTRL`, checked by `tools/check_gps_cut.py`. TEST-032 also explains GDN's runaway on the x500 (OI-012) |
 | C. Flying on GDN | PX4 takes GDN's position and finishes the route with GPS off | R5.1 | Not started |
 
 - [x] **R2.1 Toolchain.** Done: `px4_msgs` on release/1.16, the `flight001` bag migrated with `tools/migrate_flight001.sh`, `tools/setup_sim.sh` for PX4 v1.16.2, Gazebo Harmonic, ros_gz_bridge and the XRCE agent. Docker image done (TEST-031): `tools/docker_dev.sh` builds `gdn-dev` with everything pinned in `docker/versions.env` (the ROS 2 Jazzy desktop base by digest, PX4 v1.16.2 and the XRCE agent v2.4.3 by commit, Gazebo Harmonic), and runs it with the workspace mounted at the same path, its own build tree, the host user, the host network, `--gpu` (NVIDIA passthrough) and `--gui` (agreed: built locally, tools in the image and code mounted). `tools/docker_check.sh` (written first) checks the pins, the GDN build and selftest, the world, and flies a headless SITL route with GDN in shadow mode inside the image; `--gpu` adds the rendered radar altimeter (26/26 within 2.5 m on the dev PC's RTX 5060). CI builds and checks the image on PRs that change it. Fixed on the way: ROS 2 hid Gazebo's `sim` command (`env.sh`), PX4's pip install against Ubuntu's numpy, PX4's version script on a shallow clone, `sim_fly.py` not exiting after landing, and `sim_run.sh` stopping GDN before its run log was closed.
@@ -173,7 +173,7 @@ each later item lands in a working system:
 - [ ] **R2.5 Vehicle profiles and flight regime.** A YAML file per airframe: sensors, extrinsics, noise, enabled aiding, and regime rules (ground, hover, transition, cruise). The regime comes from the autopilot. The node loads one profile by parameter. All three simulated airframes have one.
 - [ ] **R2.6 Scenario runner.** A scenario is a YAML file naming:
   - vehicle, world and mission route, height and speed
-  - when GNSS is lost, and how: PX4 failure injection (`SYS_FAILURE_EN`, `failure gps off`), or slow spoofing drift
+  - when GNSS is lost, and how: a cut (`EKF2_GPS_CTRL` 0, as Stage B; PX4's `failure gps off` only works with the MAVLink simulator, not Gazebo Harmonic, TEST-032), or slow spoofing drift
   - start error, wind and lighting
   - sensor faults (dropout, stuck values, noise bursts)
 
