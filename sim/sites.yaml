@@ -1,0 +1,44 @@
+# R2.2 simulation sites: real terrain, one per terrain class, all in Switzerland so one
+# open data source (swisstopo) covers them. tools/make_site.py builds each one:
+#
+#   - the world (what Gazebo, the radar and the physics see) from swisstopo:
+#       truth: swissALTI3D 2 m (bare earth), or swissSURFACE3D 0.5 m (with buildings and
+#              trees) where truth: surface; resampled to the world grid
+#       photo: SWISSIMAGE 2 m, draped on the terrain mesh
+#   - GDN's onboard map from Copernicus GLO-30 (30 m, a different sensor, year and
+#     datum), so the filter never sees the terrain it flies over.
+#
+# centre: the take-off pad (lat, lon, WGS84), on open, level ground; also the origin of
+#         the world frame and of GDN's local frame.
+# size_m: side of the square world. The onboard map covers map_m (default 10 km), so
+#         an estimate that wanders still has a map under it (TEST-032).
+# Downloaded tiles are pinned in sim/sites.lock (item, year, sha256) by the first fetch.
+
+defaults:
+  size_m: 4000
+  grid: 1025            # world samples per side (4000 m / 1024 = 3.9 m)
+  map_m: 10000
+  truth: terrain
+
+sites:
+  ch_zermatt:
+    class: mountain
+    place: Sunnegga above Zermatt (Valais)
+    centre: [46.0160, 7.7712]   # gravel by the Sunnegga station, 2243 m
+  ch_emmental:
+    class: rolling hills
+    place: Emmental hills near Langnau (Bern)
+    centre: [46.9505, 7.7785]   # meadow by the road, 688 m
+  ch_seeland:
+    class: flat farmland
+    place: Grosses Moos, Seeland (Bern / Fribourg)
+    centre: [46.9750, 7.1000]
+  ch_zurich:
+    class: built-up
+    place: Zurich, Kaserne parade ground
+    centre: [47.3764, 8.5308]   # open parade ground (Kasernenwiese), 409 m
+    truth: surface
+  ch_neuchatel:
+    class: coast and open water
+    place: Lake Neuchatel, south shore at Estavayer-le-Lac
+    centre: [46.8550, 6.8450]

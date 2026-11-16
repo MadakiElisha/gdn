@@ -7,6 +7,8 @@
 #   GPS_OFF_AT=120 tools/sim_run.sh       # Stage B: cut GPS 120 s into the route
 #   HEADLESS=1 tools/sim_run.sh           # no windows (sensors still render via EGL)
 #   GDN_NODE_ARGS="-p mag_fusion:=align" tools/sim_run.sh   # extra eskf_node parameters
+#   GDN_SITE=ch_zurich tools/sim_run.sh   # an R2.2 site (sim/sites.yaml): swisstopo world,
+#                                         # GDN on its GLO-30 map (tools/make_site.py)
 #
 # One-time setup: tools/setup_sim.sh. Logs: $GDN_LOG_DIR (default /tmp/gdn_sim).
 # Ctrl+C stops everything.
@@ -14,8 +16,13 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot-1.16}"
+SITE="${GDN_SITE:-}"
 WORLD="${GDN_SIM_WORLD:-zermatt}"
 MAP="${GDN_MAP:-$ROOT/data/maps/zermatt.bin}"
+if [ -n "$SITE" ]; then
+  WORLD="$SITE"
+  MAP="$ROOT/data/maps/${SITE}_truth.bin"
+fi
 MODEL_INSTANCE="x500_gdn_0"
 LOG="${GDN_LOG_DIR:-/tmp/gdn_sim}"
 HEADLESS="${HEADLESS:-}"
@@ -31,8 +38,20 @@ ros2 pkg prefix gdn_fusion >/dev/null 2>&1 || die "GDN not built: colcon build -
 
 # World (generated per machine because it holds absolute paths).
 WDIR="$ROOT/data/sim/$WORLD"
-if [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ] || [ tools/make_sim_world.py -nt "$WDIR/$WORLD.sdf" ]; then
+if [ -n "$SITE" ]; then
+  # R2.2 site: the world from swisstopo, GDN's map from GLO-30 (downloads are cached).
+  # Rebuilt only if its sites.yaml entry or the building code changed.
+  python3 tools/make_site.py "$SITE" --if-stale || die "site generation failed (tools/make_site.py $SITE)"
+elif [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ] || [ tools/make_sim_world.py -nt "$WDIR/$WORLD.sdf" ]; then
   python3 tools/make_sim_world.py --map "$MAP" --name "$WORLD" || die "world generation failed"
+fi
+winfo() { sed -n "s/^$1=//p" "$WDIR/world_info.txt"; }
+# GDN's own map: on a site, GLO-30, in the world's frame (origin at the pad); otherwise
+# the world's map itself.
+NAV_MAP="$(winfo onboard_map)"; NAV_MAP="${NAV_MAP:-$MAP}"
+NAV_ORIGIN=()
+if [ "$NAV_MAP" != "$(winfo map)" ]; then
+  NAV_ORIGIN=(-p origin_lat:="$(winfo origin_lat)" -p origin_lon:="$(winfo origin_lon)")
 fi
 
 PIDS=()
@@ -166,11 +185,23 @@ python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" ${
 
 # GDN in shadow mode. The mag reference is the field Gazebo's magnetometer actually
 # simulates (its built-in model at the world's lat/lon, with odd axes: see on_mag in
-# sim_adapter.py). For Zermatt that's north 0.9, east 22.5, down -41.8 uT;
-# adapter.log prints it in NED for any world, so a new world can be checked.
+# sim_adapter.py). For the default Zermatt world that's north 0.9, east 22.5, down
+# -41.8 uT. A site is elsewhere, so there the reference is read from the adapter,
+# which logs the field in NED (from the truth attitude) every 10 s.
 MAG_REF="${GDN_MAG_REF:-0.9 22.5 -41.8}"
+if [ -n "$SITE" ] && [ -z "${GDN_MAG_REF:-}" ]; then
+  echo -n "sim_run: reading the simulated magnetic field "
+  for _ in $(seq 1 40); do
+    F="$(grep -o 'field in NED [-0-9. ]*uT' "$LOG/adapter.log" 2>/dev/null | head -1 | sed 's/field in NED //; s/ uT//')"
+    [ -n "$F" ] && break
+    echo -n "."; sleep 1
+  done
+  echo
+  if [ -n "$F" ]; then MAG_REF="$F"; echo "sim_run: magnetic reference (NED, uT): $MAG_REF"
+  else echo "sim_run: warning, no field from the adapter; using the Zermatt reference"; fi
+fi
 read -r MAG_N MAG_E MAG_D <<< "$MAG_REF"
-ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$MAP" \
+ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$NAV_MAP" "${NAV_ORIGIN[@]}" \
   -p mag_ref_north:="$MAG_N" -p mag_ref_east:="$MAG_E" -p mag_ref_down:="$MAG_D" ${GDN_NODE_ARGS:-} \
   > "$LOG/gdn.log" 2>&1 & PIDS+=($!)
 python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & PIDS+=($!)
@@ -188,13 +219,17 @@ if [ -z "$HEADLESS" ]; then
   rviz2 -d "$ROOT/sim/gdn_sim.rviz" > "$LOG/rviz.log" 2>&1 & PIDS+=($!)
 fi
 
-echo -n "sim_run: waiting for GDN to align and set its altitude datum "
+# Wait for GDN's static alignment (and heading). Its altitude datum comes with the
+# first radar reading, and parked the radar sits under its 0.2 m minimum range, so
+# that's at lift-off (gdn.log: "altitude datum ... AGL 0.2"); waiting for it here only
+# ever timed out.
+echo -n "sim_run: waiting for GDN to align "
 for _ in $(seq 1 120); do
-  grep -q "altitude datum" "$LOG/gdn.log" 2>/dev/null && break
+  grep -q "heading from magnetometer" "$LOG/gdn.log" 2>/dev/null && break
   echo -n "."; sleep 1
 done
 echo
-grep -h "altitude datum" "$LOG/gdn.log" | tail -1 || echo "sim_run: warning, GDN hasn't set its datum yet (see $LOG/gdn.log)"
+grep -h "static alignment" "$LOG/gdn.log" | tail -1 || echo "sim_run: warning, GDN hasn't aligned yet (see $LOG/gdn.log)"
 
 echo "sim_run: flying (Ctrl+C to stop early)"
 python3 tools/sim_fly.py --map "$MAP" --px4-dir "$PX4_DIR" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"

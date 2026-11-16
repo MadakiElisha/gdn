@@ -1,0 +1,41 @@
+# Stage A flights, GDN_SITE=<site> HEADLESS=1 tools/sim_run.sh, dev image, GPU, default 7.9 km route
+== ch_zermatt
+DEM loaded 326x468 from /home/bf-s2/gdn_workspace/data/maps/ch_zermatt_glo30.bin (origin 46.016000, 7.771200), r_trn=400
+sim_run: magnetic reference (NED, uT): 0.9 22.5 -41.9
+altitude datum 2244.3 m AMSL (map 2244.0 + AGL 0.3), baro bias -0.16 m
+route done, landing
+landed and disarmed, done
+radar AGL minus map-predicted AGL: mean +0.25 m, rms 0.33 m, n=199
+RMS whole run: 12071.3 m | P95: 21854.9 m | MAX: 22939.4 m | n=2459
+== ch_emmental
+DEM loaded 325x476 from /home/bf-s2/gdn_workspace/data/maps/ch_emmental_glo30.bin (origin 46.950500, 7.778500), r_trn=400
+sim_run: magnetic reference (NED, uT): 0.9 21.9 -42.5
+altitude datum 690.0 m AMSL (map 689.8 + AGL 0.2), baro bias 0.22 m
+route done, landing
+landed and disarmed, done
+radar AGL minus map-predicted AGL: mean +0.13 m, rms 0.29 m, n=107
+RMS whole run: 2967.5 m | P95: 5151.2 m | MAX: 6734.0 m | n=2023
+== ch_seeland
+DEM loaded 325x475 from /home/bf-s2/gdn_workspace/data/maps/ch_seeland_glo30.bin (origin 46.975000, 7.100000), r_trn=400
+sim_run: magnetic reference (NED, uT): 0.8 21.9 -42.5
+altitude datum 430.8 m AMSL (map 430.4 + AGL 0.5), baro bias 0.22 m
+route done, landing
+landed and disarmed, done
+radar AGL minus map-predicted AGL: mean +0.10 m, rms 0.32 m, n=119
+RMS whole run: 1053.3 m | P95: 2852.0 m | MAX: 4138.5 m | n=1716
+== ch_zurich
+DEM loaded 325x479 from /home/bf-s2/gdn_workspace/data/maps/ch_zurich_glo30.bin (origin 47.376400, 8.530800), r_trn=400
+sim_run: magnetic reference (NED, uT): 1.0 21.6 -42.9
+altitude datum 408.6 m AMSL (map 408.4 + AGL 0.2), baro bias 0.35 m
+route done, landing
+landed and disarmed, done
+radar AGL minus map-predicted AGL: mean +0.29 m, rms 0.34 m, n=200
+RMS whole run: 4951.0 m | P95: 9224.6 m | MAX: 9571.0 m | n=1841
+== ch_neuchatel
+DEM loaded 325x475 from /home/bf-s2/gdn_workspace/data/maps/ch_neuchatel_glo30.bin (origin 46.855000, 6.845000), r_trn=400
+sim_run: magnetic reference (NED, uT): 0.8 22.0 -42.4
+altitude datum 430.2 m AMSL (map 430.1 + AGL 0.2), baro bias 0.12 m
+route done, landing
+landed and disarmed, done
+radar AGL minus map-predicted AGL: mean +0.28 m, rms 0.34 m, n=199
+RMS whole run: 2517.0 m | P95: 4145.9 m | MAX: 4615.7 m | n=1741

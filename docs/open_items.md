@@ -114,6 +114,21 @@ before, so this was hidden. Likely direction: weigh the barometer more against T
 where the map is uncertain, or estimate a map height bias. Re-check with the real second
 DEM (R2.2); fix with the TRN and integrity work (Phase 4).
 
+### OI-015: the simulated radar beam lands about 1 m from its aim (open)
+Found by TEST-033 (R2.2). Gazebo Harmonic's single-beam `gpu_lidar` (the x500's radar
+altimeter) reads the terrain about 1.0 to 1.3 m south-west of the point straight below
+it at 100 m range (a 0.6 degree pointing offset). Fitting range errors against the
+surface slope gives the same offset on all six worlds, so it's the sensor, not the
+worlds' placement. Removing it leaves 0.24 to 0.42 m, the sensor's 0.3 m noise.
+- **Effect on hills:** centimetres to a metre of range.
+- **Effect on Zurich's building edges** (20 m steps): up to 3.7 m.
+- **Effect on GDN:** far below its 10 m altimeter sigma.
+
+`tools/check_sim_radar.py` now allows each point the error a 1.5 m offset explains at its
+slope, and fails if the fitted offset passes 2 m (a misplaced world).
+- **Next step:** check whether the offset turns with the sensor's yaw (a GpuRays
+  half-pixel?), before R2.4 builds the TFmini-S and Mid-360S on the same sensor type.
+
 ## Closed
 
 ### OI-007: Gazebo heightmap visuals broken (closed)

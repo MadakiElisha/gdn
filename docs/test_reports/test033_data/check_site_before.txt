@@ -1,0 +1,13 @@
+$ python3 tools/check_site.py --all      # written first, before tools/make_site.py existed
+PASS  WGS84 -> LV95 reproduces swisstopo's example: E 2699999.76, N 1099999.97
+== ch_zermatt (mountain: Sunnegga above Zermatt (Valais))
+FAIL  tiles are pinned in sim/sites.lock: run tools/make_site.py
+== ch_emmental (rolling hills: Emmental hills near Langnau (Bern))
+FAIL  tiles are pinned in sim/sites.lock: run tools/make_site.py
+== ch_seeland (flat farmland: Grosses Moos, Seeland (Bern / Fribourg))
+FAIL  tiles are pinned in sim/sites.lock: run tools/make_site.py
+== ch_zurich (built-up: Zurich, Kaserne parade ground)
+FAIL  tiles are pinned in sim/sites.lock: run tools/make_site.py
+== ch_neuchatel (coast and open water: south shore of Lake Neuchatel near Estavayer-le-Lac (Fribourg))
+FAIL  tiles are pinned in sim/sites.lock: run tools/make_site.py
+SITE CHECK FAILED (5)
