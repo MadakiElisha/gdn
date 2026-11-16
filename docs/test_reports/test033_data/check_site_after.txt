@@ -1,0 +1,88 @@
+$ python3 tools/check_site.py --all
+PASS  WGS84 -> LV95 reproduces swisstopo's example: E 2699999.76, N 1099999.97
+== ch_zermatt (mountain: Sunnegga above Zermatt (Valais))
+PASS  tiles are pinned in sim/sites.lock
+PASS  all 52 source tiles are downloaded and match their sha256
+PASS  truth map exists: /home/bf-s2/gdn_workspace/data/maps/ch_zermatt_truth.bin
+PASS  truth map is centred on the site, at the site's grid: centre 46.0160000 7.7712000, 1025x1025
+PASS  truth map has no holes: 0 NaN cells
+PASS  truth map matches swisstopo terrain at 400 random points (5 cm): max |diff| 0.000 m
+PASS  onboard map exists: /home/bf-s2/gdn_workspace/data/maps/ch_zermatt_glo30.bin
+PASS  onboard map is on GLO-30's 1 arc-second grid and covers 10 km: 10.0 x 10.1 km
+PASS  onboard map holds GLO-30's own pixels (200 random points): max |diff| 0.0000 m
+PASS  onboard map differs from the truth like a real one: RMS 5.7 m, mean +1.7 m, 95th |diff| 12.6 m
+PASS  onboard map is registered to the world (no 15 or 30 m shift fits 15% better): RMS 5.7 m in place, best shift (15, 0) m gives 6.7 m
+PASS  take-off pad is level (within 15 m): heights span 1.69 m over 52 cells
+PASS  world is built: /home/bf-s2/gdn_workspace/data/sim/ch_zermatt
+PASS  world was built from these maps, origin at the pad
+PASS  world files exist (sdf, heightmap, mesh, material, photo)
+PASS  the draped photo isn't blank: 2048x2048 px, std 44, 0.0% black
+== ch_emmental (rolling hills: Emmental hills near Langnau (Bern))
+PASS  tiles are pinned in sim/sites.lock
+PASS  all 61 source tiles are downloaded and match their sha256
+PASS  truth map exists: /home/bf-s2/gdn_workspace/data/maps/ch_emmental_truth.bin
+PASS  truth map is centred on the site, at the site's grid: centre 46.9505000 7.7785000, 1025x1025
+PASS  truth map has no holes: 0 NaN cells
+PASS  truth map matches swisstopo terrain at 400 random points (5 cm): max |diff| 0.000 m
+PASS  onboard map exists: /home/bf-s2/gdn_workspace/data/maps/ch_emmental_glo30.bin
+PASS  onboard map is on GLO-30's 1 arc-second grid and covers 10 km: 10.0 x 10.0 km
+PASS  onboard map holds GLO-30's own pixels (200 random points): max |diff| 0.0000 m
+PASS  onboard map differs from the truth like a real one: RMS 9.5 m, mean +4.7 m, 95th |diff| 23.3 m
+PASS  onboard map is registered to the world (no 15 or 30 m shift fits 15% better): RMS 9.5 m in place, best shift (0, -15) m gives 9.8 m
+PASS  take-off pad is level (within 15 m): heights span 0.83 m over 52 cells
+PASS  world is built: /home/bf-s2/gdn_workspace/data/sim/ch_emmental
+PASS  world was built from these maps, origin at the pad
+PASS  world files exist (sdf, heightmap, mesh, material, photo)
+PASS  the draped photo isn't blank: 2048x2048 px, std 37, 0.0% black
+== ch_seeland (flat farmland: Grosses Moos, Seeland (Bern / Fribourg))
+PASS  tiles are pinned in sim/sites.lock
+PASS  all 52 source tiles are downloaded and match their sha256
+PASS  truth map exists: /home/bf-s2/gdn_workspace/data/maps/ch_seeland_truth.bin
+PASS  truth map is centred on the site, at the site's grid: centre 46.9750000 7.1000000, 1025x1025
+PASS  truth map has no holes: 0 NaN cells
+PASS  truth map matches swisstopo terrain at 400 random points (5 cm): max |diff| 0.000 m
+PASS  onboard map exists: /home/bf-s2/gdn_workspace/data/maps/ch_seeland_glo30.bin
+PASS  onboard map is on GLO-30's 1 arc-second grid and covers 10 km: 10.0 x 10.0 km
+PASS  onboard map holds GLO-30's own pixels (200 random points): max |diff| 0.0000 m
+PASS  onboard map differs from the truth like a real one: RMS 7.1 m, mean +2.7 m, 95th |diff| 19.1 m
+PASS  onboard map is registered to the world (no 15 or 30 m shift fits 15% better): RMS 7.1 m in place, best shift (30, 0) m gives 6.3 m
+PASS  take-off pad is level (within 15 m): heights span 0.35 m over 52 cells
+PASS  world is built: /home/bf-s2/gdn_workspace/data/sim/ch_seeland
+PASS  world was built from these maps, origin at the pad
+PASS  world files exist (sdf, heightmap, mesh, material, photo)
+PASS  the draped photo isn't blank: 2048x2048 px, std 37, 0.0% black
+== ch_zurich (built-up: Zurich, Kaserne parade ground)
+PASS  tiles are pinned in sim/sites.lock
+PASS  all 51 source tiles are downloaded and match their sha256
+PASS  truth map exists: /home/bf-s2/gdn_workspace/data/maps/ch_zurich_truth.bin
+PASS  truth map is centred on the site, at the site's grid: centre 47.3764000 8.5308000, 1025x1025
+PASS  truth map has no holes: 0 NaN cells
+PASS  truth map matches swisstopo surface at 400 random points (5 cm): max |diff| 0.000 m
+PASS  onboard map exists: /home/bf-s2/gdn_workspace/data/maps/ch_zurich_glo30.bin
+PASS  onboard map is on GLO-30's 1 arc-second grid and covers 10 km: 10.0 x 10.0 km
+PASS  onboard map holds GLO-30's own pixels (200 random points): max |diff| 0.0000 m
+PASS  onboard map differs from the truth like a real one: RMS 7.2 m, mean -2.0 m, 95th |diff| 14.0 m
+PASS  onboard map is registered to the world (no 15 or 30 m shift fits 15% better): RMS 7.2 m in place, best shift (0, 15) m gives 7.3 m
+PASS  take-off pad is level (within 15 m): heights span 1.29 m over 52 cells
+PASS  world is built: /home/bf-s2/gdn_workspace/data/sim/ch_zurich
+PASS  world was built from these maps, origin at the pad
+PASS  world files exist (sdf, heightmap, mesh, material, photo)
+PASS  the draped photo isn't blank: 2048x2048 px, std 40, 0.0% black
+== ch_neuchatel (coast and open water: Lake Neuchatel, south shore at Estavayer-le-Lac)
+PASS  tiles are pinned in sim/sites.lock
+PASS  all 51 source tiles are downloaded and match their sha256
+PASS  truth map exists: /home/bf-s2/gdn_workspace/data/maps/ch_neuchatel_truth.bin
+PASS  truth map is centred on the site, at the site's grid: centre 46.8550000 6.8450000, 1025x1025
+PASS  truth map has no holes: 0 NaN cells
+PASS  truth map matches swisstopo terrain at 400 random points (5 cm): max |diff| 0.000 m
+PASS  onboard map exists: /home/bf-s2/gdn_workspace/data/maps/ch_neuchatel_glo30.bin
+PASS  onboard map is on GLO-30's 1 arc-second grid and covers 10 km: 10.0 x 10.0 km
+PASS  onboard map holds GLO-30's own pixels (200 random points): max |diff| 0.0000 m
+PASS  onboard map differs from the truth like a real one: RMS 2.3 m, mean +0.2 m, 95th |diff| 4.3 m
+PASS  onboard map is registered to the world (no 15 or 30 m shift fits 15% better): RMS 2.3 m in place, best shift (15, -15) m gives 2.0 m
+PASS  take-off pad is level (within 15 m): heights span 0.52 m over 52 cells
+PASS  world is built: /home/bf-s2/gdn_workspace/data/sim/ch_neuchatel
+PASS  world was built from these maps, origin at the pad
+PASS  world files exist (sdf, heightmap, mesh, material, photo)
+PASS  the draped photo isn't blank: 2048x2048 px, std 39, 0.0% black
+SITE CHECK PASSED

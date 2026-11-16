@@ -1,0 +1,4 @@
+# the original check, judged against the map's bilinear surface (2.5 m per point), on ch_zurich:
+ogre2: 23/26 within 2.5 m; median -0.01 m, max |error| 4.85 m
+FAIL: the rendered terrain doesn't match the map
+  failing points: east 1063 north -322 (-2.81 m), east 1191 north 259 (+2.97 m), east -217 north 786 (+4.85 m); heights within 8 m span 18.1, 16.9 and 20.6 m (building edges)

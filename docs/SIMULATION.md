@@ -147,6 +147,56 @@ Useful variations:
 | `GDN_MAG_REF="0.9 22.5 -41.8"` | magnetic reference for GDN (north east down, uT); see "Magnetometer" |
 | `PX4_DIR=...` | PX4 checkout somewhere other than `~/PX4-Autopilot-1.16` |
 
+## Real-terrain sites (R2.2)
+
+The default world above is built from GDN's own 30 m map, so GDN flies over exactly
+the terrain it knows. The five R2.2 sites, by contrast, are built from swisstopo's survey
+data. GDN flies them with a different, coarser map, as it would in reality (TEST-033):
+
+| Site | Terrain class | Place | World terrain |
+|---|---|---|---|
+| `ch_zermatt` | mountain | Sunnegga above Zermatt (pad at 2243 m) | swissALTI3D 2 m |
+| `ch_emmental` | rolling hills | near Langnau | swissALTI3D 2 m |
+| `ch_seeland` | flat farmland | Grosses Moos (Mont Vully at the south edge) | swissALTI3D 2 m |
+| `ch_zurich` | built-up | Zurich, Kaserne parade ground | swissSURFACE3D 0.5 m (buildings, trees) |
+| `ch_neuchatel` | coast and open water | Lake Neuchatel at Estavayer-le-Lac (half the route over water) | swissALTI3D 2 m |
+
+```bash
+python3 tools/make_site.py --all          # once: downloads (cached in data/terrain/) and builds
+python3 tools/check_site.py --all         # each site's maps, pad and world
+tools/view_site.sh --all                  # look at them in Gazebo (dev image: shell --gpu --gui)
+GDN_SITE=ch_zurich tools/sim_run.sh       # fly one, with GDN on its onboard map
+python3 tools/plot_sites.py --out sites.png   # one overview image of all five
+```
+
+- **Each site is a 4 by 4 km world around a level take-off pad,** defined in
+  `sim/sites.yaml`.
+  - **Terrain:** the survey heights are averaged to a 3.9 m grid, which gives both the
+    physics heightmap and the rendered mesh the radar sees.
+  - **Photo:** SWISSIMAGE at 2 m is draped on the mesh. Finer photos for visual odometry
+    come with R3.5, for the flown corridor only.
+- **GDN's onboard map is Copernicus GLO-30:** a 30 m satellite surface model, 10 by
+  10 km, a different sensor and year from the world.
+  - It differs from the world by 2.3 m RMS (lake shore) to 9.5 m (Emmental's forests).
+  - `sim_run.sh` passes the pad as GDN's origin, so both maps share one frame.
+- **The magnetic reference** is read from the simulated magnetometer at start-up, since
+  Gazebo's field depends on where the world is.
+- **The first build downloads about 100 MB per site,** and 400 MB for Zurich's 0.5 m
+  surface model. Every tile is pinned by checksum in `sim/sites.lock`, so the same
+  worlds are rebuilt even after swisstopo publishes newer surveys.
+  - Each world is about 210 MB on disk, mostly the mesh.
+  - `make_site.py --if-stale` (which `sim_run.sh` and `view_site.sh` use) rebuilds a
+    site only when its entry or the building code changes.
+- **A new site:** add an entry to `sim/sites.yaml`. If the pad isn't level,
+  `check_site.py` suggests the nearest level spot; check it on the photo, since a
+  lake is level too.
+- **Data credits:**
+  - World terrain and photos: © swisstopo (swissALTI3D, swissSURFACE3D, SWISSIMAGE;
+    open data).
+  - Onboard maps: Copernicus WorldDEM-30, © DLR e.V. 2010-2014 and © Airbus Defence
+    and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA;
+    all rights reserved.
+
 ## Current result (read this before judging the red line)
 
 Checked in a headless run without a GPU (the altimeter came from the map at the

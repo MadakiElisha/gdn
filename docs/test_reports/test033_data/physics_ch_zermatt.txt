@@ -1,0 +1,43 @@
+[1;36mDbg[0m ODE Heightfield AABB: min = {-1998.05, -1998.05, -0.05} max = {1998.05, 1998.05, 1537.12}
+probe      east     north    rest z     map z    diff  state
+    0       0.0      -0.0    687.56    687.37    0.19  settled
+    1      36.7    1441.0    534.98    535.35   -0.37  settled
+    2   -1150.7    1445.1     99.29    103.12   -3.83  settled
+    3    -602.1    -245.4    608.49    608.18    0.31  settled
+    4    1045.6    -295.4    810.77    810.28    0.49  settled
+    5     158.7   -1511.6    860.17    860.20   -0.03  settled
+    6     811.2     122.1    909.74    909.42    0.31  settled
+    7    -545.3     922.6    328.68    328.48    0.21  settled
+    8    -629.9    -148.9    627.39    627.40   -0.01  settled
+    9   -1254.4    -389.6    407.89    409.41   -1.52  still moving (11.5 m/s)
+   10    -949.5    -759.6    370.83    371.90   -1.07  settled
+   11     801.0    -701.2    595.83    596.65   -0.82  settled
+   12     -49.0    1538.4    488.80    490.24   -1.44  settled
+   13    1477.1     719.2   1192.32   1192.24    0.09  settled
+   14     131.8    -713.1    534.92    535.66   -0.74  settled
+   15   -1087.4    1505.6    111.26    113.88   -2.62  settled
+   16      51.4   -1228.7    731.97    732.56   -0.59  settled
+   17     394.7     885.6    693.39    694.36   -0.96  settled
+   18     361.3    1335.2    715.81    715.84   -0.04  settled
+   19   -1489.1     109.9    145.35    147.97   -2.62  settled
+   20    -130.1   -1399.9    789.20    789.34   -0.14  settled
+   21     450.8    1128.3    708.77    709.64   -0.87  settled
+   22     297.2    -766.2    542.41    543.25   -0.83  settled
+   23    1087.6      30.4    978.89    978.58    0.31  settled
+   24      34.7     809.8    588.35    589.32   -0.97  settled
+   25   -1128.8    1022.6    127.46    129.03   -1.57  settled
+   26     585.9     918.9    787.07    787.83   -0.76  settled
+   27    -987.9     966.9    213.81    214.64   -0.84  settled
+   28    -988.1   -1338.6    738.77    739.45   -0.68  settled
+   29    1136.5    1156.0   1045.57   1045.50    0.07  settled
+settled probes: 29/30;  pad error 0.19 m;  median 0.68 m;  p90 1.78 m;  max 3.83 m
+  control, mirrored east-west    : median   290.2 m
+  control, mirrored north-south  : median   165.7 m
+  control, shifted 50 m east     : median    17.4 m
+  control, shifted 50 m north    : median    12.8 m
+  PASS  pad within 0.2 m
+  PASS  median within 1.0 m
+  PASS  every control that can tell at least 10x worse (4 of 4)
+note: Gazebo's physics surface is triangulated, so single probes on very steep cells can be
+      several metres off. The altimeter in SITL measures the rendered terrain instead, and
+      sim_adapter.py reports its agreement with the map live during a run.

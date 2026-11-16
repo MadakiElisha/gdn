@@ -132,18 +132,31 @@ def main():
             h = float(sample_map(alt, hdr, np.array(fx * x + dx), np.array(fy * y + dy))) - z0
             d.append(abs(z - (h + HALF)))
         return float(np.median(d))
-    controls = {"mirrored east-west": med_if(-1, 1), "mirrored north-south": med_if(1, -1),
-                "shifted 50 m east": med_if(1, 1, 50.0), "shifted 50 m north": med_if(1, 1, 0.0, 50.0)}
+    # A control can only expose a mistake where the map itself differs between the probe
+    # and the control position: on flat ground (R2.2's farmland, a lake) a shifted map is
+    # the same map. So each control counts only if the map heights there differ from
+    # the probes' by at least 10x the median error; the others are reported, not judged.
+    def separation(fx, fy, dx=0.0, dy=0.0):
+        d = [abs(float(sample_map(alt, hdr, np.array(fx * x + dx), np.array(fy * y + dy))) -
+                 float(sample_map(alt, hdr, np.array(x), np.array(y)))) for x, y, _ in rest.values()]
+        return float(np.median(d))
+    specs = {"mirrored east-west": (-1, 1), "mirrored north-south": (1, -1),
+             "shifted 50 m east": (1, 1, 50.0), "shifted 50 m north": (1, 1, 0.0, 50.0)}
+    controls = {name: (med_if(*s), separation(*s)) for name, s in specs.items()}
     pad_err = abs(errs[0]) if 0 in rest else 99.0
+    need = 10 * max(med, 0.1)
 
     print(f"settled probes: {len(errs)}/{len(pts)};  pad error {pad_err:.2f} m;  "
           f"median {med:.2f} m;  p90 {np.percentile(errs, 90):.2f} m;  max {errs.max():.2f} m")
-    for name, m in controls.items():
-        print(f"  control, {name:22s}: median {m:7.1f} m")
+    for name, (m, sep) in controls.items():
+        note = "" if sep >= need else f"  (not judged: the map differs by only {sep:.1f} m there)"
+        print(f"  control, {name:22s}: median {m:7.1f} m{note}")
+    judged = {n: m for n, (m, sep) in controls.items() if sep >= need}
     checks = {
         "pad within 0.2 m": pad_err <= 0.2,
         f"median within {a.tol} m": med <= a.tol,
-        "every control at least 10x worse": all(m >= 10 * max(med, 0.1) for m in controls.values()),
+        f"every control that can tell at least 10x worse ({len(judged)} of {len(controls)})":
+            all(m >= need for m in judged.values()),
     }
     for name, ok in checks.items():
         print(f"  {'PASS' if ok else 'FAIL'}  {name}")
