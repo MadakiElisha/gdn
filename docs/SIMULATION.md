@@ -187,6 +187,14 @@ python3 tools/plot_sites.py --out sites.png   # one overview image of all five
   - Each world is about 210 MB on disk, mostly the mesh.
   - `make_site.py --if-stale` (which `sim_run.sh` and `view_site.sh` use) rebuilds a
     site only when its entry or the building code changes.
+- **In the Gazebo window:**
+  - scroll zooms towards the mouse, Shift + drag orbits, drag pans;
+  - to find the drone, right-click `x500_gdn_0` in the entity tree, then "Move to"
+    (or "Follow" while it flies);
+  - scroll gently: zooming out far takes the camera past the 30 km drawing limit,
+    and then you see only sky;
+  - Gazebo's own start camera would sit inside the terrain, so `tools/gz_gui_config.py`
+    gives `view_site.sh` and `sim_run.sh` a start view and that drawing limit.
 - **A new site:** add an entry to `sim/sites.yaml`. If the pad isn't level,
   `check_site.py` suggests the nearest level spot; check it on the photo, since a
   lake is level too.

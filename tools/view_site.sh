@@ -16,8 +16,8 @@
 #
 # In the window: left-drag pans, right-drag (or the wheel) zooms, middle-drag (or
 # Shift + left-drag) orbits. It opens looking at the whole 4 km square from the
-# south-west; the drone is on the pad in the middle. Right-click the drone, "Move to",
-# to fly the camera down to it.
+# south-west; the drone is on the pad in the middle. In the entity tree on the right,
+# right-click x500_gdn_0, "Move to", to fly the camera down to it.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
@@ -60,7 +60,13 @@ s = st.load_sites()[sys.argv[1]]
 print(f"view_site: {sys.argv[1]}: {s['class']}, {s['place']} (pad at {s['centre'][0]}, {s['centre'][1]})")
 EOF
   echo "view_site: loading (the 4 km mesh takes 10 to 30 s); close the window to go on"
+  # The GUI's own start camera is inside the terrain and its far clip too short
+  # (tools/gz_gui_config.py).
+  GUI_CFG="$(mktemp --suffix=.config)"
+  python3 tools/gz_gui_config.py "$WDIR" "$GUI_CFG" || die "no GUI config"
   # VIEW_SITE_CHECK=1: load the world without a window and stop (what the check uses).
   GZ_SIM_RESOURCE_PATH="$GZ_SIM_RESOURCE_PATH:$ROOT/sim/models:$WDIR" \
-    gz sim -v "${VIEW_SITE_VERBOSE:-1}" ${VIEW_SITE_CHECK:+-s -r --headless-rendering --iterations 250} "$WDIR/$SITE.sdf"
+    gz sim -v "${VIEW_SITE_VERBOSE:-1}" --gui-config "$GUI_CFG" \
+    ${VIEW_SITE_CHECK:+-s -r --headless-rendering --iterations 250} "$WDIR/$SITE.sdf"
+  rm -f "$GUI_CFG"
 done
