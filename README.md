@@ -62,7 +62,7 @@ assumptions, and it has not flown on real hardware yet.
 | ROS 2 node (PX4 topics) | Working on replay | Jazzy, `px4_msgs` 1.16, deterministic replay bench. |
 | Unit tests and Monte Carlo | Working | 31 checks at `-O2` and `-O3`; seeded MC campaigns. |
 | Gazebo world from a real DEM | Working (Zermatt) | `tools/make_sim_world.py` builds the world from the onboard map; a physics drop test checks it against the map. No photo texture yet. |
-| Closed-loop SITL with GDN in the loop | First version (Stage A/B), estimator drifts | PX4 v1.16 flies an x500 over Zermatt in Gazebo Harmonic, GDN runs in shadow mode with a simulated radar altimeter, RViz shows GDN against truth. See `docs/SIMULATION.md`. On this multirotor GDN drifts to kilometres within minutes (OI-012); the fixed-wing replay is fine. Still to come: simulated Mid-360S, TFmini-S and OAK-D Lite, PX4 flying on GDN, scenario runner. |
+| Closed-loop SITL with GDN in the loop | First version (Stage A/B), estimator drifts | PX4 v1.16 flies an x500, a standard VTOL or a fixed-wing (R2.3) over Zermatt or five Swiss sites (R2.2) in Gazebo Harmonic, each carrying the same simulated GDN payload (a radar altimeter so far); GDN runs in shadow mode, RViz shows GDN against truth. See `docs/SIMULATION.md`. On this multirotor GDN drifts to kilometres within minutes (OI-012); the fixed-wing replay is fine. Still to come: simulated Mid-360S, TFmini-S and OAK-D Lite, PX4 flying on GDN, scenario runner. |
 | LIO odometry (Mid-360S) | Planned | FAST-LIO2 or Point-LIO feeding GDN as a velocity / delta-pose measurement. |
 | Stereo VIO (OAK-D Lite) | Planned | Global-shutter stereo pair plus IMU, through the same odometry interface as LIO. |
 | TRN acquisition from a large position error | Planned | Point-mass or particle filter that hands over to the ESKF. |
@@ -190,10 +190,11 @@ a regime signal taken from the autopilot (ground, hover, transition, cruise).
 | Start-up | Static on the ground | Static | Often launched, so it must align in motion |
 | Things to watch | Motor magnetic interference, vibration | Mode transitions; tailsitters rotate the body 90 degrees | Long GNSS-free legs, wind |
 
-All validation so far has been on a fixed-wing trajectory. The simulation
-environment (roadmap Phase 2) brings in PX4's multirotor, standard VTOL and
-fixed-wing models, so all three airframes get tested in closed loop before any of them
-flies.
+Most validation so far has been on a fixed-wing trajectory. The simulation
+environment (roadmap Phase 2) now flies PX4's multirotor, standard VTOL and fixed-wing
+models with the same simulated payload (R2.3), so all three airframes get tested in
+closed loop before any of them flies. GDN runs on all three in shadow mode, with the
+multirotor's settings until each airframe has its profile (R2.5).
 
 ## Reference hardware
 

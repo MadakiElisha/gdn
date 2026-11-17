@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Closed-loop SITL, roadmap Stage A (and B): PX4 flies an x500 over real terrain in
+# Closed-loop SITL, roadmap Stage A (and B): PX4 flies a vehicle over real terrain in
 # Gazebo Harmonic while GDN runs alongside in shadow mode, ignoring GPS.
 #
 #   GDN_GPU=nvidia source env.sh          # hybrid laptops: render on the NVIDIA GPU
@@ -9,6 +9,8 @@
 #   GDN_NODE_ARGS="-p mag_fusion:=align" tools/sim_run.sh   # extra eskf_node parameters
 #   GDN_SITE=ch_zurich tools/sim_run.sh   # an R2.2 site (sim/sites.yaml): swisstopo world,
 #                                         # GDN on its GLO-30 map (tools/make_site.py)
+#   GDN_VEHICLE=standard_vtol tools/sim_run.sh   # R2.3: x500 (default), standard_vtol or
+#                                         # rc_cessna (tools/sim_vehicles.py --list)
 #
 # One-time setup: tools/setup_sim.sh. Logs: $GDN_LOG_DIR (default /tmp/gdn_sim).
 # Ctrl+C stops everything.
@@ -23,7 +25,10 @@ if [ -n "$SITE" ]; then
   WORLD="$SITE"
   MAP="$ROOT/data/maps/${SITE}_truth.bin"
 fi
-MODEL_INSTANCE="x500_gdn_0"
+VEHICLE="${GDN_VEHICLE:-x500}"
+VEHICLE_SH="$(python3 tools/sim_vehicles.py shell "$VEHICLE")" || exit 1
+eval "$VEHICLE_SH"
+MODEL_INSTANCE="$VEHICLE_INSTANCE"
 LOG="${GDN_LOG_DIR:-/tmp/gdn_sim}"
 HEADLESS="${HEADLESS:-}"
 mkdir -p "$LOG"
@@ -46,6 +51,11 @@ elif [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ] || [ tools
   python3 tools/make_sim_world.py --map "$MAP" --name "$WORLD" || die "world generation failed"
 fi
 winfo() { sed -n "s/^$1=//p" "$WDIR/world_info.txt"; }
+# The world places the x500; this run's copy has the chosen vehicle in its place
+# (a fixed-wing facing its launch heading).
+RUN_WORLD="$LOG/$WORLD.sdf"
+python3 tools/sim_vehicles.py world "$VEHICLE" "$WDIR" "$RUN_WORLD" || die "no world for $VEHICLE"
+printf "vehicle=%s\nworld=%s\nworld_dir=%s\nsite=%s\n" "$VEHICLE" "$WORLD" "$WDIR" "$SITE" > "$LOG/run_info.txt"
 # GDN's own map: on a site, GLO-30, in the world's frame (origin at the pad); otherwise
 # the world's map itself.
 NAV_MAP="$(winfo onboard_map)"; NAV_MAP="${NAV_MAP:-$MAP}"
@@ -107,11 +117,11 @@ sed "s#<render_engine>[a-z0-9]*</render_engine>#<render_engine>$RENDER</render_e
 export GZ_SIM_SERVER_CONFIG_PATH="$LOG/server.config"
 
 # Server and GUI run as separate processes, so a GUI crash doesn't stop the simulation.
-echo "sim_run: starting Gazebo ($WORLD, render engine $RENDER)"
+echo "sim_run: starting Gazebo ($WORLD, $VEHICLE, render engine $RENDER)"
 if [ -n "$HEADLESS" ]; then
-  gz sim -v 4 -s -r --headless-rendering "$WDIR/$WORLD.sdf" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
+  gz sim -v 4 -s -r --headless-rendering "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
 else
-  gz sim -v 4 -s -r "$WDIR/$WORLD.sdf" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
+  gz sim -v 4 -s -r "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
 fi
 PIDS+=($GZ_PID)
 sleep 5
@@ -133,8 +143,8 @@ fi
 
 MicroXRCEAgent udp4 -p 8888 > "$LOG/agent.log" 2>&1 & PIDS+=($!)
 
-echo "sim_run: starting PX4 (attaching to $MODEL_INSTANCE)"
-( cd "$PX4_DIR" && PX4_SYS_AUTOSTART=4001 PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
+echo "sim_run: starting PX4 (airframe $VEHICLE_AUTOSTART, attaching to $MODEL_INSTANCE)"
+( cd "$PX4_DIR" && PX4_SYS_AUTOSTART="$VEHICLE_AUTOSTART" PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
     PX4_GZ_WORLD="$WORLD" ./build/px4_sitl_default/bin/px4 -d > "$LOG/px4.log" 2>&1 ) & PIDS+=($!)
 
 echo -n "sim_run: waiting for PX4 over DDS "
@@ -146,16 +156,13 @@ done
 echo
 timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
   || die "no /fmu/out/vehicle_local_position after 3 minutes; see $LOG/px4.log and $LOG/agent.log"
-# PX4 settings for this setup:
-# - IMU_INTEG_RATE 100: uXRCE-DDS forwards sensor_combined at most at 100 Hz, while PX4
-#   integrates the IMU at 250 Hz by default. Then each message GDN gets covers only
-#   4 of every 10 ms and 60% of the motion is lost, which wrecks the attitude on a
-#   multirotor. At 100 Hz every message covers its whole interval.
-# - NAV_DLL_ACT 0: arm without QGroundControl (the x500 airframe requires a GCS link).
-# - EKF2_GPS_CTRL 7 (PX4's default): GPS on. A Stage B cut sets it to 0 mid-flight
-#   (sim_fly.py --gps-off-at); PX4 keeps parameters between runs, so set it back here.
-( cd "$PX4_DIR/build/px4_sitl_default/rootfs" && ../bin/px4-param set IMU_INTEG_RATE 100 \
-    && ../bin/px4-param set NAV_DLL_ACT 0 && ../bin/px4-param set EKF2_GPS_CTRL 7 ) >> "$LOG/px4.log" 2>&1
+# PX4 settings for this setup and vehicle (each one explained in tools/sim_vehicles.py):
+# IMU_INTEG_RATE 100, NAV_DLL_ACT 0 and EKF2_GPS_CTRL 7 always, plus the fixed-wing's
+# catapult launch. PX4 resets its parameters when the airframe changes.
+for kv in $VEHICLE_PARAMS; do
+  ( cd "$PX4_DIR/build/px4_sitl_default/rootfs" && ../bin/px4-param set "${kv%%=*}" "${kv#*=}" ) >> "$LOG/px4.log" 2>&1 \
+    || die "PX4 didn't take ${kv%%=*} ${kv#*=} (see $LOG/px4.log)"
+done
 
 # Gazebo -> ROS for the sensors GDN needs (raw, not PX4's estimates).
 SENS="/world/$WORLD/model/$MODEL_INSTANCE/link/base_link/sensor"
@@ -182,7 +189,7 @@ cat > "$LOG/bridge.yaml" <<YAML
   direction: GZ_TO_ROS
 YAML
 ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:="$LOG/bridge.yaml" > "$LOG/bridge.log" 2>&1 & PIDS+=($!)
-python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" ${GDN_SIM_ADAPTER_ARGS:-} \
+python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" -p gz_model:="$MODEL_INSTANCE" ${GDN_SIM_ADAPTER_ARGS:-} \
   > "$LOG/adapter.log" 2>&1 & PIDS+=($!)
 
 # GDN in shadow mode. The mag reference is the field Gazebo's magnetometer actually
@@ -209,12 +216,14 @@ ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$NAV_MAP" "${NAV_ORIGIN[@
 python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & PIDS+=($!)
 
 # Record everything GDN sees plus truth, so any run can be replayed offline through
-# eskf_node with different settings (ros2 bag play $LOG/sitl_bag).
+# eskf_node with different settings (ros2 bag play $LOG/sitl_bag). The raw radar scan
+# too: it and the truth carry Gazebo's time, so tools/check_vehicles.py can compare
+# them at the same instant.
 rm -rf "$LOG/sitl_bag"
 ros2 bag record -s mcap -o "$LOG/sitl_bag" --qos-profile-overrides-path "$ROOT/tools/bag_qos.yaml" \
   /fmu/out/sensor_combined /fmu/out/vehicle_attitude /fmu/out/vehicle_local_position \
   /fmu/out/vehicle_status_v1 /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
-  /gdn/sim/truth_odom > "$LOG/bag.log" 2>&1 & PIDS+=($!)
+  /gdn/sim/truth_odom /gdn/sim/agl_scan > "$LOG/bag.log" 2>&1 & PIDS+=($!)
 
 if [ -z "$HEADLESS" ]; then
   ros2 run gdn_fusion map_viz_node --ros-args -p map_path:="$MAP" > "$LOG/viz.log" 2>&1 & PIDS+=($!)
@@ -234,12 +243,19 @@ echo
 grep -h "static alignment" "$LOG/gdn.log" | tail -1 || echo "sim_run: warning, GDN hasn't aligned yet (see $LOG/gdn.log)"
 
 echo "sim_run: flying (Ctrl+C to stop early)"
-python3 tools/sim_fly.py --map "$MAP" --px4-dir "$PX4_DIR" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"
-sleep 20     # let it land and the scorer catch the end
+python3 tools/sim_fly.py --map "$MAP" --px4-dir "$PX4_DIR" --vehicle "$VEHICLE" --gz-world "$WORLD" \
+  --route-out "$LOG/route.csv" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"
+sleep 20     # let it land (or circle) and the scorer catch the end
 kill -INT "$(pgrep -f replay_scorer.py)" 2>/dev/null
 kill -INT "$(pgrep -f "ros2 bag record")" 2>/dev/null; sleep 4
 echo; echo "=== GDN vs truth (horizontal) ==="
 grep -hE "RMS|MAX" "$LOG/scorer.log" || tail -3 "$LOG/scorer.log"
-echo "=== altimeter check (radar vs map at the true position) ==="
-grep -h "radar AGL" "$LOG/adapter.log" | tail -3 || grep -h "no radar" "$LOG/adapter.log" | tail -1
+# The whole flight, not the last report: that one is the landing over the level pad,
+# where it's always about 0.3 m. In cruise over slopes it's metres, because the
+# adapter converts the slant range to a height as if the ground were flat (OI-016).
+echo "=== GDN's altimeter input against the height straight below (adapter, whole flight) ==="
+grep -o "map-predicted AGL: mean [-+0-9.]* m, rms [0-9.]* m, n=[0-9]*" "$LOG/adapter.log" | awk '
+  { n = substr($9, 3); s2 += n * $7 * $7; sm += n * $4; N += n; if ($7 > mx) mx = $7 }
+  END { if (N) printf "RMS %.2f m, mean %+.2f m over %d readings; worst 10 s window %.2f m RMS (tilt on slopes: OI-016)\n", sqrt(s2 / N), sm / N, N, mx }'
+grep -h "no radar" "$LOG/adapter.log" | tail -1
 echo "=== recorded: $LOG/sitl_bag ==="

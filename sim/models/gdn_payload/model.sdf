@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GDN's simulated sensor payload, the same on every vehicle (roadmap R2.3). A vehicle
+  model includes it and fixes it to its own base_link (sim/models/*_gdn/model.sdf):
+
+    <include>
+      <uri>model://gdn_payload</uri>
+      <pose relative_to="base_link">0 0 -0.06 0 0 0</pose>   (the mount point)
+    </include>
+    <joint name="gdn_payload_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>gdn_payload::gdn_payload_link</child>
+    </joint>
+
+  The link's frame is the payload's mount: x forward, y left, z up, as base_link.
+  Sensor topics are set explicitly (gdn/...) so the bridge config doesn't depend on the
+  world, the vehicle or the instance name.
+
+  Radar altimeter: a 1-beam gpu_lidar pointing straight down in the body frame,
+  0.2 to 1500 m, 20 Hz, 0.3 m noise (radar-altimeter class). It measures the slant
+  range along body down; tools/sim_adapter.py removes the tilt using PX4's attitude.
+  The beam starts at its 0.2 m minimum range, so the airframe right around the mount
+  doesn't block it. gpu_lidar renders the terrain, so it needs a working GPU
+  (see docs/SETUP.md).
+
+  R2.4 adds the Mid-360S, TFmini-S and OAK-D Lite here.
+-->
+<sdf version="1.9">
+  <model name="gdn_payload">
+    <link name="gdn_payload_link">
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <sensor name="gdn_agl_radar" type="gpu_lidar">
+        <!-- gpu_lidar fires along its +x axis; pitch +90 deg points that straight down -->
+        <pose>0 0 0 0 1.5707963 0</pose>
+        <topic>gdn/agl_radar</topic>
+        <update_rate>20</update_rate>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+        <lidar>
+          <scan>
+            <horizontal><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></horizontal>
+            <vertical><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+          </scan>
+          <range><min>0.2</min><max>1500.0</max><resolution>0.01</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.3</stddev></noise>
+        </lidar>
+      </sensor>
+    </link>
+  </model>
+</sdf>

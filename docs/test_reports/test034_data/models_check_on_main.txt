@@ -1,0 +1,8 @@
+# python3 tools/check_vehicles.py against main's sim/models/x500_gdn (before R2.3; main has no VTOL or
+# cessna model at all, so only the x500 is checked)
+PASS  gdn_payload has the radar altimeter (gpu_lidar on gdn/agl_radar)
+PASS  x500: merges a PX4 model: x500
+FAIL  x500: includes gdn_payload once, fixed to base_link: 0 include(s), joint missing
+FAIL  x500: no GDN sensors outside the payload: <topic>gdn/agl_radar</topic>
+PASS  x500: truth on gdn/truth_odom
+note  PX4 not installed here: airframe checks skipped

@@ -94,7 +94,10 @@ skips the flight. CI runs the CPU check on PRs that change the image
 
 **The SITL flight, in the container, CPU only** (`test031_data/`):
 - the radar altimeter against the map at the true position, in flight: mean +0.16 m,
-  RMS 0.32 m (rendered on the CPU; headless rendering needs no GPU);
+  RMS 0.32 m (rendered on the CPU; headless rendering needs no GPU). *Correction
+  (TEST-034): that is one 10 s report of the adapter's, and `sim_run.sh` printed only
+  the last ones, around the landing over the level pad. Over whole flights, tilted
+  over slopes, the altimeter input is metres off (OI-016);*
 - GDN against truth over the flight: RMS 33.0 m, max 99.1 m in the figure's run
   (`sitl_scorer.log`), and 57.3 m, max 158.4 m in a second run of the same check. SITL
   runs vary with timing. That's the multirotor drift known from Stage A (OI-012); this

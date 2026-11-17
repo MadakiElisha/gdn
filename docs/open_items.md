@@ -61,7 +61,9 @@ runs because playback timing isn't deterministic.
 **TEST-032 (2026-11-16, dev image, rendered radar).** Three Stage A/B flights, each
 replayed exactly (`gdn_replay`) with one change at a time:
 - **Measurements:** the altimeter (0.32 m RMS against the map at the true position), the
-  IMU stream (100% covered) and the biases are fine.
+  IMU stream (100% covered) and the biases are fine. *Correction (TEST-034): the
+  altimeter figure was the landing over the pad. In cruise GDN's altimeter input is
+  6 to 9 m RMS off the height straight below, from the tilt (OI-016).*
 - **What goes wrong:** velocity isn't observed. GDN's speed drains on straight legs (10
   to 2 to 3 m/s within a minute): IMU propagation through a slightly wrong pitch, and the
   altimeter updates through the cross-covariances.
@@ -128,6 +130,38 @@ worlds' placement. Removing it leaves 0.24 to 0.42 m, the sensor's 0.3 m noise.
 slope, and fails if the fitted offset passes 2 m (a misplaced world).
 - **Next step:** check whether the offset turns with the sensor's yaw (a GpuRays
   half-pixel?), before R2.4 builds the TFmini-S and Mid-360S on the same sensor type.
+
+### OI-016: GDN's altimeter input assumes flat ground under a tilted vehicle (open)
+Found by TEST-034 (R2.3). `sim_adapter.py` turns the radar's slant range into a height
+above ground as range times the cosine of the tilt, and GDN takes that as the height
+straight below. On a slope that's wrong whenever the vehicle is tilted: the beam lands
+beside the point below, on higher or lower ground.
+- **The radar itself is right.** Cast along the beam at the true attitude, it matches
+  the terrain to 0.36 to 0.65 m RMS on all six TEST-034 flights (the sensor's 0.3 m noise
+  plus OI-015).
+- **The conversion isn't.** Against the height straight below, by tilt (Zermatt): 0.6
+  to 0.9 m level, 2.2 to 2.9 m at 5 to 15 degrees, 3.5 to 8.2 m at 15 to 25, 8 to 12 m
+  at 25 to 35.
+- **The multirotor is hit hardest,** not the planes: cruising at 10 m/s, the x500 is
+  tilted 15 degrees or more about half the time. The planes fly level on the legs and bank only
+  in turns.
+- **What GDN got over whole flights** (adapter, every reading): x500 6.1 m RMS on
+  Zermatt and 9.4 m on Emmental, worst 10 s windows 24 m; VTOL 2.2 and 4.5 m; cessna 3.2
+  and 5.9 m. GDN's altimeter sigma is 10 m, and these errors are correlated, not noise.
+- **Earlier reports missed it.** TEST-031, TEST-032 and TEST-033 gave the altimeter as
+  0.29 to 0.34 m RMS "in flight". Those figures were the adapter's last 10 s report of
+  each run, which is the landing over the level pad. `sim_run.sh` now prints the whole
+  flight's figure.
+- **Possibly part of OI-012** (the x500's runaway, overconfident with altimeter updates
+  on). Not tested yet. Next step: fly the x500 a few times with
+  `GDN_SIM_ADAPTER_ARGS="-p agl_source:=truth"` (the map at the true position plus 0.3 m
+  noise, no tilt error) against as flown, and compare GDN's drift. Runs vary a lot (the
+  same x500 route scored 72 m and 851 m on two runs in TEST-034), so it needs several.
+- **Fix:** predict the measurement along the beam (attitude and map) in GDN's TRN
+  update, instead of converting it to a height straight below. A real radar altimeter's
+  wide beam returns the nearest ground rather than a point; that model is R8.4's. R8.2
+  ("nadir-pointing rangefinder") had this down for the planes; it applies to the
+  multirotor now.
 
 ## Closed
 

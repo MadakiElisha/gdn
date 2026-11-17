@@ -2,11 +2,12 @@
 """Check that the rendered radar altimeter sees the world's terrain where it should.
 
 Starts a headless Gazebo server with the generated world, a static probe that carries
-the x500_gdn radar altimeter, and only the systems needed to render it. Puts the probe
-about 100 m above the terrain at random points and compares the measured range with
-the probe's height above the rendered surface: the mesh's own triangles, read back from
-the world's heightmap (make_sim_world.mesh_height). That catches a world that is
-shifted, mirrored, scaled or not rendered.
+the GDN payload's radar altimeter (sim/models/gdn_payload, the same on every vehicle),
+and only the systems needed to render it. Puts the probe about 100 m above the terrain
+at random points and compares the measured range with the probe's height above the
+rendered surface: the mesh's own triangles, read back from the world's heightmap
+(make_sim_world.mesh_height). That catches a world that is shifted, mirrored, scaled or
+not rendered.
 
 Gazebo's single-beam gpu_lidar lands about 1 m from where it's aimed at 100 m (a 0.6
 degree pointing offset, OI-015). On hills that's centimetres of range, but on a building
@@ -66,7 +67,7 @@ def main():
     geo = tuple(float(info[k]) for k in ("size_e", "size_n", "pos_e", "pos_n"))
     tmp = Path(tempfile.mkdtemp())
     sdf = re.sub(r"\s*<include>.*?</include>", "", (wdir / f"{info['world']}.sdf").read_text(), flags=re.S)
-    model = (ROOT / "sim/models/x500_gdn/model.sdf").read_text()
+    model = (ROOT / "sim/models/gdn_payload/model.sdf").read_text()
     sensor = re.search(r'<sensor name="gdn_agl_radar".*?</sensor>', model, re.S).group(0)
     sdf = sdf.replace("</world>", f'<model name="probe"><static>true</static><pose>0 0 {float(info["pad_z"]) + 100}'
                       f' 0 0 0</pose><link name="base_link">{sensor}</link></model>\n  </world>')

@@ -85,6 +85,8 @@ set +u; source "$ROOT/env.sh" >/dev/null 2>&1; set -u
 check "selftest passes (tools/run_selftest.sh)" "$ROOT/tools/run_selftest.sh"
 check "the Zermatt world is generated" python3 "$ROOT/tools/make_sim_world.py"
 check "world physics check (tools/check_sim_world.py)" python3 "$ROOT/tools/check_sim_world.py"
+check "the simulated vehicles carry the GDN payload and match their PX4 airframes (tools/check_vehicles.py)" \
+  python3 "$ROOT/tools/check_vehicles.py"
 
 if [ -n "$GPU" ]; then
   check "the NVIDIA GPU is visible in the container (nvidia-smi)" nvidia-smi

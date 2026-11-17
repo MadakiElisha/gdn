@@ -1,8 +1,10 @@
 # Closed-loop simulation (SITL)
 
-This is roadmap Phase 2, Stage A. PX4 flies an x500 quadcopter over real terrain
-(Zermatt, from SRTM) in Gazebo Harmonic, and GDN runs alongside in **shadow mode**:
-it never sees GPS, and its estimate is drawn live against the true path.
+This is roadmap Phase 2, Stage A. PX4 flies a vehicle over real terrain (Zermatt, from
+SRTM, or one of the R2.2 sites) in Gazebo Harmonic, and GDN runs alongside in **shadow
+mode**: it never sees GPS, and its estimate is drawn live against the true path. The
+vehicle is an x500 quadcopter by default, or a standard VTOL or a fixed-wing (R2.3,
+"Vehicles" below), each carrying the same GDN payload.
 
 | Stage | What you see | Status |
 |---|---|---|
@@ -14,8 +16,8 @@ it never sees GPS, and its estimate is drawn live against the true path.
 
 ```
  Gazebo Harmonic  ──IMU, baro, mag, GPS──►  PX4 v1.16 SITL  ──uXRCE-DDS──►  /fmu/out/*  ──►  GDN eskf_node
-   x500_gdn model                            (flies the                     sensor_combined,      (shadow mode,
-   + radar altimeter                          route, offboard)              attitude, local pos    no GPS input)
+   vehicle model                             (flies the                     sensor_combined,      (shadow mode,
+   + GDN payload (radar altimeter)            route, offboard)              attitude, local pos    no GPS input)
    + truth odometry                                                                                   │
         │                                                                                             ▼
         └──ros_gz_bridge──► sim_adapter.py ──► /gdn/agl_meas, /gdn/baro_meas, /gdn/mag_meas ──────────┘
@@ -25,17 +27,20 @@ it never sees GPS, and its estimate is drawn live against the true path.
 - **World:** `tools/make_sim_world.py` builds it straight from GDN's map file, so terrain
   and map share one geometry. The heightmap is oversampled 4x, so Gazebo's
   triangulated surface stays close to the map's bilinear one.
-- **Drone:** `sim/models/x500_gdn` is PX4's x500 plus a downward radar altimeter
-  (1-beam lidar, 0.2 to 1500 m, 20 Hz, 0.3 m noise) and a truth-pose publisher. The
-  truth is used for scoring only.
+- **Vehicle:** `sim/models/x500_gdn` (default), `standard_vtol_gdn` or `rc_cessna_gdn`:
+  PX4's own model with the GDN payload (`sim/models/gdn_payload`, a downward radar
+  altimeter: 1-beam lidar, 0.2 to 1500 m, 20 Hz, 0.3 m noise) included and fixed under
+  the body, plus a truth-pose publisher. The truth is used for scoring only.
 - **Adapter:** `tools/sim_adapter.py` turns raw Gazebo sensors into GDN's inputs. It
   removes tilt from the altimeter using PX4's attitude, converts pressure to height,
   and converts the magnetometer to body FRD in microtesla. Every 10 s it also logs
-  how far the radar AGL is from what the map predicts at the true position. That's
-  the live check that the rendered terrain matches GDN's map.
+  how far the radar AGL is from what the map predicts at the true position. Level,
+  that's the live check that the rendered terrain matches GDN's map (about 0.3 m);
+  tilted over slopes it's metres, because the tilt removal assumes flat ground
+  (OI-016). `sim_run.sh` prints the whole flight's figure at the end.
 - **Flight:** `tools/sim_fly.py` flies offboard. The route is planned from the same
   map, at 60 m above the terrain envelope with a 200 m lookahead. The default route
-  is 7.9 km, about 13 minutes.
+  is 7.9 km, about 13 minutes for the x500 and 9 for the planes.
 - **GDN:** `eskf_node` with the real altimeter model (`trn_model:=agl`), the
   Zermatt map, and the magnetic field the simulated sensor actually reports (see
   "Magnetometer" below).
@@ -102,6 +107,7 @@ tools/docker_dev.sh shell --gpu --gui      # a shell, with Gazebo and RViz windo
 GDN_GPU=nvidia source env.sh
 tools/sim_run.sh                    # Stage A
 GPS_OFF_AT=120 tools/sim_run.sh     # Stage B: GPS cut 2 minutes into the route
+GDN_VEHICLE=standard_vtol tools/sim_run.sh   # another vehicle: x500, standard_vtol, rc_cessna
 python3 tools/check_gps_cut.py log/gdn_runs/gdn_<time>   # did PX4 really lose GPS?
 ```
 
@@ -129,7 +135,7 @@ Everything is logged to `/tmp/gdn_sim/`:
 | Log | What to look for |
 |---|---|
 | `gdn.log` | `altitude datum ... AMSL` at start-up, then `DBG` lines once a second. `rej=...(m..` counts rejected magnetometer updates; thousands means the attitude has gone wrong. |
-| `adapter.log` | `field in NED ...` every 10 s should stay constant. `radar AGL minus map-predicted AGL: mean ..., rms ...` every 10 s. Small (about 1 m) means the rendered terrain matches the map. If it says `no radar altimeter data`, GPU rendering isn't working, and AGL falls back to the map at the true position. |
+| `adapter.log` | `field in NED ...` every 10 s should stay constant. `radar AGL minus map-predicted AGL: mean ..., rms ...` every 10 s. About 0.3 m while level (hover, the pad) means the rendered terrain matches the map; in cruise over slopes it's metres, from the tilt (OI-016). If it says `no radar altimeter data`, GPU rendering isn't working, and AGL falls back to the map at the true position. |
 | `scorer.log` | horizontal error every 20 s, and the summary |
 | `fly.log` | route progress; on Stage B, the GPS cut, PX4 taking it, and PX4 leaving offboard |
 | `px4.log`, `gz.log`, `agent.log`, `bridge.log` | if something doesn't start |
@@ -140,6 +146,7 @@ Useful variations:
 |---|---|
 | `HEADLESS=1` | no windows; the sensors still render through EGL |
 | `GDN_GZ_RENDER=ogre` | older renderer, if Ogre2 crashes (see "If Gazebo crashes at start") |
+| `GDN_VEHICLE=rc_cessna` | the vehicle (`python3 tools/sim_vehicles.py --list`; see "Vehicles") |
 | `GDN_FLY_ARGS="--legs 2 --clearance 80"` | shorter route, more clearance (`python3 tools/sim_fly.py -h`) |
 | `GDN_SIM_ADAPTER_ARGS="-p baro_drift_m_per_min:=2.0"` | add a barometer drift |
 | `GDN_SIM_ADAPTER_ARGS="-p agl_source:=truth"` | skip the rendered radar (map at the true position instead) |
@@ -190,8 +197,8 @@ python3 tools/plot_sites.py --out sites.png   # one overview image of all five
 - **Both windows follow the drone** during `sim_run.sh`:
   - RViz orbits it about 500 m out, with a marker on the drone. Set the Views panel's
     Target Frame to "<Fixed Frame>" for the old fixed overview.
-  - Gazebo's camera sits 1.8 m behind and 0.7 m above the x500 (it fills about half
-    the view), started by `sim_adapter.py` once the window is up. It keeps up in
+  - Gazebo's camera sits 1.8 m behind and 0.7 m above the vehicle (the x500 fills
+    about half the view), started by `sim_adapter.py` once the window is up. It keeps up in
     cruise because `tools/gz_gui_config.py` raises the follow gain; with Gazebo's
     default the camera trailed many metres behind, whatever the offset.
     - Change it with `GDN_SIM_ADAPTER_ARGS="-p gz_follow_offset:=-6,0,2.5"` (metres
@@ -199,8 +206,9 @@ python3 tools/plot_sites.py --out sites.png   # one overview image of all five
     - Turn it off with `GDN_SIM_ADAPTER_ARGS="-p gz_follow:=false"`.
 - **In the Gazebo window:**
   - scroll zooms towards the mouse, Shift + drag orbits, drag pans;
-  - to find the drone, right-click `x500_gdn_0` in the entity tree, then "Move to"
-    (or "Follow" while it flies);
+  - to find the drone, right-click `x500_gdn_0` in the entity tree (or
+    `standard_vtol_gdn_0`, `rc_cessna_gdn_0`), then "Move to" (or "Follow" while it
+    flies);
   - scroll gently: zooming out far takes the camera past the 30 km drawing limit,
     and then you see only sky;
   - Gazebo's own start camera would sit inside the terrain, so `tools/gz_gui_config.py`
@@ -214,6 +222,60 @@ python3 tools/plot_sites.py --out sites.png   # one overview image of all five
   - Onboard maps: Copernicus WorldDEM-30, © DLR e.V. 2010-2014 and © Airbus Defence
     and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA;
     all rights reserved.
+
+## Vehicles (R2.3)
+
+Three vehicles, one payload. Each is PX4's own Gazebo model and airframe, with the GDN
+payload included through an SDF `<include>` and fixed to its body. Sensors are added to
+`sim/models/gdn_payload` once and every vehicle carries them (R2.4 adds the Mid-360S,
+TFmini-S and OAK-D Lite there). `tools/sim_vehicles.py` holds the table: model, PX4
+airframe, PX4 settings and how the vehicle flies.
+
+| `GDN_VEHICLE` | Model | PX4 airframe | How it flies the route |
+|---|---|---|---|
+| `x500` (default) | `x500_gdn` | 4001 `gz_x500` | climbs straight up, follows a moving setpoint ("carrot") at 10 m/s, lands on the pad |
+| `standard_vtol` | `standard_vtol_gdn` | 4004 `gz_standard_vtol` | climbs like the x500, changes to plane flight, flies the route at about 15 m/s, changes back 350 m before the pad and lands on it |
+| `rc_cessna` | `rc_cessna_gdn` | 4003 `gz_rc_cessna` | catapult launch from the pad, flies the route at about 15 m/s, circles over the pad for 30 s; no landing |
+
+```bash
+python3 tools/sim_vehicles.py --list
+GDN_VEHICLE=rc_cessna GDN_SITE=ch_emmental tools/sim_run.sh
+python3 tools/check_vehicles.py                   # the models and their airframes
+python3 tools/check_vehicles.py --run /tmp/gdn_sim # judge a flight (phases, route, terrain, radar)
+```
+
+- **As a plane, the route is followed as a line.** `sim_fly.py` sends a point 60 m
+  ahead on the route with the route's direction as velocity. PX4's fixed-wing
+  controller then follows the line through them. Its 90 degree corners are flown
+  wide: the cross-track error has a median of about 1 m, a 95th percentile of 5 to
+  8 m, and reaches 25 to 35 m at the corners (TEST-034).
+- **The route never climbs or descends faster than a plane can.** For the planes, its
+  height is limited to a 25% (VTOL) or 17% (cessna) gradient, half of what PX4's climb
+  limits allow at cruise speed, so climbs start earlier.
+- **The VTOL changes over in Hold, not in offboard.** In PX4 1.16 the transition flight
+  task publishes its own `trajectory_setpoint`, the same topic offboard setpoints
+  arrive on. In offboard the plane controller then saw no valid setpoint and gave no
+  forward thrust; the VTOL hung in the air, sank 20 m and PX4 aborted the transition
+  (its "quad-chute"). In Hold, PX4 does the transition itself; `sim_fly.py` goes back to
+  offboard once it's done. Front transition takes 7 to 8 s, back transition about 5.
+- **The cessna is launched as by a catapult.** A real site has no runway. PX4 waits in
+  Takeoff mode with its launch detection on; `sim_fly.py` asks Gazebo to push the plane
+  forward at 40 m/s² (ApplyLinkWrench) until it's at 16 m/s, about half a second (it
+  leaves at about 17 m/s). PX4 detects the launch and climbs out to 50 m. The plane faces the launch heading
+  `sim_vehicles.py world` picks from the map: the one where the terrain stays furthest
+  below a 12% climb.
+- **The cessna doesn't land.** It circles over the pad in Hold for 30 s and the run
+  ends. Fixed-wing landing needs a runway or a net (Phase 8).
+- **The worlds still place the x500.** `sim_run.sh` writes a copy of the world into the
+  log directory with the chosen vehicle in its place, so the worlds and
+  `view_site.sh` are unchanged.
+- **PX4 resets its parameters when the airframe changes,** then `sim_run.sh` sets this
+  setup's ones (`VEHICLE_PARAMS` in `sim_vehicles.py`).
+- **The radar on a tilted vehicle** sees the ground beside the point straight below.
+  `sim_adapter.py`'s conversion to height assumes flat ground, so over slopes GDN's
+  altimeter input is metres off: 6 to 9 m RMS on the x500, which cruises tilted, and 2
+  to 6 m on the planes (OI-016, TEST-034). `check_vehicles.py` checks the radar along
+  its beam, where it matches the terrain to 0.4 to 0.7 m.
 
 ## Current result (read this before judging the red line)
 
@@ -234,7 +296,11 @@ true position, not the rendered radar):
   works. `GDN_NODE_ARGS="-p mag_fusion:=align"` (magnetometer for initial yaw only)
   is about 5x better, still far from the R1.8 limits.
 - **Why, measured on three flights in the dev image (TEST-032):**
-  - The altimeter readings are good: 0.32 m RMS against the map at the true position.
+  - The altimeter readings looked good: 0.32 m RMS against the map at the true position.
+    *Correction (TEST-034): that was the landing over the level pad. In cruise GDN's
+    altimeter input is 6 to 9 m RMS off the height straight below, because the x500
+    flies tilted and the tilt removal assumes flat ground (OI-016). Whether that's part
+    of the runaway isn't tested yet.*
   - Velocity isn't observed. The estimate slows on the straight legs, and the error
     grows to hundreds of metres.
   - The filter is overconfident with altimeter updates on: 15 to 81% of the time over
@@ -293,9 +359,9 @@ something looks off on a new world or a new PX4 version.
   (about 0.2 s). During a fast manoeuvre that's 15 to 20 degrees of rotation GDN
   never saw. The node now widens the attitude and velocity covariance across such a
   hole, so the magnetometer can correct it (`IMU hole` in `gdn.log`).
-- **Arming.** The x500 airframe refuses to arm without a ground station link.
-  `sim_run.sh` sets `NAV_DLL_ACT 0`, so QGroundControl isn't needed. Opening it
-  anyway is fine.
+- **Arming.** The x500 airframe refuses to arm without a ground station link, and
+  the VTOL and cessna airframes fail safe without one. `sim_run.sh` sets
+  `NAV_DLL_ACT 0`, so QGroundControl isn't needed. Opening it anyway is fine.
 - **Micro XRCE-DDS Agent v2.4.2 no longer builds from source,** because the Fast-DDS
   branch it pulls is gone. `setup_sim.sh` uses v2.4.3.
 
@@ -338,8 +404,8 @@ Gazebo's physics surface is made of triangles. It only matters for touching the
 ground, and the pad is flat.
 
 `tools/check_sim_radar.py` checks what the radar altimeter sees, which is the
-rendered terrain rather than the physics one. It puts a probe carrying the x500_gdn
-radar 100 m above the map at 26 points and compares the ranges:
+rendered terrain rather than the physics one. It puts a probe carrying the GDN
+payload's radar 100 m above the map at 26 points and compares the ranges:
 
 | Terrain visual | Ogre1 | Ogre2 |
 |---|---|---|
@@ -360,4 +426,9 @@ flight path (`radar AGL minus map-predicted AGL`).
 - **The terrain has no photo texture yet.** That matters once the OAK-D Lite cameras are
   simulated for VIO (R2.2, R2.4).
 - **Only the radar altimeter is simulated so far.** The Mid-360S, TFmini-S and OAK-D
-  Lite come next (R2.4).
+  Lite come next (R2.4), in the payload every vehicle carries.
+- **GDN itself is still tuned for the multirotor.** On the planes it runs in shadow
+  mode like on the x500, with the same settings; per-airframe profiles are R2.5.
+- **GDN's altimeter input assumes flat ground under a tilted vehicle** (OI-016): metres
+  off over slopes, on every vehicle.
+- **The cessna launches by catapult and doesn't land** (no runway on a real site).

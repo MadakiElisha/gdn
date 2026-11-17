@@ -109,7 +109,10 @@ scored on the same window.
 
 **What's fine.**
 - **The altimeter readings:** the rendered radar against the map at the true position is
-  0.32 m RMS in flight (TEST-031), and 0.34 to 0.37 m in the Stage B run.
+  0.32 m RMS in flight (TEST-031), and 0.34 to 0.37 m in the Stage B run. *Correction
+  (TEST-034): those were the adapter's last 10 s report, the landing over the level pad.
+  In cruise the x500's altimeter input is 6 to 9 m RMS off the height straight below,
+  from its tilt (OI-016). Whether that feeds the runaway isn't tested yet.*
 - **The IMU stream:** 100% of the time is covered (12 ms spacing, 12 ms integrals); no
   drops in flight.
 - **The bias estimates** stay under 0.03 m/s².
