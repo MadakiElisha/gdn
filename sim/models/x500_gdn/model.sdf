@@ -10,36 +10,11 @@
 
   Truth: OdometryPublisher gives the true pose in the world frame (ENU, origin = map
   centre). It's only used for scoring, never fed to the filter.
-
-  Display: gdn_show_link draws the x500 4x larger (visual only, hidden from the radar),
-  so a following camera can see it, and the real x500's own visuals are removed from
-  the include. Physics and flight are the real x500's.
 -->
 <sdf version="1.9">
   <model name="x500_gdn">
     <include merge="true">
       <uri>model://x500</uri>
-      <!-- Don't draw the real x500: gdn_show_link below draws it 4x instead. Only its
-           visuals go; its links, collisions, inertia and plugins stay, so it flies the
-           same. (The radar never saw these: they're inside its 0.2 m minimum range.) -->
-      <experimental:params>
-        <visual element_id="base_link::base_link_visual" action="remove"/>
-        <visual element_id="base_link::5010_motor_base_0" action="remove"/>
-        <visual element_id="base_link::5010_motor_base_1" action="remove"/>
-        <visual element_id="base_link::5010_motor_base_2" action="remove"/>
-        <visual element_id="base_link::5010_motor_base_3" action="remove"/>
-        <visual element_id="base_link::NXP_FMUK66_FRONT" action="remove"/>
-        <visual element_id="base_link::NXP_FMUK66_TOP" action="remove"/>
-        <visual element_id="base_link::RDDRONE_FMUK66_TOP" action="remove"/>
-        <visual element_id="rotor_0::rotor_0_visual" action="remove"/>
-        <visual element_id="rotor_1::rotor_1_visual" action="remove"/>
-        <visual element_id="rotor_2::rotor_2_visual" action="remove"/>
-        <visual element_id="rotor_3::rotor_3_visual" action="remove"/>
-        <visual element_id="rotor_0::rotor_0_visual_motor_bell" action="remove"/>
-        <visual element_id="rotor_1::rotor_1_visual_motor_top" action="remove"/>
-        <visual element_id="rotor_2::rotor_2_visual_motor_top" action="remove"/>
-        <visual element_id="rotor_3::rotor_3_visual_motor_top" action="remove"/>
-      </experimental:params>
     </include>
 
     <link name="gdn_agl_link">
@@ -62,111 +37,12 @@
           </scan>
           <range><min>0.2</min><max>1500.0</max><resolution>0.01</resolution></range>
           <noise><type>gaussian</type><mean>0.0</mean><stddev>0.3</stddev></noise>
-          <!-- all bits but bit 1: doesn't see gdn_show_link, the 4x display copy below -->
-          <visibility_mask>4294967293</visibility_mask>
         </lidar>
       </sensor>
     </link>
     <joint name="gdn_agl_joint" type="fixed">
       <parent>base_link</parent>
       <child>gdn_agl_link</child>
-    </joint>
-
-    <!-- A 4x copy of the x500's own visuals (frame, motor mounts, motors, propellers),
-         so the drone can be seen from a following camera in a 4 km world. Visual only:
-         no collision, 1 g, fixed to base_link, raised 0.681 m so its skids meet the
-         ground. The real x500 (mass, arms, rotors, PX4 tuning) is unchanged. Its
-         visibility_flags (2) hide it from sensors whose visibility_mask clears bit 1:
-         the radar below, and every camera or lidar added to this model must do the same
-         (R2.4), or it would see this shell instead of the world. -->
-    <link name="gdn_show_link">
-      <pose relative_to="base_link">0 0 0.681 0 0 0</pose>
-      <inertial>
-        <mass>0.001</mass>
-        <inertia><ixx>1e-6</ixx><iyy>1e-6</iyy><izz>1e-6</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
-      </inertial>
-      <visual name="frame">
-        <pose>0.0000 0.0000 0.1000 0 0 3.141592654</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/NXP-HGD-CF.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="motor_base_0">
-        <pose>0.6960 0.6960 0.1280 0 0 -0.45</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/5010Base.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="motor_base_1">
-        <pose>-0.6960 0.6960 0.1280 0 0 -0.45</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/5010Base.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="motor_base_2">
-        <pose>0.6960 -0.6960 0.1280 0 0 -0.45</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/5010Base.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="motor_base_3">
-        <pose>-0.6960 -0.6960 0.1280 0 0 -0.45</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/5010Base.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="prop_0">
-        <pose>0.6080 -1.2815 0.1760 0 0 0</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/1345_prop_ccw.stl</uri><scale>3.3846 3.3846 3.3846</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="motor_bell_0">
-        <pose>0.6960 -0.6960 0.1120 0 0 0</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/5010Bell.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="prop_1">
-        <pose>-0.7840 0.1105 0.1760 0 0 0</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/1345_prop_ccw.stl</uri><scale>3.3846 3.3846 3.3846</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="motor_bell_1">
-        <pose>-0.6960 0.6960 0.1120 0 0 0</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/5010Bell.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="prop_2">
-        <pose>0.6080 0.1105 0.1760 0 0 0</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/1345_prop_cw.stl</uri><scale>3.3846 3.3846 3.3846</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="motor_bell_2">
-        <pose>0.6960 0.6960 0.1120 0 0 0</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/5010Bell.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="prop_3">
-        <pose>-0.7840 -1.2815 0.1760 0 0 0</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/1345_prop_cw.stl</uri><scale>3.3846 3.3846 3.3846</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-      <visual name="motor_bell_3">
-        <pose>-0.6960 -0.6960 0.1120 0 0 0</pose>
-        <geometry><mesh><uri>model://x500_base/meshes/5010Bell.dae</uri><scale>4.0000 4.0000 4.0000</scale></mesh></geometry>
-        <visibility_flags>2</visibility_flags>
-        <cast_shadows>true</cast_shadows>
-      </visual>
-    </link>
-    <joint name="gdn_show_joint" type="fixed">
-      <parent>base_link</parent>
-      <child>gdn_show_link</child>
     </joint>
 
     <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">

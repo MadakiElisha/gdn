@@ -65,7 +65,7 @@ class SimAdapter(Node):
         follow = self.declare_parameter("gz_follow", True).value and not os.environ.get("HEADLESS")
         # Metres behind, left, above, as "x,y,z" (commas: GDN_SIM_ADAPTER_ARGS is split at
         # spaces, so "-p gz_follow_offset:=-4,0,1.5" is the way to pass it through sim_run.sh).
-        off = str(self.declare_parameter("gz_follow_offset", "-6,0,2.5").value).replace(",", " ").split()
+        off = str(self.declare_parameter("gz_follow_offset", "-3,0,1.2").value).replace(",", " ").split()
         self.follow_offset = [float(v) for v in off]
         if len(self.follow_offset) != 3:
             raise SystemExit(f"sim_adapter: gz_follow_offset needs 3 numbers (x,y,z), got {off}")
