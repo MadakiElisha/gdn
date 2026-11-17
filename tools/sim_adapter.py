@@ -63,7 +63,7 @@ class SimAdapter(Node):
         # Gazebo's window (when there is one) gets its follow camera at this offset
         # (metres behind, left, above the drone).
         follow = self.declare_parameter("gz_follow", True).value and not os.environ.get("HEADLESS")
-        self.follow_offset = [float(v) for v in str(self.declare_parameter("gz_follow_offset", "-8 0 3").value).split()]
+        self.follow_offset = [float(v) for v in str(self.declare_parameter("gz_follow_offset", "-6 0 2.5").value).split()]
 
         info = dict(l.split("=", 1) for l in Path(info_path).read_text().split() if "=" in l)
         self.z0_amsl = float(info["z0_amsl"])
