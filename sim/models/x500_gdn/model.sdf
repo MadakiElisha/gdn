@@ -12,12 +12,34 @@
   centre). It's only used for scoring, never fed to the filter.
 
   Display: gdn_show_link draws the x500 4x larger (visual only, hidden from the radar),
-  so a following camera can see it. Physics and flight are the real x500's.
+  so a following camera can see it, and the real x500's own visuals are removed from
+  the include. Physics and flight are the real x500's.
 -->
 <sdf version="1.9">
   <model name="x500_gdn">
     <include merge="true">
       <uri>model://x500</uri>
+      <!-- Don't draw the real x500: gdn_show_link below draws it 4x instead. Only its
+           visuals go; its links, collisions, inertia and plugins stay, so it flies the
+           same. (The radar never saw these: they're inside its 0.2 m minimum range.) -->
+      <experimental:params>
+        <visual element_id="base_link::base_link_visual" action="remove"/>
+        <visual element_id="base_link::5010_motor_base_0" action="remove"/>
+        <visual element_id="base_link::5010_motor_base_1" action="remove"/>
+        <visual element_id="base_link::5010_motor_base_2" action="remove"/>
+        <visual element_id="base_link::5010_motor_base_3" action="remove"/>
+        <visual element_id="base_link::NXP_FMUK66_FRONT" action="remove"/>
+        <visual element_id="base_link::NXP_FMUK66_TOP" action="remove"/>
+        <visual element_id="base_link::RDDRONE_FMUK66_TOP" action="remove"/>
+        <visual element_id="rotor_0::rotor_0_visual" action="remove"/>
+        <visual element_id="rotor_1::rotor_1_visual" action="remove"/>
+        <visual element_id="rotor_2::rotor_2_visual" action="remove"/>
+        <visual element_id="rotor_3::rotor_3_visual" action="remove"/>
+        <visual element_id="rotor_0::rotor_0_visual_motor_bell" action="remove"/>
+        <visual element_id="rotor_1::rotor_1_visual_motor_top" action="remove"/>
+        <visual element_id="rotor_2::rotor_2_visual_motor_top" action="remove"/>
+        <visual element_id="rotor_3::rotor_3_visual_motor_top" action="remove"/>
+      </experimental:params>
     </include>
 
     <link name="gdn_agl_link">
