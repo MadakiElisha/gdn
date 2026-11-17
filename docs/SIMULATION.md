@@ -191,11 +191,11 @@ python3 tools/plot_sites.py --out sites.png   # one overview image of all five
   - RViz orbits it about 500 m out, with a marker on the drone. Set the Views panel's
     Target Frame to "<Fixed Frame>" for the old fixed overview.
   - Gazebo's camera sits 6 m behind and 2.5 m above it, started by `sim_adapter.py`
-    once the window is up. The drone is drawn 4x its size (`gdn_show_link` in
+    once the window is up. Change it with `GDN_SIM_ADAPTER_ARGS="-p gz_follow_offset:=-4,0,1.5"`
+    (metres behind, left, above; commas, no spaces). The drone is drawn 4x its size (`gdn_show_link` in
     `sim/models/x500_gdn`: a visual-only copy of the x500's own frame, motors and
     propellers, hidden from the radar), so it shows clearly. Its physics and flight
-    are the real x500's. Change it with `GDN_SIM_ADAPTER_ARGS="-p gz_follow_offset:='-20 0 8'"`,
-    or turn it off with `-p gz_follow:=false`.
+    are the real x500's. Turn it off with `GDN_SIM_ADAPTER_ARGS="-p gz_follow:=false"`.
 - **In the Gazebo window:**
   - scroll zooms towards the mouse, Shift + drag orbits, drag pans;
   - to find the drone, right-click `x500_gdn_0` in the entity tree, then "Move to"
