@@ -190,8 +190,10 @@ python3 tools/plot_sites.py --out sites.png   # one overview image of all five
 - **Both windows follow the drone** during `sim_run.sh`:
   - RViz orbits it about 500 m out, with a marker on the drone. Set the Views panel's
     Target Frame to "<Fixed Frame>" for the old fixed overview.
-  - Gazebo's camera sits 2.5 m behind and 1 m above the x500 (it fills about a third
-    of the view), started by `sim_adapter.py` once the window is up.
+  - Gazebo's camera sits 1.8 m behind and 0.7 m above the x500 (it fills about half
+    the view), started by `sim_adapter.py` once the window is up. It keeps up in
+    cruise because `tools/gz_gui_config.py` raises the follow gain; with Gazebo's
+    default the camera trailed many metres behind, whatever the offset.
     - Change it with `GDN_SIM_ADAPTER_ARGS="-p gz_follow_offset:=-6,0,2.5"` (metres
       behind, left, above; commas, no spaces).
     - Turn it off with `GDN_SIM_ADAPTER_ARGS="-p gz_follow:=false"`.

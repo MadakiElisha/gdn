@@ -13,12 +13,19 @@ world seen from a few km away. Both are set in the 3D view plugin (MinimalScene)
 
 Start camera: an R2.2 site (world_info has site_def) gets the whole square from the
 south-west, 1.4 km above the pad; any other world gets a view close behind the pad.
+
+Follow: sim_adapter.py points the camera at the drone (/gui/follow) during a flight. The
+camera tracking plugin moves the camera only FOLLOW_PGAIN of the way to its target each
+frame; Gazebo's default is so small that at 10 m/s cruise the camera trails many metres
+behind its offset, and the drone looks small however close the offset is. 0.6 keeps it
+within a fraction of a metre.
 """
 import math
 import re
 import sys
 from pathlib import Path
 
+FOLLOW_PGAIN = 0.6
 DEFAULTS = ["/usr/share/gz/gz-sim8/gui/gui.config", str(Path.home() / ".gz/sim/8/gui.config")]
 
 
@@ -46,7 +53,13 @@ def main():
     block = re.sub(r"\s*<camera_pose>.*?</camera_pose>|\s*<camera_clip>.*?</camera_clip>", "", scene.group(0), flags=re.S)
     block = block.replace("</plugin>", f"  <camera_pose>{camera_pose(info)}</camera_pose>\n"
                                        "  <camera_clip><near>0.5</near><far>30000</far></camera_clip>\n</plugin>")
-    out.write_text(text[:scene.start()] + block + text[scene.end():])
+    text = text[:scene.start()] + block + text[scene.end():]
+    track = re.search(r'<plugin filename="CameraTracking".*?</plugin>', text, re.S)
+    if track is None:
+        sys.exit(f"gz_gui_config: no CameraTracking plugin in {src}")
+    tblock = re.sub(r"\s*<follow_pgain>.*?</follow_pgain>", "", track.group(0), flags=re.S)
+    tblock = tblock.replace("</plugin>", f"  <follow_pgain>{FOLLOW_PGAIN}</follow_pgain>\n</plugin>")
+    out.write_text(text[:track.start()] + tblock + text[track.end():])
 
 
 if __name__ == "__main__":
