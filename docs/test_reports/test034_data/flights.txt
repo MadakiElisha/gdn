@@ -1,0 +1,96 @@
+# TEST-034 flights: HEADLESS=1 [GDN_SITE=ch_emmental] GDN_VEHICLE=<vehicle> tools/sim_run.sh, dev image, GPU (RTX 5060), default 7.9 km route; worlds with the runway
+== zermatt_x500
+x500 (multirotor); route: 796 points, 7.9 km, about 13 min at 10 m/s; height above pad 6 to 247 m
+offboard + arm requested
+at cruise height (57 m above pad), starting the route
+route done, landing
+landed and disarmed, done
+GDN vs truth: RMS 60-300s: 42.9 m | MAX 60-300s: 109.0 m
+GDN vs truth: RMS 0-300s (5 min): 38.4 m | P95: 61.6 m | MAX: 109.0 m | n=577
+GDN vs truth: RMS 0-600s (10 min): 32.8 m | P95: 57.4 m | MAX: 109.0 m | n=1154
+GDN vs truth: RMS whole run: 32.8 m | P95: 60.5 m | MAX: 109.0 m | n=1854
+GDN altimeter input vs height straight below (adapter, whole flight): RMS 5.98 m, mean +0.70 m, 18674 readings, worst 10 s window 23.42 m
+== zermatt_standard_vtol
+standard_vtol (vtol); route: 796 points, 7.9 km, about 9 min at 15 m/s; height above pad 6 to 247 m
+offboard + arm requested
+at cruise height (57 m above pad), starting the route
+front transition requested (to fixed-wing flight, in Hold)
+front transition done after 3 s, flying as a plane: offboard, following the route
+back transition requested (to hover, in Hold), 344 m of route left
+back transition done after 5 s, hovering: offboard, to the pad
+over the pad, landing
+landed and disarmed, done
+GDN vs truth: RMS 60-300s: 257.5 m | MAX 60-300s: 788.4 m
+GDN vs truth: RMS 0-300s (5 min): 230.2 m | P95: 530.3 m | MAX: 788.4 m | n=577
+GDN vs truth: RMS 0-600s (10 min): 2271.2 m | P95: 4289.7 m | MAX: 4411.5 m | n=1110
+GDN vs truth: RMS whole run: 2271.2 m | P95: 4289.7 m | MAX: 4411.5 m | n=1110
+GDN altimeter input vs height straight below (adapter, whole flight): RMS 2.21 m, mean -0.48 m, 10619 readings, worst 10 s window 7.07 m
+== zermatt_rc_cessna
+rc_cessna (fixedwing); route: 796 points, 7.9 km, about 9 min at 15 m/s; height above pad 6 to 247 m
+landing plan: towards 140 deg, approach point 600 m out at 82 m, touchdown 10 m from the pad; terrain at least 20 m under the glide path
+Takeoff mode + arm requested
+runway take-off: PX4 rolls down the runway and climbs out
+climbed out (45 m above pad): offboard, starting the route
+landing mission uploaded
+route done, landing on the runway (PX4 mission: approach, glide, touchdown)
+landed and disarmed, done
+GDN vs truth: RMS 60-300s: 750.5 m | MAX 60-300s: 1523.9 m
+GDN vs truth: RMS 0-300s (5 min): 670.9 m | P95: 1456.3 m | MAX: 1523.9 m | n=577
+GDN vs truth: RMS 0-600s (10 min): 3153.3 m | P95: 7716.7 m | MAX: 9160.5 m | n=1154
+GDN vs truth: RMS whole run: 3225.0 m | P95: 7851.9 m | MAX: 9342.3 m | n=1161
+GDN altimeter input vs height straight below (adapter, whole flight): RMS 3.04 m, mean -0.42 m, 11229 readings, worst 10 s window 9.74 m
+== ch_emmental_x500
+x500 (multirotor); route: 796 points, 7.9 km, about 13 min at 10 m/s; height above pad 43 to 276 m
+offboard + arm requested
+at cruise height (57 m above pad), starting the route
+route done, landing
+landed and disarmed, done
+GDN vs truth: RMS 60-300s: 554.8 m | MAX 60-300s: 1389.0 m
+GDN vs truth: RMS 0-300s (5 min): 495.9 m | P95: 1185.1 m | MAX: 1389.0 m | n=577
+GDN vs truth: RMS 0-600s (10 min): 2607.2 m | P95: 5170.2 m | MAX: 5655.2 m | n=1154
+GDN vs truth: RMS whole run: 7417.1 m | P95: 14318.8 m | MAX: 15532.1 m | n=2024
+GDN altimeter input vs height straight below (adapter, whole flight): RMS 9.45 m, mean +0.47 m, 19587 readings, worst 10 s window 23.08 m
+== ch_emmental_standard_vtol
+standard_vtol (vtol); route: 796 points, 7.9 km, about 9 min at 15 m/s; height above pad 47 to 276 m
+offboard + arm requested
+at cruise height (57 m above pad), starting the route
+front transition requested (to fixed-wing flight, in Hold)
+front transition done after 3 s, flying as a plane: offboard, following the route
+back transition requested (to hover, in Hold), 344 m of route left
+back transition done after 5 s, hovering: offboard, to the pad
+over the pad, landing
+landed and disarmed, done
+GDN vs truth: RMS 60-300s: 188.6 m | MAX 60-300s: 578.2 m
+GDN vs truth: RMS 0-300s (5 min): 169.3 m | P95: 454.9 m | MAX: 578.2 m | n=577
+GDN vs truth: RMS 0-600s (10 min): 3375.3 m | P95: 7725.5 m | MAX: 8855.8 m | n=1154
+GDN vs truth: RMS whole run: 4199.8 m | P95: 9415.0 m | MAX: 11333.6 m | n=1241
+GDN altimeter input vs height straight below (adapter, whole flight): RMS 4.56 m, mean -1.03 m, 11979 readings, worst 10 s window 16.03 m
+== ch_emmental_rc_cessna
+rc_cessna (fixedwing); route: 796 points, 7.9 km, about 9 min at 15 m/s; height above pad 51 to 276 m
+landing plan: towards 30 deg, approach point 600 m out at 76 m, touchdown 190 m from the pad; terrain at least 26 m under the glide path
+Takeoff mode + arm requested
+runway take-off: PX4 rolls down the runway and climbs out
+climbed out (45 m above pad): offboard, starting the route
+landing mission uploaded
+route done, landing on the runway (PX4 mission: approach, glide, touchdown)
+landed and disarmed, done
+GDN vs truth: RMS 60-300s: 643.4 m | MAX 60-300s: 1271.8 m
+GDN vs truth: RMS 0-300s (5 min): 575.4 m | P95: 1034.0 m | MAX: 1271.8 m | n=577
+GDN vs truth: RMS 0-600s (10 min): 3573.1 m | P95: 7166.3 m | MAX: 7912.9 m | n=1154
+GDN vs truth: RMS whole run: 3936.4 m | P95: 7789.8 m | MAX: 8203.3 m | n=1220
+GDN altimeter input vs height straight below (adapter, whole flight): RMS 5.12 m, mean -1.15 m, 11743 readings, worst 10 s window 20.25 m
+== ch_emmental_rc_cessna_catapult
+rc_cessna (fixedwing); route: 270 points, 2.7 km, about 3 min at 15 m/s; height above pad 60 to 162 m
+landing plan: towards 30 deg, approach point 600 m out at 76 m, touchdown 190 m from the pad; terrain at least 26 m under the glide path
+Takeoff mode + arm requested (PX4 waits for the launch)
+catapult: pushing at 40 m/s2 towards 210 deg
+catapult: released at 16.2 m/s after 0.43 s
+climbed out (45 m above pad): offboard, starting the route
+landing mission uploaded
+route done, landing on the runway (PX4 mission: approach, glide, touchdown)
+landed and disarmed, done
+GDN vs truth: RMS 60-300s: 383.3 m | MAX 60-300s: 615.2 m
+GDN vs truth: RMS 0-300s (5 min): 342.8 m | P95: 595.8 m | MAX: 615.2 m | n=577
+GDN vs truth: RMS 0-600s (10 min): 353.6 m | P95: 605.4 m | MAX: 638.0 m | n=593
+GDN vs truth: RMS whole run: 353.6 m | P95: 605.4 m | MAX: 638.0 m | n=593
+GDN altimeter input vs height straight below (adapter, whole flight): RMS 3.29 m, mean -0.45 m, 5298 readings, worst 10 s window 9.47 m

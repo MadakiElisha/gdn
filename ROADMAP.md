@@ -49,6 +49,8 @@ in CI.
   first closed-loop SITL (Stage A below, `docs/SIMULATION.md`): PX4 v1.16 flies an
   x500 over the Zermatt terrain in Gazebo Harmonic, and GDN runs alongside in shadow
   mode, drawn live in RViz against the true path.
+- From R2.3 the SITL flies three vehicles, the x500, a standard VTOL and a fixed-wing
+  (rc_cessna), each carrying the same simulated GDN payload (TEST-034).
 - The hardware is arriving. The H30WP IMU has been logged on the bench, and the
   simulated IMU and the filter's IMU settings now come from its Allan fit (R1.6,
   TEST-024). The Mid-360S's and OAK-D Lite's IMUs have been fitted too (TEST-025). All
@@ -163,7 +165,7 @@ each later item lands in a working system:
   - coast or open water
 
   Each world comes with an onboard GDN map built from a coarser source (SRTM or Copernicus GLO-30), so the filter never sees the exact truth terrain. Terrain is drawn as a mesh (OI-007, closed) and checked with `tools/check_sim_radar.py`.
-- [ ] **R2.3 Vehicles.** PX4's Gazebo multirotor (x500), standard VTOL and fixed-wing models, each with a GDN sensor payload attached through an SDF include.
+- [x] **R2.3 Vehicles.** Done (TEST-034): `GDN_VEHICLE=x500|standard_vtol|rc_cessna tools/sim_run.sh`. Each is PX4's own model and airframe (4001, 4004, 4003) with the GDN payload (`sim/models/gdn_payload`, the radar altimeter for now) included and fixed to its body; `tools/sim_vehicles.py` holds the table. All three fly the default route on Zermatt and on Emmental with GDN in shadow mode, judged by `tools/check_vehicles.py` (written first: phases, whole route, cross-track, 25 m terrain clearance, radar along its beam). The VTOL transitions in Hold (in offboard, PX4 1.16's transition task overwrites the setpoints and the transition fails), with its transition throttle at 0.6 (the airframe's 0.3 was marginal at altitude); every world now has a graded 300 m runway through the pad (`make_sim_world.py`; GDN's map doesn't know it), and the cessna takes off from it (PX4's runway take-off) and lands back on it (a PX4 landing mission over MAVLink); a catapult launch is the option (`GDN_FW_LAUNCH=catapult`). Found on the way: GDN's altimeter input assumes flat ground under a tilted vehicle, so over slopes it is 6 to 9.5 m RMS off on the x500 in cruise and 2 to 5 m on the planes; earlier reports gave 0.3 m from the landing (OI-016, open: next, whether it feeds OI-012). Also: the radar scan is now recorded, and `sim_run.sh` prints the whole flight's altimeter figure. PX4's Gazebo multirotor (x500), standard VTOL and fixed-wing models, each with a GDN sensor payload attached through an SDF include.
 - [ ] **R2.4 Simulated sensors that match the real ones**, publishing the same message types and topic names as the real drivers:
   - **Mid-360S:** gpu_lidar with a 360 by 59 degree FOV (-7 to 52 degrees), 40 m range on low-reflectivity ground, 10 Hz, and a scan pattern that approximates the Livox non-repetitive pattern. The existing Livox simulation plugins target Gazebo Classic and ROS 1, so port one or approximate. The real pattern gets checked on real bags in Phase 6.
   - **TFmini-S:** a single-beam ranger, 12 m, 100 Hz, with range-dependent noise.

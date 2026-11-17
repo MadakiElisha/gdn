@@ -113,6 +113,14 @@ jobs:
       - name: Requirements scorer self-check (R1.8)
         run: python3 tools/score_requirements.py --selfcheck
 
+      # R2.3: every simulated vehicle includes the GDN payload (no sensors of its own),
+      # and the flight check's judging works on made-up tracks. The airframe and
+      # gz sdf checks need PX4 and Gazebo, so they run in the dev image, not here.
+      - name: Simulated vehicles and flight check self-check (R2.3)
+        run: |
+          python3 tools/check_vehicles.py
+          python3 tools/check_vehicles.py --selfcheck
+
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |
           source env.sh

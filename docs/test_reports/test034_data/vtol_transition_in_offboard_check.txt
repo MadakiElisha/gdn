@@ -1,0 +1,10 @@
+flight: standard_vtol (vtol) over zermatt
+FAIL  went through its phases (at cruise height; front transition done; back transition done; over the pad, landing; landed and disarmed): missing: front transition done; back transition done
+PASS  no fail-safe
+PASS  whole route flown (every route point within 60 m): worst 25 m
+PASS  follows the route hovering (cross-track p95 under 15 m): p95 9.9 m, max 18.6 m over 4509 samples
+PASS  clear of the terrain (at least 25 m away from the pad): lowest 59.6 m above the ground
+PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.37 m, p95 0.68 m, max 1.8 m over 699 readings (0 tilted past 35 deg left out); GDN's AGL input by arrival time (no agl_scan in the bag)
+PASS  GDN ran alongside (scorer reported): RMS 60-300s: 743.2 m | MAX 60-300s: 1139.2 m
+airborne 376 s, 2.5 km
+check exit 1

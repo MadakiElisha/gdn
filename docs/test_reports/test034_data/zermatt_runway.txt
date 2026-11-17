@@ -1,0 +1,6 @@
+runway_heading=140.0
+runway_grade=-0.00841
+runway_from=-60.0
+runway_to=240.0
+runway_width=20.0
+runway_earthworks=2.73

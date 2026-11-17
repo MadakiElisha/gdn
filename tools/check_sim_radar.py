@@ -2,19 +2,23 @@
 """Check that the rendered radar altimeter sees the world's terrain where it should.
 
 Starts a headless Gazebo server with the generated world, a static probe that carries
-the x500_gdn radar altimeter, and only the systems needed to render it. Puts the probe
-about 100 m above the terrain at random points and compares the measured range with
-the probe's height above the rendered surface: the mesh's own triangles, read back from
-the world's heightmap (make_sim_world.mesh_height). That catches a world that is
-shifted, mirrored, scaled or not rendered.
+the GDN payload's radar altimeter (sim/models/gdn_payload, the same on every vehicle),
+and only the systems needed to render it. Puts the probe about 100 m above the terrain
+at random points and compares the measured range with the probe's height above the
+rendered surface: the mesh's own triangles, read back from the world's heightmap
+(make_sim_world.mesh_height). That catches a world that is shifted, mirrored, scaled or
+not rendered.
 
 Gazebo's single-beam gpu_lidar lands about 1 m from where it's aimed at 100 m (a 0.6
 degree pointing offset, OI-015). On hills that's centimetres of range, but on a building
 edge (R2.2's Zurich: 20 m steps within metres) it's metres. So:
   - each point may be off by --tol plus what a --beam metre offset explains at its slope;
   - the check fits that offset from all points (range error against the surface slope),
-    and fails if it's more than --max-offset metres. A shifted world shows up exactly
-    there, on any terrain with slopes.
+    and fails if it's more than --max-offset metres by more than twice the fit's
+    standard error. A shifted world shows up exactly there, on any terrain with
+    slopes; on flat terrain (a lake shore) the offset can't be fitted, and the standard
+    error says so (TEST-034, Neuchatel: 2.1 +- 2.3 m in one run, 3.8 m in another; TEST-033
+    happened to get 1.2 m).
 It also prints the difference to the world map's bilinear surface (what sim_adapter.py
 and the scorer use), for information. Runs in its own Gazebo partition, so a
 simulation running alongside isn't disturbed (TEST-033).
@@ -58,7 +62,7 @@ def main():
 
     wdir = Path(a.world_dir)
     info = dict(l.split("=", 1) for l in (wdir / "world_info.txt").read_text().split() if "=" in l)
-    alt, hdr = load_map(info["map"])
+    alt, hdr = load_map(info.get("world_map", info["map"]))
     alt = alt.astype(np.float64)
     z0 = float(info["z0_amsl"])
     from PIL import Image
@@ -66,7 +70,7 @@ def main():
     geo = tuple(float(info[k]) for k in ("size_e", "size_n", "pos_e", "pos_n"))
     tmp = Path(tempfile.mkdtemp())
     sdf = re.sub(r"\s*<include>.*?</include>", "", (wdir / f"{info['world']}.sdf").read_text(), flags=re.S)
-    model = (ROOT / "sim/models/x500_gdn/model.sdf").read_text()
+    model = (ROOT / "sim/models/gdn_payload/model.sdf").read_text()
     sensor = re.search(r'<sensor name="gdn_agl_radar".*?</sensor>', model, re.S).group(0)
     sdf = sdf.replace("</world>", f'<model name="probe"><static>true</static><pose>0 0 {float(info["pad_z"]) + 100}'
                       f' 0 0 0</pose><link name="base_link">{sensor}</link></model>\n  </world>')
@@ -126,7 +130,9 @@ def main():
         fit, *_ = np.linalg.lstsq(A, d[ok_pt], rcond=None)
         resid = d[ok_pt] - A @ fit
         offset = float(np.hypot(fit[0], fit[1]))
-        print(f"beam lands {offset:.2f} m from its aim (east {fit[0]:+.2f}, north {fit[1]:+.2f}); "
+        cov = float(resid @ resid) / max(len(resid) - 3, 1) * np.linalg.pinv(A.T @ A)
+        se = float(np.sqrt(cov[0, 0] + cov[1, 1]))          # of the offset's length, roughly
+        print(f"beam lands {offset:.2f} +- {se:.2f} m from its aim (east {fit[0]:+.2f}, north {fit[1]:+.2f}); "
               f"errors RMS {np.sqrt(np.mean(d[ok_pt] ** 2)):.2f} m, after removing it {np.sqrt(np.mean(resid ** 2)):.2f} m")
         md = np.abs(np.array(map_d))
         print(f"information: against the map's bilinear surface, median {np.nanmedian(np.array(map_d)):+.2f} m, "
@@ -135,7 +141,7 @@ def main():
         bad = ~np.isfinite(d) | (np.abs(d) > tol)
         print(f"{a.render}: {np.sum(~bad)}/{len(d)} within {a.tol} m + {a.beam} m x slope; median {np.nanmedian(d):+.2f} m, "
               f"max |error| {np.nanmax(np.abs(d)):.2f} m (at slope {slope[np.nanargmax(np.abs(d))]:.1f})")
-        ok = not bad.any() and abs(np.nanmedian(d)) <= a.tol_median and offset <= a.max_offset
+        ok = not bad.any() and abs(np.nanmedian(d)) <= a.tol_median and offset - 2.0 * se <= a.max_offset
         print("PASS" if ok else "FAIL: the radar doesn't see the world's terrain where it should")
         sys.exit(0 if ok else 1)
     finally:

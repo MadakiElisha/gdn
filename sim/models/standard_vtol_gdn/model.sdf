@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PX4's standard VTOL (quadplane: four lift rotors, a pusher, elevons), plus the GDN payload (sim/models/gdn_payload) fixed under the hull (its base_link box is 5 cm tall).
+  Its airframe, PX4 settings and how it flies are in tools/sim_vehicles.py.
+
+  Truth: OdometryPublisher gives the vehicle's true pose (base_link) in the world frame
+  (ENU, origin = map centre). It's only used for scoring, never fed to the filter.
+-->
+<sdf version="1.9">
+  <model name="standard_vtol_gdn">
+    <include merge="true">
+      <uri>model://standard_vtol</uri>
+    </include>
+
+    <include>
+      <uri>model://gdn_payload</uri>
+      <pose relative_to="base_link">0 0 -0.03 0 0 0</pose>
+    </include>
+    <joint name="gdn_payload_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>gdn_payload::gdn_payload_link</child>
+    </joint>
+
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_publish_frequency>20</odom_publish_frequency>
+      <odom_topic>gdn/truth_odom</odom_topic>
+      <dimensions>3</dimensions>
+    </plugin>
+  </model>
+</sdf>

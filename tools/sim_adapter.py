@@ -3,8 +3,8 @@
 
 In SITL (tools/sim_run.sh), ros_gz_bridge brings these Gazebo topics into ROS:
   /gdn/sim/agl_scan      sensor_msgs/LaserScan      downward radar altimeter (slant range)
-  /gdn/sim/mag           sensor_msgs/MagneticField  x500 magnetometer (see on_mag for its units)
-  /gdn/sim/air_pressure  sensor_msgs/FluidPressure  x500 barometer, Pa
+  /gdn/sim/mag           sensor_msgs/MagneticField  vehicle magnetometer (see on_mag for its units)
+  /gdn/sim/air_pressure  sensor_msgs/FluidPressure  vehicle barometer, Pa
   /gdn/sim/truth_odom    nav_msgs/Odometry          true pose, world ENU, origin = map centre
 plus PX4's /fmu/out/vehicle_attitude for removing tilt from the altimeter range.
 
@@ -16,13 +16,18 @@ It publishes exactly what eskf_node consumes, the same as the replay simulators:
   /gdn/truth_path nav_msgs/Path in the RViz "map" frame (ENU, z = 0 at the map centre)
 
 Altimeter check: every 10 s it logs how far the measured AGL is from the AGL the map
-predicts at the true position (truth altitude minus map height). That measures how
-well the rendered Gazebo terrain matches GDN's map, live, on the machine that runs it.
+predicts at the true position (truth altitude minus map height). Level (hover, the
+pad) that measures how well the rendered Gazebo terrain matches GDN's map, about 0.3 m.
+Tilted over a slope it's metres: the range times the cosine of the tilt is the height
+above the ground where the beam lands, not straight below (OI-016), and that is what
+GDN gets. tools/sim_run.sh prints the whole flight's figure at the end.
 If the radar isn't publishing (no GPU rendering), agl_source:=auto falls back to that
 map prediction plus 0.3 m noise, and says so.
 
 Parameters: world_info (data/sim/<world>/world_info.txt), agl_source (auto|lidar|truth),
-agl_rate_hz (2), baro_bias_m (0), baro_drift_m_per_min (0), max_tilt_deg (35).
+agl_rate_hz (2), baro_bias_m (0), baro_drift_m_per_min (0), max_tilt_deg (35),
+gz_model (the vehicle's Gazebo name, for the window's follow camera; default the
+world's x500), gz_follow (true), gz_follow_offset (-1.8,0,0.7).
 """
 import math
 import os
@@ -71,8 +76,9 @@ class SimAdapter(Node):
             raise SystemExit(f"sim_adapter: gz_follow_offset needs 3 numbers (x,y,z), got {off}")
 
         info = dict(l.split("=", 1) for l in Path(info_path).read_text().split() if "=" in l)
+        self.gz_model = str(self.declare_parameter("gz_model", info.get("model_instance", "x500_gdn_0")).value)
         self.z0_amsl = float(info["z0_amsl"])
-        self.alt, self.hdr = load_map(info["map"])
+        self.alt, self.hdr = load_map(info.get("world_map", info["map"]))
         self.alt = self.alt.astype(np.float64)
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -104,6 +110,7 @@ class SimAdapter(Node):
         self.resid = []
         self.n_scan = self.n_mag = self.n_baro = 0
         self.fallback_warned = False
+        self.t_node = self.now_s()      # the radar gets 5 s to start before the fallback
         self.tpath = PathMsg()
         self.tpath.header.frame_id = "map"
         self.tfb = TransformBroadcaster(self)
@@ -112,7 +119,7 @@ class SimAdapter(Node):
             threading.Thread(target=self.gz_follow, daemon=True).start()
         self.create_timer(0.5, self.tick)
         self.create_timer(10.0, self.report)
-        self.get_logger().info(f"sim adapter: map {info['map']}, world z=0 at {self.z0_amsl:.1f} m AMSL, "
+        self.get_logger().info(f"sim adapter: map {info.get('world_map', info['map'])}, world z=0 at {self.z0_amsl:.1f} m AMSL, "
                                f"agl_source={self.agl_source}")
 
     # --- helpers -------------------------------------------------------------
@@ -242,7 +249,7 @@ class SimAdapter(Node):
                     continue
                 r = subprocess.run(["gz", "service", "-s", "/gui/follow", "--reqtype", "gz.msgs.StringMsg",
                                     "--reptype", "gz.msgs.Boolean", "--timeout", "2000",
-                                    "--req", 'data: "x500_gdn_0"'], capture_output=True, text=True, timeout=10)
+                                    "--req", f'data: "{self.gz_model}"'], capture_output=True, text=True, timeout=10)
                 if "true" in r.stdout:
                     self.get_logger().info(f"Gazebo window follows the drone ({x:g}, {y:g}, {z:g} m); "
                                            "right-click it in the entity tree to change the view")
@@ -255,7 +262,9 @@ class SimAdapter(Node):
         if self.truth is None:
             return
         use_truth = self.agl_source == "truth"
-        if self.agl_source == "auto" and (self.last_scan_t is None or self.now_s() - self.last_scan_t > 3.0):
+        no_radar = (self.now_s() - self.t_node > 5.0 if self.last_scan_t is None
+                    else self.now_s() - self.last_scan_t > 3.0)
+        if self.agl_source == "auto" and no_radar:
             use_truth = True
             if not self.fallback_warned:
                 self.get_logger().warn("no radar altimeter data (GPU rendering off?): AGL now comes from the "

@@ -20,9 +20,20 @@ Frames:
 
 The world has no <plugin> entries on purpose: PX4 loads the system plugins from its
 server.config (GZ_SIM_SERVER_CONFIG_PATH), as with its own worlds.
+
+Runway (R2.3, for the fixed-wing): a strip --runway metres long and 20 m wide through
+the pad, graded into the terrain (the heading and a constant grade of at most 3% chosen
+for the least earthworks; 15 m shoulders blend into the ground), and drawn as a grey
+strip with a white centreline. The pad sits 60 m from its start. The graded terrain is
+written as the world's own map (world_map.bin, world_map= in world_info.txt): that's
+the ground as built, what the physics, the radar and the checks use. map= stays the
+source map, and GDN's map isn't touched, as for a real strip missing from the survey.
+A map coarser than 8 m is first resampled finer (bilinear, --oversample times, which
+gives the same heightmap as before), so the strip is flat at its own scale.
 """
 import argparse
 import math
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -58,7 +69,99 @@ def sample_map(alt, hdr, east, north):
     return (1 - ti) * ((1 - tj) * a00 + tj * a01) + ti * ((1 - tj) * a10 + tj * a11)
 
 
-def heightmap_grid(alt, hdr, oversample=4):
+RUNWAY_WIDTH = 20.0      # m
+RUNWAY_SHOULDER = 15.0   # m over which the grading blends into the ground
+RUNWAY_BEHIND = 60.0     # m of runway behind the pad
+RUNWAY_MAX_GRADE = 0.03
+
+
+def refine_map(alt, hdr, f):
+    """The map resampled f times finer (MapDb's bilinear), on the same frame: sample
+    (i, j) of the result is at sample (i/f, j/f) of the original, and the centre stays."""
+    ny, nx = alt.shape
+    c_e = abs(hdr["dlon"]) * hdr["m_per_deg_lon"]
+    c_n = abs(hdr["dlat"]) * hdr["m_per_deg_lat"]
+    jj, ii = np.meshgrid(np.arange(nx * f), np.arange(ny * f))
+    east = (jj / f - nx / 2.0) * c_e
+    north = ((ny / 2.0 - ii / f) if hdr["dlat"] < 0 else (ii / f - ny / 2.0)) * c_n
+    out = sample_map(alt, hdr, east, north)
+    h = dict(hdr, nx=nx * f, ny=ny * f, dlat=hdr["dlat"] / f, dlon=hdr["dlon"] / f)
+    return out, h
+
+
+def map_en(hdr):
+    """East and north of every sample of a map with this header (MapDb's frame)."""
+    c_e = abs(hdr["dlon"]) * hdr["m_per_deg_lon"]
+    c_n = abs(hdr["dlat"]) * hdr["m_per_deg_lat"]
+    jj, ii = np.meshgrid(np.arange(hdr["nx"]), np.arange(hdr["ny"]))
+    east = (jj - hdr["nx"] / 2.0) * c_e
+    north = ((hdr["ny"] / 2.0 - ii) if hdr["dlat"] < 0 else (ii - hdr["ny"] / 2.0)) * c_n
+    return east, north
+
+
+def plan_runway(alt, hdr, length):
+    """Heading (deg from north) and grade of the strip through the pad that needs the
+    least earthworks: the largest height change over the strip and its edges.
+    Returns (heading, grade, earthworks in m)."""
+    base = float(sample_map(alt, hdr, np.array(0.0), np.array(0.0)))
+    d = np.arange(-RUNWAY_BEHIND, length - RUNWAY_BEHIND + 0.1, 5.0)
+    best = None
+    for hdg in range(0, 360, 5):
+        ce, cn = math.sin(math.radians(hdg)), math.cos(math.radians(hdg))
+        rows = [sample_map(alt, hdr, d * ce + x * cn, d * cn - x * ce) - base
+                for x in (-RUNWAY_WIDTH / 2, 0.0, RUNWAY_WIDTH / 2)]
+        g = float(np.clip(np.polyfit(d, rows[1], 1)[0], -RUNWAY_MAX_GRADE, RUNWAY_MAX_GRADE))
+        work = max(float(np.abs(z - g * d).max()) for z in rows)
+        if best is None or work < best[2] - 0.01:
+            best = (float(hdg), g, work)
+    return best
+
+
+def grade_runway(alt, hdr, heading, grade, length):
+    """The map with the strip graded in (constant grade from the pad's height), blended
+    into the ground over RUNWAY_SHOULDER."""
+    base = float(sample_map(alt, hdr, np.array(0.0), np.array(0.0)))
+    east, north = map_en(hdr)
+    ce, cn = math.sin(math.radians(heading)), math.cos(math.radians(heading))
+    along = east * ce + north * cn
+    cross = east * cn - north * ce
+    a0, a1 = -RUNWAY_BEHIND, length - RUNWAY_BEHIND
+    out_a = np.maximum(np.maximum(a0 - along, along - a1), 0.0)
+    out_c = np.maximum(np.abs(cross) - RUNWAY_WIDTH / 2, 0.0)
+    w = np.clip(1.0 - np.hypot(out_a, out_c) / RUNWAY_SHOULDER, 0.0, 1.0)
+    target = base + grade * np.clip(along, a0, a1)
+    return w * target + (1.0 - w) * alt
+
+
+def write_map(path, alt, hdr):
+    with open(path, "wb") as f:
+        f.write(struct.pack("<iidddd", hdr["nx"], hdr["ny"], hdr["lat0"], hdr["lon0"], hdr["dlat"], hdr["dlon"]))
+        f.write(np.asarray(alt, dtype="<f4").tobytes())
+
+
+def runway_sdf(heading, grade, length, pad_z):
+    """A grey strip with a white centreline, laid 3 cm over the graded ground (visual
+    only: the wheels roll on the heightmap)."""
+    mid = length / 2.0 - RUNWAY_BEHIND
+    ce, cn = math.sin(math.radians(heading)), math.cos(math.radians(heading))
+    yaw = math.radians(90.0 - heading)          # the boxes' x along the runway (ENU)
+    pitch = -math.atan(grade)                   # x end up for a positive grade
+    pose = f"{mid * ce:.2f} {mid * cn:.2f} {pad_z + grade * mid + 0.03:.3f} 0 {pitch:.5f} {yaw:.5f}"
+    def box(name, size, colour, dz=0.0):
+        return (f'<visual name="{name}"><pose>0 0 {dz} 0 0 0</pose><geometry><box><size>{size}</size></box>'
+                f'</geometry><material><ambient>{colour}</ambient><diffuse>{colour}</diffuse></material></visual>')
+    return f"""    <model name="runway">
+      <static>true</static>
+      <pose>{pose}</pose>
+      <link name="link">
+        {box("strip", f"{length:.1f} {RUNWAY_WIDTH:.1f} 0.02", "0.32 0.32 0.33 1")}
+        {box("centreline", f"{length - 20:.1f} 0.6 0.02", "0.95 0.95 0.95 1", 0.005)}
+      </link>
+    </model>
+"""
+
+
+def heightmap_grid(alt, hdr, oversample=4, geom=None):
     """Gazebo heightmap covering exactly the span of the map's samples.
 
     Gazebo puts image pixel (r, k) of a side x side heightmap at
@@ -71,12 +174,16 @@ def heightmap_grid(alt, hdr, oversample=4):
     map is bilinear. On steep terrain with 20 to 30 m cells the two differ by several
     metres, so the image is sampled `oversample` times finer than the map: the
     difference shrinks with the square of the pixel size.
+
+    geom: the header whose samples set the extent and pixel count (default hdr); the
+    runway's finer map is sampled on the original map's grid this way.
     """
-    ny, nx = alt.shape
-    c_e = abs(hdr["dlon"]) * hdr["m_per_deg_lon"]
-    c_n = abs(hdr["dlat"]) * hdr["m_per_deg_lat"]
+    g = geom or hdr
+    ny, nx = g["ny"], g["nx"]
+    c_e = abs(g["dlon"]) * g["m_per_deg_lon"]
+    c_n = abs(g["dlat"]) * g["m_per_deg_lat"]
     e_min, e_max = (0 - nx / 2.0) * c_e, (nx - 1 - nx / 2.0) * c_e
-    if hdr["dlat"] < 0:
+    if g["dlat"] < 0:
         n_max, n_min = (ny / 2.0) * c_n, (ny / 2.0 - (ny - 1)) * c_n
     else:
         n_min, n_max = (0 - ny / 2.0) * c_n, (ny - 1 - ny / 2.0) * c_n
@@ -170,18 +277,31 @@ def main(argv=None):
                     help="GDN's map when it isn't the world's (R2.2); recorded in world_info.txt")
     ap.add_argument("--origin", nargs=2, type=float, metavar=("LAT", "LON"),
                     help="GDN's local origin for --onboard-map (default: this map's centre)")
+    ap.add_argument("--runway", type=float, default=300.0,
+                    help="length (m) of the graded strip through the pad for the fixed-wing; 0 for none")
     a = ap.parse_args(argv)
 
     alt, hdr = load_map(a.map)
     alt = alt.astype(np.float64)
-    img, side, size_e, size_n, pos_e, pos_n = heightmap_grid(alt, hdr, a.oversample)
+    out = Path(a.out_dir) if a.out_dir else ROOT / "data/sim" / a.name
+    out.mkdir(parents=True, exist_ok=True)
+    hdr0 = hdr
+    runway = None
+    if a.runway > 0:
+        cell = abs(hdr["dlat"]) * hdr["m_per_deg_lat"]
+        if cell > 8.0 and a.oversample > 1:
+            alt, hdr = refine_map(alt, hdr, a.oversample)
+        hdg, grade, work = plan_runway(alt, hdr, a.runway)
+        alt = grade_runway(alt, hdr, hdg, grade, a.runway)
+        runway = (hdg, grade, work)
+    world_map = (out / "world_map.bin").resolve()
+    write_map(world_map, alt, hdr)
+    img, side, size_e, size_n, pos_e, pos_n = heightmap_grid(alt, hdr, a.oversample, geom=hdr0)
 
     mn, mx = float(img.min()), float(img.max())
     relief = max(mx - mn, 1.0)
     u16 = np.clip(np.round((img - mn) / relief * 65535), 0, 65535).astype(np.uint16)
 
-    out = Path(a.out_dir) if a.out_dir else ROOT / "data/sim" / a.name
-    out.mkdir(parents=True, exist_ok=True)
     png = (out / "heightmap.png").resolve()
     Image.fromarray(u16).save(png)
     mesh = (out / "terrain.obj").resolve()
@@ -260,7 +380,7 @@ def main(argv=None):
         </visual>
       </link>
     </model>
-    <include>
+{runway_sdf(runway[0], runway[1], a.runway, pad_z) if runway else ""}    <include>
       <uri>model://{a.model}</uri>
       <name>{a.model_instance}</name>
       <pose>0 0 {spawn_z:.3f} 0 0 0</pose>
@@ -285,10 +405,17 @@ def main(argv=None):
         f"spawn_z={spawn_z:.3f}\nmodel_instance={a.model_instance}\nheightmap_side={side}\nvisual={a.visual}\n"
         f"onboard_map={Path(a.onboard_map or a.map).resolve()}\n"
         f"origin_lat={a.origin[0] if a.origin else hdr['lat_c']:.9f}\n"
-        f"origin_lon={a.origin[1] if a.origin else hdr['lon_c']:.9f}\n")
+        f"origin_lon={a.origin[1] if a.origin else hdr['lon_c']:.9f}\n"
+        f"world_map={world_map}\n"
+        + (f"runway_heading={runway[0]:.1f}\nrunway_grade={runway[1]:.5f}\nrunway_from={-RUNWAY_BEHIND:.1f}\n"
+           f"runway_to={a.runway - RUNWAY_BEHIND:.1f}\nrunway_width={RUNWAY_WIDTH:.1f}\n"
+           f"runway_earthworks={runway[2]:.2f}\n" if runway else ""))
     print(f"wrote {world}")
     print(f"  heightmap {side}x{side}, {size_e:.0f} m east x {size_n:.0f} m north, relief {relief:.0f} m")
     print(f"  world z=0 is {mn:.1f} m AMSL; pad at z={pad_z:.1f} m ({pad_amsl:.1f} m AMSL)")
+    if runway:
+        print(f"  runway {a.runway:.0f} m through the pad, heading {runway[0]:.0f} deg, grade {100 * runway[1]:+.1f}%, "
+              f"ground moved up to {runway[2]:.1f} m")
 
 
 if __name__ == "__main__":

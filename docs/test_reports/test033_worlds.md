@@ -27,7 +27,10 @@ checked with `tools/check_sim_radar.py`. Do the worlds stand, and does GDN fly o
 - **The physics and radar checks pass on all five,** and on the original Zermatt world.
 - **GDN flew a full Stage A route on each site** (`GDN_SITE=... tools/sim_run.sh`, dev
   image, GPU). Each time PX4 flew the 7.9 km route and landed.
-  - The radar matched the world in flight to 0.29 to 0.34 m RMS.
+  - The radar matched the world in flight to 0.29 to 0.34 m RMS. *Correction
+    (TEST-034): these were the adapter's last 10 s report, the landing over the level
+    pad. Over the whole flight GDN's altimeter input is metres off the height straight
+    below, from the tilt (OI-016); the radar itself is right along its beam.*
   - GDN's own error was 1 to 12 km: the multirotor drift of OI-012 (TEST-032), now on
     five kinds of terrain. That isn't R2.2's to fix.
 - **Found on the way:**

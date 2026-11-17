@@ -5,6 +5,25 @@ Panels:
     Name: Views
 Visualization Manager:
   Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid (pad level, 100 m)
+      Cell Size: 100
+      Plane Cell Count: 40
+      Color: 120; 120; 130
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Terrain points (coloured by height)
+      Topic:
+        Value: /terrain_cloud
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+      Value: true
     - Class: rviz_default_plugins/Marker
       Topic:
         Value: /terrain_mesh

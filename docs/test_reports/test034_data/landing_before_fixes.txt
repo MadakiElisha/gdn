@@ -1,0 +1,42 @@
+# The first runway landings (Zermatt, short route), before the fixes. rw1: PX4 rejected the mission
+# (DO_LAND_START in a position frame). rw2: PX4 aborted the landing (FW_LND_USETER 1, no rangefinder).
+== rw1
+rc_cessna (fixedwing); route: 270 points, 2.7 km, about 3 min at 15 m/s; height above pad 47 to 150 m
+landing plan: towards 140 deg, approach point 600 m out at 82 m, touchdown 10 m from the pad; terrain at least 20 m under the glide path
+landing mission: PX4 rejected the mission (MAV_MISSION_RESULT 3)
+Takeoff mode + arm requested
+runway take-off: PX4 rolls down the runway and climbs out
+climbed out (45 m above pad): offboard, starting the route
+the landing mission didn't upload: circling over the pad instead
+route done, circling over the pad (Hold) for 30 s
+circled over the pad for 30 s, done (the fixed-wing doesn't land: no runway)
+WARN  [mavlink] IGN MISSION_ITEM: Invalid item	
+FAIL  went through its phases (runway take-off; climbed out; route done, landing on the runway; landed and disarmed): missing: route done, landing on the runway; landed and disarmed
+FAIL  no fail-safe: didn't upload
+FAIL  came down on the runway: 4 m along it (-60 to 240), +70.9 m across
+== rw2
+rc_cessna (fixedwing); route: 270 points, 2.7 km, about 3 min at 15 m/s; height above pad 47 to 150 m
+landing plan: towards 140 deg, approach point 600 m out at 82 m, touchdown 10 m from the pad; terrain at least 20 m under the glide path
+landing mission uploaded
+Takeoff mode + arm requested
+runway take-off: PX4 rolls down the runway and climbs out
+climbed out (45 m above pad): offboard, starting the route
+route done, landing on the runway (PX4 mission: approach, glide, touchdown)
+not landed 300 s after starting the landing, done
+INFO  [navigator] Holding at 72 m above landing waypoint.	
+FAIL  went through its phases (runway take-off; climbed out; route done, landing on the runway; landed and disarmed): missing: landed and disarmed
+FAIL  no fail-safe: not landed
+FAIL  came down on the runway: 56 m along it (-60 to 240), -41.8 m across
+== Emmental, full route, mission uploaded before take-off (its logs were replaced by the re-flight)
+PX4: "First waypoint far away from home: 111697m. Correct mission loaded?" (home still the previous run's, Zermatt)
+The plane never flew to the approach point: it circled the touchdown point (radius about 80 m) from 105 m down,
+and came down mid-circle: check_vehicles.py "came down on the runway: 122 m along it (-60 to 240), -22.9 m across" (FAIL);
+the catapult run the same: 130 m along, +53.9 m across (FAIL). Fix: upload after take-off, then MISSION_SET_CURRENT 0.
+== Zermatt VTOL with VT_F_TRANS_THR 0.3 (the airframe's), one of five transitions
+front transition failed (PX4's quad-chute?) after 7 s: flying the route hovering instead
+PX4 log: calibrated airspeed 7.4 m/s at 6.0 s, 7.7 at 6.5 s; quad-chute at 6.6 s (VT_ARSP_BLEND 8 m/s after
+VT_F_TR_OL_TM 6 s times the air-density factor). With 0.6 the front transition takes 3 s.
+== check_sim_radar.py on a deliberately misplaced world (Zermatt, terrain shifted 15 m east)
+beam lands 14.47 +- 0.95 m from its aim (east -14.47, north +0.39); errors RMS 4.60 m, after removing it 0.83 m
+ogre2: 11/26 within 2.5 m + 1.5 m x slope; median +3.23 m, max |error| 10.29 m (at slope 0.7)
+FAIL: the radar doesn't see the world's terrain where it should
