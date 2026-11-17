@@ -187,6 +187,12 @@ python3 tools/plot_sites.py --out sites.png   # one overview image of all five
   - Each world is about 210 MB on disk, mostly the mesh.
   - `make_site.py --if-stale` (which `sim_run.sh` and `view_site.sh` use) rebuilds a
     site only when its entry or the building code changes.
+- **Both windows follow the drone** during `sim_run.sh`:
+  - RViz orbits it about 500 m out, with a marker on the drone. Set the Views panel's
+    Target Frame to "<Fixed Frame>" for the old fixed overview.
+  - Gazebo's camera sits 8 m behind and 3 m above it, started by `sim_adapter.py`
+    once the window is up. Change it with `GDN_SIM_ADAPTER_ARGS="-p gz_follow_offset:='-20 0 8'"`,
+    or turn it off with `-p gz_follow:=false`.
 - **In the Gazebo window:**
   - scroll zooms towards the mouse, Shift + drag orbits, drag pans;
   - to find the drone, right-click `x500_gdn_0` in the entity tree, then "Move to"
