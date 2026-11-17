@@ -25,17 +25,22 @@ Parameters: world_info (data/sim/<world>/world_info.txt), agl_source (auto|lidar
 agl_rate_hz (2), baro_bias_m (0), baro_drift_m_per_min (0), max_tilt_deg (35).
 """
 import math
+import os
+import subprocess
+import threading
+import time
 from pathlib import Path
 
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, qos_profile_sensor_data
-from geometry_msgs.msg import PointStamped, PoseStamped, Vector3
+from geometry_msgs.msg import PointStamped, PoseStamped, TransformStamped, Vector3
 from nav_msgs.msg import Odometry, Path as PathMsg
 from sensor_msgs.msg import FluidPressure, LaserScan, MagneticField
 from std_msgs.msg import Float64
 from px4_msgs.msg import VehicleAttitude
+from tf2_ros import TransformBroadcaster
 
 from gdn_paths import ROOT, load_map
 
@@ -54,6 +59,11 @@ class SimAdapter(Node):
         self.baro_bias = float(self.declare_parameter("baro_bias_m", 0.0).value)
         self.baro_drift = float(self.declare_parameter("baro_drift_m_per_min", 0.0).value) / 60.0
         self.max_tilt = math.radians(float(self.declare_parameter("max_tilt_deg", 35.0).value))
+        # Views that follow the drone: RViz orbits the "drone" frame published here, and
+        # Gazebo's window (when there is one) gets its follow camera at this offset
+        # (metres behind, left, above the drone).
+        follow = self.declare_parameter("gz_follow", True).value and not os.environ.get("HEADLESS")
+        self.follow_offset = [float(v) for v in str(self.declare_parameter("gz_follow_offset", "-8 0 3").value).split()]
 
         info = dict(l.split("=", 1) for l in Path(info_path).read_text().split() if "=" in l)
         self.z0_amsl = float(info["z0_amsl"])
@@ -91,6 +101,10 @@ class SimAdapter(Node):
         self.fallback_warned = False
         self.tpath = PathMsg()
         self.tpath.header.frame_id = "map"
+        self.tfb = TransformBroadcaster(self)
+        self.last_tf = 0.0
+        if follow:
+            threading.Thread(target=self.gz_follow, daemon=True).start()
         self.create_timer(0.5, self.tick)
         self.create_timer(10.0, self.report)
         self.get_logger().info(f"sim adapter: map {info['map']}, world z=0 at {self.z0_amsl:.1f} m AMSL, "
@@ -179,6 +193,16 @@ class SimAdapter(Node):
         o = msg.pose.pose.orientation
         self.q_truth = (o.w, o.x, o.y, o.z)
         t = self.now_s()
+        if t - self.last_tf >= 0.05:                        # the "drone" frame for RViz, 20 Hz
+            self.last_tf = t
+            tf = TransformStamped()
+            tf.header.stamp = self.get_clock().now().to_msg()
+            tf.header.frame_id = "map"
+            tf.child_frame_id = "drone"
+            tf.transform.translation.x, tf.transform.translation.y = float(p.x), float(p.y)
+            tf.transform.translation.z = float(self.z0_amsl + p.z - self.base_alt)
+            tf.transform.rotation = o
+            self.tfb.sendTransform(tf)
         if t - self.last_truth_pub >= 0.5:
             self.last_truth_pub = t
             pt = PointStamped()
@@ -196,6 +220,31 @@ class SimAdapter(Node):
             self.tpath.poses.append(ps)
             self.tpath.header.stamp = pt.header.stamp
             self.pub_tpath.publish(self.tpath)
+
+    def gz_follow(self):
+        """Point Gazebo's window camera at the drone and keep it there (its "Follow"),
+        once the window's camera services exist. Runs in its own thread, since a gz
+        service call blocks; gives up quietly after 3 minutes (no window)."""
+        x, y, z = self.follow_offset
+        t_end = time.time() + 180.0
+        while time.time() < t_end:
+            time.sleep(3.0)
+            try:
+                r = subprocess.run(["gz", "service", "-s", "/gui/follow/offset", "--reqtype", "gz.msgs.Vector3d",
+                                    "--reptype", "gz.msgs.Boolean", "--timeout", "2000",
+                                    "--req", f"x: {x}, y: {y}, z: {z}"], capture_output=True, text=True, timeout=10)
+                if "true" not in r.stdout:
+                    continue
+                r = subprocess.run(["gz", "service", "-s", "/gui/follow", "--reqtype", "gz.msgs.StringMsg",
+                                    "--reptype", "gz.msgs.Boolean", "--timeout", "2000",
+                                    "--req", 'data: "x500_gdn_0"'], capture_output=True, text=True, timeout=10)
+                if "true" in r.stdout:
+                    self.get_logger().info(f"Gazebo window follows the drone ({x:g}, {y:g}, {z:g} m); "
+                                           "right-click it in the entity tree to change the view")
+                    return
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+        self.get_logger().info("no Gazebo window answered: its camera doesn't follow the drone")
 
     def tick(self):
         if self.truth is None:

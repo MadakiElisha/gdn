@@ -126,7 +126,9 @@ gz_dead() {
 }
 gz_dead && exit 1
 if [ -z "$HEADLESS" ]; then
-  gz sim -v 3 -g --render-engine-gui "$RENDER" > "$LOG/gz_gui.log" 2>&1 & PIDS+=($!)
+  # Gazebo's own start camera is inside our terrain; tools/gz_gui_config.py fixes it.
+  python3 tools/gz_gui_config.py "$WDIR" "$LOG/gui.config"
+  gz sim -v 3 -g --render-engine-gui "$RENDER" --gui-config "$LOG/gui.config" > "$LOG/gz_gui.log" 2>&1 & PIDS+=($!)
 fi
 
 MicroXRCEAgent udp4 -p 8888 > "$LOG/agent.log" 2>&1 & PIDS+=($!)

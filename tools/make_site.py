@@ -227,12 +227,14 @@ def main():
     for nm in names:
         if nm not in sites:
             sys.exit(f"no site {nm} in sim/sites.yaml ({', '.join(sites)})")
+    built = 0
     for nm in names:
         site = sites[nm]
         if a.if_stale and not a.repin and is_current(site):
             print(f"{nm}: world is current")
             continue
         print(f"== {nm} ({site['class']}: {site['place']})")
+        built += 1
         pins = fetch(site, a.repin)
         if a.fetch_only:
             continue
@@ -246,7 +248,8 @@ def main():
         info = st.site_paths(nm)["world"] / "world_info.txt"
         info.write_text(info.read_text() + f"site_def={site_def(site)}\n")
         (st.site_paths(nm)["world"] / f"{nm}.sdf").touch()
-    print(f"done; check with: python3 tools/check_site.py {'--all' if a.all else a.site}")
+    if built:
+        print(f"done; check with: python3 tools/check_site.py {'--all' if a.all else a.site}")
 
 
 if __name__ == "__main__":
