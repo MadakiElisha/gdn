@@ -125,8 +125,10 @@ PX4's position was valid.
 Two windows open:
 - **Gazebo:** the x500 on its pad in the Alps. The camera can be moved with the mouse.
   Right-click the drone and choose "Follow" to track it.
-- **RViz:** GDN's map as a 3D terrain, the true path in white and GDN's estimate in
-  red.
+- **RViz:** the terrain as a brown surface and as points coloured by height, a 100 m
+  grid at pad level, the true path in white and GDN's estimate in red. The view orbits
+  the drone. There is no lidar point cloud yet: the only sensor simulated so far is the
+  radar altimeter, a single beam (the Mid-360S comes with R2.4).
 
 The terminal shows the route plan, flight progress and, at the end, GDN's error
 against truth for the first 5 minutes, the first 10 minutes and the whole run.
@@ -147,6 +149,7 @@ Useful variations:
 | `HEADLESS=1` | no windows; the sensors still render through EGL |
 | `GDN_GZ_RENDER=ogre` | older renderer, if Ogre2 crashes (see "If Gazebo crashes at start") |
 | `GDN_VEHICLE=rc_cessna` | the vehicle (`python3 tools/sim_vehicles.py --list`; see "Vehicles") |
+| `GDN_FW_LAUNCH=catapult` | the fixed-wing's take-off: `runway` (default) or `catapult` |
 | `GDN_FLY_ARGS="--legs 2 --clearance 80"` | shorter route, more clearance (`python3 tools/sim_fly.py -h`) |
 | `GDN_SIM_ADAPTER_ARGS="-p baro_drift_m_per_min:=2.0"` | add a barometer drift |
 | `GDN_SIM_ADAPTER_ARGS="-p agl_source:=truth"` | skip the rendered radar (map at the true position instead) |
@@ -235,11 +238,12 @@ airframe, PX4 settings and how the vehicle flies.
 |---|---|---|---|
 | `x500` (default) | `x500_gdn` | 4001 `gz_x500` | climbs straight up, follows a moving setpoint ("carrot") at 10 m/s, lands on the pad |
 | `standard_vtol` | `standard_vtol_gdn` | 4004 `gz_standard_vtol` | climbs like the x500, changes to plane flight, flies the route at about 15 m/s, changes back 350 m before the pad and lands on it |
-| `rc_cessna` | `rc_cessna_gdn` | 4003 `gz_rc_cessna` | catapult launch from the pad, flies the route at about 15 m/s, circles over the pad for 30 s; no landing |
+| `rc_cessna` | `rc_cessna_gdn` | 4003 `gz_rc_cessna` | takes off along the runway, flies the route at about 15 m/s, lands back on the runway |
 
 ```bash
 python3 tools/sim_vehicles.py --list
 GDN_VEHICLE=rc_cessna GDN_SITE=ch_emmental tools/sim_run.sh
+GDN_VEHICLE=rc_cessna GDN_FW_LAUNCH=catapult tools/sim_run.sh   # launched by catapult instead
 python3 tools/check_vehicles.py                   # the models and their airframes
 python3 tools/check_vehicles.py --run /tmp/gdn_sim # judge a flight (phases, route, terrain, radar)
 ```
@@ -247,8 +251,8 @@ python3 tools/check_vehicles.py --run /tmp/gdn_sim # judge a flight (phases, rou
 - **As a plane, the route is followed as a line.** `sim_fly.py` sends a point 60 m
   ahead on the route with the route's direction as velocity. PX4's fixed-wing
   controller then follows the line through them. Its 90 degree corners are flown
-  wide: the cross-track error has a median of about 1 m, a 95th percentile of 5 to
-  8 m, and reaches 25 to 35 m at the corners (TEST-034).
+  wide: the cross-track error has a median of about 1 m, a 95th percentile of 6 to
+  8 m, and reaches 23 to 35 m at the corners (TEST-034).
 - **The route never climbs or descends faster than a plane can.** For the planes, its
   height is limited to a 25% (VTOL) or 17% (cessna) gradient, half of what PX4's climb
   limits allow at cruise speed, so climbs start earlier.
@@ -258,14 +262,45 @@ python3 tools/check_vehicles.py --run /tmp/gdn_sim # judge a flight (phases, rou
   forward thrust; the VTOL hung in the air, sank 20 m and PX4 aborted the transition
   (its "quad-chute"). In Hold, PX4 does the transition itself; `sim_fly.py` goes back to
   offboard once it's done. Front transition takes 7 to 8 s, back transition about 5.
-- **The cessna is launched as by a catapult.** A real site has no runway. PX4 waits in
-  Takeoff mode with its launch detection on; `sim_fly.py` asks Gazebo to push the plane
-  forward at 40 m/s² (ApplyLinkWrench) until it's at 16 m/s, about half a second (it
-  leaves at about 17 m/s). PX4 detects the launch and climbs out to 50 m. The plane faces the launch heading
-  `sim_vehicles.py world` picks from the map: the one where the terrain stays furthest
-  below a 12% climb.
-- **The cessna doesn't land.** It circles over the pad in Hold for 30 s and the run
-  ends. Fixed-wing landing needs a runway or a net (Phase 8).
+  This is about offboard only: in its own modes (Hold, missions, a pilot's switch) PX4
+  1.16 transitions normally.
+- **The VTOL's transition throttle is 0.6** (`VT_F_TRANS_THR`; the airframe's is 0.3).
+  With 0.3 the pusher got it to only 7.7 to 8 m/s by the time PX4 checks (8 m/s after
+  about 6.6 s), and one transition in five at Zermatt's 2600 m was aborted.
+- **Every world has a runway through the pad,** 300 by 20 m (`make_sim_world.py`): the
+  terrain is graded along the heading that needs the least earthworks, at a constant
+  grade of at most 3%, and the strip is drawn grey with a white centreline. The
+  ground moved 0.2 m (Seeland) to 12.6 m (Zurich, through buildings).
+  - **Only the world gets it.** The graded terrain is the world's own map
+    (`world_map.bin`, which the physics, radar and checks use); GDN's onboard map
+    doesn't know the strip, as for an airfield built after the survey.
+  - **The x500 and the VTOL** still take off from and land on the pad, which is on the
+    runway.
+- **The cessna takes off along the runway** with PX4's runway take-off (Takeoff mode:
+  it rolls, rotates and climbs out to 50 m), facing down the runway, then flies the
+  route.
+- **It lands back on the runway with a PX4 landing mission.** PX4 lands a plane on a
+  runway only from a mission, so `sim_fly.py` uploads one over MAVLink (pymavlink,
+  UDP 14540) once the plane has taken off. Not before: PX4 sets home when it arms, and
+  a mission uploaded earlier was checked against the previous run's home, 112 km
+  away; that landing skipped its approach and circled down beside the runway. The
+  mission:
+  - **the approach point,** at least 600 m out on PX4's 8° glide path, from the runway
+    end whose approach keeps the terrain furthest under that path (at least 20 m);
+  - **the touchdown point,** 50 m into the runway.
+
+  At the end of the route `sim_fly.py` switches PX4 to Mission. PX4 flies out to the
+  approach point, turns, glides down, flares and rolls out on the runway, then
+  disarms. Two PX4 details:
+  - **`FW_LND_USETER 0`:** with PX4's default, the cessna (no rangefinder) found no
+    terrain measurement on final approach and aborted the landing.
+  - **No `DO_LAND_START` item:** PX4 rejects it in a position frame.
+- **Or by catapult** (`GDN_FW_LAUNCH=catapult`): PX4 waits in Takeoff mode with its
+  launch detection on; `sim_fly.py` asks Gazebo to push the plane forward at 40 m/s²
+  (ApplyLinkWrench) until it's at 16 m/s, about half a second. PX4 detects the launch
+  and climbs out; the landing is on the runway as above. In a world without a runway
+  (`make_sim_world.py --runway 0`) the cessna circles over the pad at the end
+  instead.
 - **The worlds still place the x500.** `sim_run.sh` writes a copy of the world into the
   log directory with the chosen vehicle in its place, so the worlds and
   `view_site.sh` are unchanged.
@@ -273,8 +308,8 @@ python3 tools/check_vehicles.py --run /tmp/gdn_sim # judge a flight (phases, rou
   setup's ones (`VEHICLE_PARAMS` in `sim_vehicles.py`).
 - **The radar on a tilted vehicle** sees the ground beside the point straight below.
   `sim_adapter.py`'s conversion to height assumes flat ground, so over slopes GDN's
-  altimeter input is metres off: 6 to 9 m RMS on the x500, which cruises tilted, and 2
-  to 6 m on the planes (OI-016, TEST-034). `check_vehicles.py` checks the radar along
+  altimeter input is metres off: 6 to 9.5 m RMS on the x500, which cruises tilted, and
+  2 to 5 m on the planes (OI-016, TEST-034). `check_vehicles.py` checks the radar along
   its beam, where it matches the terrain to 0.4 to 0.7 m.
 
 ## Current result (read this before judging the red line)
@@ -298,7 +333,7 @@ true position, not the rendered radar):
 - **Why, measured on three flights in the dev image (TEST-032):**
   - The altimeter readings looked good: 0.32 m RMS against the map at the true position.
     *Correction (TEST-034): that was the landing over the level pad. In cruise GDN's
-    altimeter input is 6 to 9 m RMS off the height straight below, because the x500
+    altimeter input is 6 to 9.5 m RMS off the height straight below, because the x500
     flies tilted and the tilt removal assumes flat ground (OI-016). Whether that's part
     of the runaway isn't tested yet.*
   - Velocity isn't observed. The estimate slows on the straight legs, and the error
@@ -431,4 +466,5 @@ flight path (`radar AGL minus map-predicted AGL`).
   mode like on the x500, with the same settings; per-airframe profiles are R2.5.
 - **GDN's altimeter input assumes flat ground under a tilted vehicle** (OI-016): metres
   off over slopes, on every vehicle.
-- **The cessna launches by catapult and doesn't land** (no runway on a real site).
+- **The runway is a graded strip,** not a surveyed airfield: up to 12.6 m of ground moved
+  (Zurich, through buildings), and the photo under it still shows what was there.

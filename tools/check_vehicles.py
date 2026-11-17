@@ -15,15 +15,20 @@ The models, for every vehicle in tools/sim_vehicles.py:
 
 A flight (sim_run.sh's log directory, holding run_info.txt, route.csv, fly.log,
 adapter.log and sitl_bag), from the true track in the bag:
-  - it went through its phases: take-off; the VTOL's two transitions; the cessna's
-    catapult launch; landed and disarmed (x500, VTOL) or circled over the pad (cessna);
-    no fail-safe;
+  - it went through its phases: take-off (the cessna's from the runway, or its catapult
+    launch); the VTOL's two transitions; landed and disarmed (the cessna on the runway,
+    by its landing mission; in a world without a runway it circles over the pad
+    instead); no fail-safe;
+  - it came down where it should: the x500 and the VTOL within 10 m of the pad, the
+    cessna on the runway (within its length, and 5 m of its edges);
   - it flew the whole route: every route point had the vehicle within --reach m;
   - it followed it: cross-track error, 95th percentile, under --xtrack m (hover) or
     --xtrack-fw m (as a plane), judged while sim_fly.py steers it (PX4 in offboard, not
     during the VTOL's transitions or the cessna's last circles, which PX4 flies in Hold);
   - it kept clear of the ground: true height above the world's terrain at least
-    --clearance m wherever it was more than 150 m from the pad;
+    --clearance m while following the route more than 150 m from the pad, and at least
+    --clearance-other m the rest of the time (transitions, holds, the landing approach)
+    except within 150 m of the pad or 200 m of the runway, where it comes down;
   - the radar altimeter saw the ground, not the airframe: each range (/gdn/sim/agl_scan,
     2 Hz of its 20) against the range predicted from the truth at the same simulated
     instant (both carry Gazebo's time; the pose is interpolated between truth samples),
@@ -136,7 +141,7 @@ def cross_track(route_ne, pts):
 
 
 def judge_track(route, truth_ne, truth_h_agl, kind, reach, xtrack, xtrack_fw, clearance, fw_mask=None,
-                follow_mask=None):
+                follow_mask=None, clearance_other=15.0, landing_zone=None):
     """route (M, 2) north/east; truth_ne (N, 2); truth_h_agl (N,) height above the
     world's terrain. fw_mask: samples flown as a plane; follow_mask: samples where
     the route is being followed (default all). Returns [(ok, what, detail)]."""
@@ -156,25 +161,49 @@ def judge_track(route, truth_ne, truth_h_agl, kind, reach, xtrack, xtrack_fw, cl
         p95 = float(np.percentile(xt[sel], 95))
         out.append((p95 <= lim, f"follows the route {label} (cross-track p95 under {lim:.0f} m)",
                     f"p95 {p95:.1f} m, max {xt[sel].max():.1f} m over {sel.sum()} samples"))
-    h = truth_h_agl[far]
+    h = truth_h_agl[far & follow]
     hmin = float(h.min()) if len(h) else float("nan")
-    out.append((len(h) > 0 and hmin >= clearance, f"clear of the terrain (at least {clearance:.0f} m away from the pad)",
+    out.append((len(h) > 0 and hmin >= clearance,
+                f"clear of the terrain on the route (at least {clearance:.0f} m away from the pad)",
                 f"lowest {hmin:.1f} m above the ground"))
+    rest = far & ~follow & (~landing_zone if landing_zone is not None else True)
+    if rest.sum():
+        h2 = float(truth_h_agl[rest].min())
+        out.append((h2 >= clearance_other, f"clear of the terrain the rest of the time (at least {clearance_other:.0f} m, "
+                    "away from the pad and the runway)", f"lowest {h2:.1f} m over {rest.sum()} samples"))
     return out
 
 
-def judge_log(kind, fly):
+def judge_log(kind, fly, launch="runway", runway=True):
     """Phases from fly.log text. Returns [(ok, what, detail)]."""
+    fw = (["catapult: released"] if launch == "catapult" else ["runway take-off"]) + ["climbed out"]
+    fw += (["route done, landing on the runway", "landed and disarmed"] if runway
+           else ["route done, circling", "circled over the pad"])
     want = {"multirotor": ["at cruise height", "route done, landing", "landed and disarmed"],
             "vtol": ["at cruise height", "front transition done", "back transition done",
                      "over the pad, landing", "landed and disarmed"],
-            "fixedwing": ["catapult: released", "climbed out", "route done, circling", "circled over the pad"]}[kind]
+            "fixedwing": fw}[kind]
     missing = [w for w in want if w not in fly]
     out = [(not missing, "went through its phases (" + "; ".join(want) + ")",
             "missing: " + "; ".join(missing) if missing else "")]
-    fs = re.findall(r"fail-safe flies now|left offboard|transition failed", fly)
+    fs = re.findall(r"fail-safe flies now|left offboard|transition failed|didn't upload|not landed", fly)
     out.append((not fs, "no fail-safe", fs[0] if fs else ""))
     return out
+
+
+def judge_landing(kind, east, north, rw):
+    """Where it came down: (ok, what, detail). The cessna on the runway (rw from
+    sim_vehicles.runway), the others on the pad."""
+    if kind != "fixedwing":
+        d = math.hypot(east, north)
+        return d <= 10.0, "came down on the pad (within 10 m)", f"{d:.1f} m from it"
+    if rw is None:
+        return True, "came down: no runway, it circles at the end", ""
+    h = math.radians(rw["heading"])
+    along = east * math.sin(h) + north * math.cos(h)
+    cross = east * math.cos(h) - north * math.sin(h)
+    ok = rw["from"] <= along <= rw["to"] and abs(cross) <= rw["width"] / 2 + 5.0
+    return ok, "came down on the runway", f"{along:.0f} m along it ({rw['from']:.0f} to {rw['to']:.0f}), {cross:+.1f} m across"
 
 
 def read_truth(bag):
@@ -276,7 +305,7 @@ def check_run(d, a):
         return 2
     from gdn_paths import load_map
     from make_sim_world import sample_map
-    alt, hdr = load_map(winfo["map"])
+    alt, hdr = load_map(winfo.get("world_map", winfo["map"]))
     alt = alt.astype(np.float64)
     east, north, z = truth[:, 1], truth[:, 2], truth[:, 3]
     ground = sample_map(alt, hdr, east, north) - float(winfo["z0_amsl"])
@@ -291,9 +320,21 @@ def check_run(d, a):
         st = status[k][air]
         fw_mask = st[:, 1] == 2                            # VEHICLE_TYPE_FIXED_WING
         follow_mask = (st[:, 3] == 14) & (st[:, 2] == 0)   # NAVIGATION_STATE_OFFBOARD, not in transition
-    results = judge_log(v.kind, (d / "fly.log").read_text())
+    # Runs from before the runway (no launch= in run_info.txt) were catapult launches
+    # that ended circling.
+    launch = info.get("launch", "catapult")
+    rw = sim_vehicles.runway(winfo) if "launch" in info else None
+    results = judge_log(v.kind, (d / "fly.log").read_text(), launch, rw is not None)
+    results.append(judge_landing(v.kind, truth[-1, 1], truth[-1, 2], rw))
+    zone = None
+    if rw is not None:
+        # Within 200 m of the runway (its centreline segment), where a plane comes down.
+        hd = math.radians(rw["heading"])
+        al = east * math.sin(hd) + north * math.cos(hd)
+        cr = east * math.cos(hd) - north * math.sin(hd)
+        zone = np.hypot(np.maximum(np.maximum(rw["from"] - al, al - rw["to"]), 0.0), cr)[air] < 200.0
     results += judge_track(route[:, :2], ne[air], h_agl[air], v.kind, a.reach, a.xtrack, a.xtrack_fw,
-                           a.clearance, fw_mask, follow_mask)
+                           a.clearance, fw_mask, follow_mask, a.clearance_other, zone)
     fallback = "AGL now comes from the map" in (d / "adapter.log").read_text()
     z0 = float(winfo["z0_amsl"])
     if len(scan):
@@ -349,6 +390,12 @@ def selfcheck():
     ok &= ck(passes(judge_log("vtol", fly)), "selfcheck: VTOL phases found")
     ok &= ck(not passes(judge_log("vtol", fly.replace("front transition done", ""))),
              "selfcheck: a missing transition fails")
+    rw = {"heading": 90.0, "grade": 0.0, "from": -60.0, "to": 240.0, "width": 20.0}
+    ok &= ck(judge_landing("fixedwing", 120.0, 3.0, rw)[0] and not judge_landing("fixedwing", 120.0, 20.0, rw)[0]
+             and not judge_landing("fixedwing", 300.0, 0.0, rw)[0], "selfcheck: on the runway or not")
+    fwlog = "runway take-off\nclimbed out\nroute done, landing on the runway\nlanded and disarmed"
+    ok &= ck(passes(judge_log("fixedwing", fwlog)) and not passes(judge_log("fixedwing", fwlog, "catapult")),
+             "selfcheck: cessna phases, runway and catapult")
     ok &= ck(not passes(judge_log("multirotor", "at cruise height\nroute done, landing\nlanded and disarmed\n"
                                   "PX4 left offboard 5 s into the route")), "selfcheck: a fail-safe fails")
     return ok
@@ -361,7 +408,9 @@ def main():
     ap.add_argument("--reach", type=float, default=60.0, help="m: every route point passed this close")
     ap.add_argument("--xtrack", type=float, default=15.0, help="m: cross-track p95 limit hovering")
     ap.add_argument("--xtrack-fw", type=float, default=40.0, dest="xtrack_fw", help="m: cross-track p95 limit as a plane")
-    ap.add_argument("--clearance", type=float, default=25.0, help="m above the terrain away from the pad")
+    ap.add_argument("--clearance", type=float, default=25.0, help="m above the terrain on the route, away from the pad")
+    ap.add_argument("--clearance-other", type=float, default=15.0, dest="clearance_other",
+                    help="m above the terrain off the route (transitions, holds, landing approach)")
     ap.add_argument("--radar-rms", type=float, default=1.0, dest="radar_rms",
                     help="m: radar AGL against the beam cast at the true attitude, RMS")
     a = ap.parse_args()

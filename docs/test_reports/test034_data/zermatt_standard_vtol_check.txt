@@ -1,10 +1,11 @@
 flight: standard_vtol (vtol) over zermatt
 PASS  went through its phases (at cruise height; front transition done; back transition done; over the pad, landing; landed and disarmed)
 PASS  no fail-safe
+PASS  came down on the pad (within 10 m): 0.3 m from it
 PASS  whole route flown (every route point within 60 m): worst 27 m
-PASS  follows the route hovering (cross-track p95 under 15 m): p95 1.3 m, max 1.3 m over 337 samples
-PASS  follows the route as a plane (cross-track p95 under 40 m): p95 6.7 m, max 34.8 m over 7809 samples
-PASS  clear of the terrain (at least 25 m away from the pad): lowest 55.2 m above the ground
-PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.36 m, p95 0.74 m, max 1.2 m over 1055 readings (43 tilted past 35 deg left out); radar ranges at Gazebo time
-PASS  GDN ran alongside (scorer reported): RMS 60-300s: 33.7 m | MAX 60-300s: 64.8 m
-airborne 552 s, 8.0 km
+PASS  follows the route hovering (cross-track p95 under 15 m): p95 0.9 m, max 0.9 m over 339 samples
+PASS  follows the route as a plane (cross-track p95 under 40 m): p95 6.3 m, max 34.7 m over 7821 samples
+PASS  clear of the terrain on the route (at least 25 m away from the pad): lowest 53.7 m above the ground
+PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.36 m, p95 0.73 m, max 1.2 m over 1040 readings (36 tilted past 35 deg left out); radar ranges at Gazebo time
+PASS  GDN ran alongside (scorer reported): RMS 60-300s: 257.5 m | MAX 60-300s: 788.4 m
+airborne 542 s, 7.8 km

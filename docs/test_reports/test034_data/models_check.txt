@@ -1,4 +1,3 @@
-# python3 tools/check_vehicles.py (dev image: PX4 and Gazebo installed)
 PASS  gdn_payload has the radar altimeter (gpu_lidar on gdn/agl_radar)
 PASS  x500: merges a PX4 model: x500
 PASS  x500: includes gdn_payload once, fixed to base_link: 1 include(s), joint found
@@ -18,8 +17,7 @@ PASS  rc_cessna: no GDN sensors outside the payload
 PASS  rc_cessna: truth on gdn/truth_odom
 PASS  rc_cessna: PX4 airframe 4003_gz_rc_cessna simulates the same model: rc_cessna vs rc_cessna
 PASS  rc_cessna: gz sdf resolves it with the payload, magnetometer and barometer
-exit 0
-# python3 tools/check_vehicles.py --selfcheck
+
 PASS  selfcheck: a good track passes
 PASS  selfcheck: half a route fails
 PASS  selfcheck: 35 m off the route fails
@@ -28,5 +26,6 @@ PASS  selfcheck: 10 m above ground fails
 PASS  selfcheck: cross-track distance
 PASS  selfcheck: VTOL phases found
 PASS  selfcheck: a missing transition fails
+PASS  selfcheck: on the runway or not
+PASS  selfcheck: cessna phases, runway and catapult
 PASS  selfcheck: a fail-safe fails
-exit 0

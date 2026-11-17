@@ -1,10 +1,12 @@
 flight: standard_vtol (vtol) over ch_emmental
 PASS  went through its phases (at cruise height; front transition done; back transition done; over the pad, landing; landed and disarmed)
 PASS  no fail-safe
+PASS  came down on the pad (within 10 m): 0.4 m from it
 PASS  whole route flown (every route point within 60 m): worst 27 m
-PASS  follows the route hovering (cross-track p95 under 15 m): p95 0.7 m, max 0.8 m over 365 samples
-PASS  follows the route as a plane (cross-track p95 under 40 m): p95 6.1 m, max 35.1 m over 8454 samples
-PASS  clear of the terrain (at least 25 m away from the pad): lowest 58.1 m above the ground
-PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.47 m, p95 0.94 m, max 2.5 m over 1182 readings (35 tilted past 35 deg left out); radar ranges at Gazebo time
-PASS  GDN ran alongside (scorer reported): RMS 60-300s: 2097.8 m | MAX 60-300s: 4843.9 m
-airborne 612 s, 7.8 km
+PASS  follows the route hovering (cross-track p95 under 15 m): p95 0.5 m, max 0.6 m over 353 samples
+PASS  follows the route as a plane (cross-track p95 under 40 m): p95 6.1 m, max 34.2 m over 8440 samples
+PASS  clear of the terrain on the route (at least 25 m away from the pad): lowest 58.2 m above the ground
+PASS  clear of the terrain the rest of the time (at least 15 m, away from the pad and the runway): lowest 71.5 m over 98 samples
+PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.49 m, p95 0.97 m, max 2.9 m over 1181 readings (33 tilted past 35 deg left out); radar ranges at Gazebo time
+PASS  GDN ran alongside (scorer reported): RMS 60-300s: 188.6 m | MAX 60-300s: 578.2 m
+airborne 610 s, 7.8 km

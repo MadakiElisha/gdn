@@ -11,10 +11,14 @@
                  topic offboard setpoints arrive on, so in offboard the plane controller
                  sees no valid setpoint, gives no forward thrust, and the VTOL hangs and
                  sinks until PX4 aborts the transition (its quad-chute, 20 m lost).
-  rc_cessna      Takeoff mode with launch detection; this script launches it by asking
-                 Gazebo to push it forward at 4 g until it's at 16 m/s, as a catapult
-                 would. Then the route as a plane, and it circles over the pad (Hold)
-                 for 30 s at the end: no landing, there's no runway.
+  rc_cessna      PX4's runway take-off (Takeoff mode) along the world's runway, the
+                 route as a plane, then a landing mission onto the runway: an approach
+                 point on PX4's 8 degree glide path, from whichever end has more terrain
+                 clearance, and the touchdown point, uploaded over MAVLink (pymavlink;
+                 PX4 lands a plane on a runway only from a mission). --launch catapult:
+                 Takeoff mode with launch detection instead, and this script asks Gazebo
+                 to push it forward at 4 g until it's at 16 m/s, as a catapult would.
+                 A world without a runway: it circles over the pad (Hold) for 30 s.
 As a plane, the setpoint is a point on the route 60 m ahead of the vehicle's place on it,
 with the route's direction as velocity: PX4 then follows the route as a line
 (FixedwingPositionControl's "offboard position with velocity setpoints").
@@ -102,7 +106,12 @@ VTOL_BACK_TRANSITION_M = 350.0 # track left when the VTOL changes back to hover
 CATAPULT_ACCEL = 40.0          # m/s2 of push (PX4 detects a launch at 30)
 CATAPULT_SPEED = 16.0          # m/s at which the push stops
 CATAPULT_MASS = 1.6            # kg, the rc_cessna with the payload
-FW_HOLD_S = 30.0               # fixed-wing circling over the pad at the end
+FW_HOLD_S = 30.0               # fixed-wing circling over the pad at the end (no runway)
+LAND_TOUCHDOWN_M = 50.0        # touchdown this far into the runway
+LAND_APPROACH_M = 600.0        # approach point this far before the touchdown (at least)
+LAND_CLEARANCE_M = 20.0        # terrain at least this far under the glide path
+LAND_TIMEOUT_S = 300.0         # from the landing mission to the disarm
+EARTH_R = 6371000.0            # PX4's MapProjection radius
 FAILSAFE_WAIT_S = 180.0        # after a fail-safe, how long to wait for a disarm
 TAKEOFF_TIMEOUT_S = 180.0      # from start to cruise height (the climb or the launch)
 
@@ -139,6 +148,7 @@ class Flyer(Node):
         for t in ("/fmu/out/vehicle_status_v1", "/fmu/out/vehicle_status"):
             self.create_subscription(VehicleStatus, t, self.on_status, sub_qos)
         self.pos = None
+        self.vel = np.zeros(3)
         self.nav_state = None
         self.armed = False
         self.vehicle_type = None
@@ -158,12 +168,21 @@ class Flyer(Node):
         self.failsafe_k = None
         self.launched = False
         self.hold_until = None
+        self.ref = None                 # PX4's EKF origin (lat, lon, alt AMSL)
+        self.landing_plan = None        # [(north, east, alt above the origin)] approach, touchdown
+        self.landing_uploaded = None    # None: not tried; True/False: the upload's outcome
+        self.landing_started = False
+        if self.kind == "fixedwing" and a.world_info:
+            self.plan_landing(alt.astype(np.float64), hdr, a.world_info)
         self.done = False
         self.create_timer(0.1, self.step)
 
     def on_pos(self, m):
         if m.xy_valid and m.z_valid:
             self.pos = np.array([m.x, m.y, m.z])
+            self.vel = np.array([m.vx, m.vy, m.vz])
+        if self.ref is None and m.xy_global and m.z_global:
+            self.ref = (m.ref_lat, m.ref_lon, m.ref_alt)
 
     def on_status(self, m):
         self.nav_state = m.nav_state
@@ -244,6 +263,10 @@ class Flyer(Node):
             if not self.armed and not self.done:
                 self.done = True
                 self.get_logger().info("landed and disarmed, done")
+            elif (self.kind == "fixedwing" and not self.failsafe and not self.done
+                  and self.k - self.phase_k > LAND_TIMEOUT_S * 10):
+                self.done = True
+                self.get_logger().error(f"not landed {LAND_TIMEOUT_S:.0f} s after starting the landing, done")
             elif self.failsafe and self.k - self.failsafe_k > FAILSAFE_WAIT_S * 10 and not self.done:
                 self.done = True
                 self.get_logger().info(f"still armed {FAILSAFE_WAIT_S:.0f} s after the fail-safe, done")
@@ -305,7 +328,7 @@ class Flyer(Node):
             return
         self.maybe_cut_gps(self.t_flight())
         if self.phase == "to_pad":
-            if np.linalg.norm(err) < 5.0:
+            if self.over_pad(err):
                 self.command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
                 self.set_phase("landing")
                 self.get_logger().info("over the pad, landing")
@@ -316,11 +339,17 @@ class Flyer(Node):
         if np.linalg.norm(err[:2]) < 25.0 and abs(err[2]) < 10.0:
             self.s_along = min(self.s_along + self.speed * 0.1, 10.0 * (len(self.route) - 1))
             self.idx = int(self.s_along / 10.0)
-        if self.idx >= len(self.route) - 1 and np.linalg.norm(err) < 5.0:
+        if self.idx >= len(self.route) - 1 and self.over_pad(err):
             self.command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
             self.set_phase("landing")
             self.get_logger().info("route done, landing")
         self.progress()
+
+    def over_pad(self, err):
+        """Settled over the last route point: PX4's Land mode descends where the vehicle
+        is, so landing while still moving put the x500 10 m off the pad."""
+        return (np.hypot(err[0], err[1]) < 1.5 and abs(err[2]) < 3.0
+                and float(np.linalg.norm(self.vel)) < 0.5)
 
     # --- flight as a plane: the VTOL between its transitions, and the fixed-wing ---
     def fw_setpoint(self):
@@ -346,7 +375,13 @@ class Flyer(Node):
                 self.set_phase("to_mc")
                 self.get_logger().info(f"back transition requested (to hover, in Hold), {self.left[self.idx]:.0f} m "
                                        "of route left")
+        elif self.left[self.idx] < 2 * FW_LEAD * 10.0 and self.landing_uploaded:
+            self.command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1, 4, 4)     # AUTO / MISSION: the landing
+            self.set_phase("landing")
+            self.get_logger().info("route done, landing on the runway (PX4 mission: approach, glide, touchdown)")
         elif self.left[self.idx] < 2 * FW_LEAD * 10.0 and np.linalg.norm(self.route[-1, :2] - self.pos[:2]) < 80.0:
+            if self.landing_plan:
+                self.get_logger().error("the landing mission didn't upload: circling over the pad instead")
             self.command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1, 4, 3)     # AUTO / LOITER: Hold
             self.set_phase("hold")
             self.hold_until = self.k + int(FW_HOLD_S * 10)
@@ -382,24 +417,123 @@ class Flyer(Node):
             self.progress()
 
     def fw_takeoff(self):
-        """Fixed-wing: Takeoff mode with launch detection, launched by a Gazebo push. No
-        setpoints until offboard takes over."""
+        """Fixed-wing: Takeoff mode, from the runway or (--launch catapult) with launch
+        detection and a Gazebo push. No setpoints until offboard takes over."""
         if not self.launched and self.k >= 15 and self.k % 50 == 15:
             if not (self.armed and self.nav_state == VehicleStatus.NAVIGATION_STATE_AUTO_TAKEOFF):
                 self.command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1, 4, 2)     # AUTO / TAKEOFF
                 self.command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1)
                 if self.k == 15:
-                    self.get_logger().info("Takeoff mode + arm requested (PX4 waits for the launch)")
+                    self.get_logger().info("Takeoff mode + arm requested" + (" (PX4 waits for the launch)"
+                                           if self.a.launch == "catapult" else ""))
         if (not self.launched and self.armed and self.nav_state == VehicleStatus.NAVIGATION_STATE_AUTO_TAKEOFF):
             self.launched = True
-            threading.Thread(target=self.catapult, daemon=True).start()
+            if self.a.launch == "catapult":
+                threading.Thread(target=self.catapult, daemon=True).start()
+            else:
+                self.get_logger().info("runway take-off: PX4 rolls down the runway and climbs out")
         top = float(self.v.params.get("MIS_TAKEOFF_ALT", 50.0))
         if self.launched and self.pos is not None and -self.pos[2] >= top - 5.0:
             self.t_takeoff = self.k / 10.0
             self.fw_setpoint()
             self.command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1, 6)
             self.set_phase("route_fw")
+            # The landing goes up now, not before take-off: PX4 sets home when it arms,
+            # and checked a mission uploaded earlier against the previous run's home
+            # (112 km away); that landing then skipped its approach and circled down.
+            if self.landing_plan and self.ref is not None and self.landing_uploaded is None:
+                self.landing_uploaded = False
+                threading.Thread(target=self.upload_landing, daemon=True).start()
             self.get_logger().info(f"climbed out ({-self.pos[2]:.0f} m above pad): offboard, starting the route")
+
+    def plan_landing(self, alt, hdr, world_info):
+        """Approach and touchdown on the world's runway (world_info.txt, from
+        make_sim_world.py), from the end whose approach keeps the terrain furthest under
+        PX4's glide path (FW_LND_ANG 8 degrees on the rc_cessna)."""
+        info = dict(l.split("=", 1) for l in Path(world_info).read_text().splitlines() if "=" in l)
+        rw = sim_vehicles.runway(info)
+        if rw is None:
+            return
+        from gdn_paths import load_map as lm
+        from make_sim_world import sample_map
+        walt, whdr = lm(info.get("world_map", info["map"]))
+        walt = walt.astype(np.float64)
+        base = float(sample_map(walt, whdr, np.array(0.0), np.array(0.0)))
+        h = math.radians(rw["heading"])
+        tan_g = math.tan(math.radians(8.0))
+        best = None
+        for d in (1, -1):                      # land along the heading, or against it
+            along_td = rw["from"] + LAND_TOUCHDOWN_M if d > 0 else rw["to"] - LAND_TOUCHDOWN_M
+            alt_td = rw["grade"] * along_td
+            s = np.arange(150.0, 2000.0, 10.0)                  # distance back from touchdown
+            along = along_td - d * s
+            ground = sample_map(walt, whdr, along * math.sin(h), along * math.cos(h)) - base
+            glide = alt_td + s * tan_g
+            # The approach point: at least LAND_APPROACH_M back, and far enough that the
+            # glide path from it clears all terrain behind it by LAND_CLEARANCE_M.
+            need = np.nonzero(ground + LAND_CLEARANCE_M > glide)[0]
+            app = max(LAND_APPROACH_M, float(s[need[-1]]) + 50.0 if len(need) else 0.0)
+            margin = float(np.min((glide - ground)[s <= app]))
+            if app < 1500.0 and (best is None or margin > best[0]):
+                a_app = along_td - d * app
+                # 3% under the glide path: PX4's mission check rejects a steeper approach.
+                best = (margin, d, [(a_app * math.cos(h), a_app * math.sin(h), alt_td + 0.97 * app * tan_g),
+                                    (along_td * math.cos(h), along_td * math.sin(h), alt_td)])
+        if best is None:
+            self.get_logger().error("no landing approach clears the terrain: the plane will circle instead")
+            return
+        self.landing_plan = best[2]
+        (an, ae, aa), (tn, te, ta) = self.landing_plan
+        self.get_logger().info(f"landing plan: towards {(rw['heading'] if best[1] > 0 else rw['heading'] + 180) % 360:.0f} deg, "
+                               f"approach point {math.hypot(an - tn, ae - te):.0f} m out at {aa:.0f} m, touchdown "
+                               f"{math.hypot(tn, te):.0f} m from the pad; terrain at least {best[0]:.0f} m under the glide path")
+
+    def upload_landing(self):
+        """Upload the landing as a PX4 mission over MAVLink (PX4 SITL's onboard link,
+        UDP 14540): the approach waypoint, then NAV_LAND."""
+        try:
+            from pymavlink import mavutil
+            m = mavutil.mavlink_connection("udpin:0.0.0.0:14540", source_system=245, source_component=190)
+            if m.wait_heartbeat(timeout=30) is None:
+                raise RuntimeError("no MAVLink heartbeat from PX4 on UDP 14540")
+            lat0, lon0, alt0 = self.ref
+
+            def ll(n, e):
+                return (int(round((lat0 + math.degrees(n / EARTH_R)) * 1e7)),
+                        int(round((lon0 + math.degrees(e / (EARTH_R * math.cos(math.radians(lat0))))) * 1e7)))
+            (an, ae, aa), (tn, te, ta) = self.landing_plan
+            mv = mavutil.mavlink
+            nan = float("nan")
+            # No DO_LAND_START: PX4 rejects it in a position frame (MAV_MISSION_UNSUPPORTED),
+            # and switching to Mission starts at the first item anyway.
+            items = [(mv.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, nan, *ll(an, ae), alt0 + aa),
+                     (mv.MAV_CMD_NAV_LAND, 0, 0, 0, nan, *ll(tn, te), alt0 + ta)]
+            m.mav.mission_count_send(m.target_system, m.target_component, len(items), 0)
+            t_end = time.time() + 20.0
+            while time.time() < t_end:
+                r = m.recv_match(type=["MISSION_REQUEST_INT", "MISSION_REQUEST", "MISSION_ACK"], blocking=True, timeout=2)
+                if r is None:
+                    continue
+                if r.get_type() == "MISSION_ACK":
+                    if r.type != mv.MAV_MISSION_ACCEPTED:
+                        raise RuntimeError(f"PX4 rejected the mission (MAV_MISSION_RESULT {r.type})")
+                    # Start at the approach point, whatever PX4 kept from an earlier mission.
+                    m.mav.mission_set_current_send(m.target_system, m.target_component, 0)
+                    texts = []
+                    t_txt = time.time() + 2.0
+                    while time.time() < t_txt:
+                        st = m.recv_match(type="STATUSTEXT", blocking=True, timeout=0.5)
+                        if st is not None:
+                            texts.append(st.text.strip())
+                    self.landing_uploaded = True
+                    self.get_logger().info("landing mission uploaded" + (f" (PX4: {'; '.join(texts)})" if texts else ""))
+                    return
+                cmd, p1, p2, p3, p4, x, y, z = items[r.seq]
+                m.mav.mission_item_int_send(m.target_system, m.target_component, r.seq,
+                                            mv.MAV_FRAME_GLOBAL_INT, cmd, 0, 1, p1, p2, p3, p4, x, y, z, 0)
+            raise RuntimeError("the mission upload timed out")
+        except Exception as e:                     # noqa: BLE001  (reported, then the plane circles)
+            self.get_logger().error(f"landing mission: {e}")
 
     def catapult(self):
         """Push the plane forward at CATAPULT_ACCEL until it's at CATAPULT_SPEED, as a
@@ -460,6 +594,10 @@ def main():
                     help="route speed, m/s (default the vehicle's: x500 10, planes 15)")
     ap.add_argument("--gz-world", default="zermatt", dest="gz_world",
                     help="Gazebo world name (the fixed-wing's catapult pushes through it)")
+    ap.add_argument("--world-info", default=None, dest="world_info",
+                    help="the world's world_info.txt: its runway, for the fixed-wing's landing")
+    ap.add_argument("--launch", choices=("runway", "catapult"), default="runway",
+                    help="fixed-wing take-off: PX4's runway take-off, or a catapult push")
     ap.add_argument("--route-out", default=None, dest="route_out",
                     help="write the planned route here (CSV, local NED, for tools/check_vehicles.py)")
     ap.add_argument("--gps-off-at", type=float, default=None, dest="gps_off_at",

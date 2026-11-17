@@ -41,7 +41,7 @@ def export(out, runs):
         winfo = dict(l.split("=", 1) for l in (Path(info["world_dir"]) / "world_info.txt").read_text().splitlines()
                      if "=" in l)
         tag = f"{info['world']}_{info['vehicle']}"
-        alt, hdr = load_map(winfo["map"])
+        alt, hdr = load_map(winfo.get("world_map", winfo["map"]))
         alt = alt.astype(np.float64)
         z0 = float(winfo["z0_amsl"])
         truth, status, agl, scan = cv.read_truth(d / "sitl_bag")
@@ -69,6 +69,9 @@ def export(out, runs):
             radar_rows.append([info["world"], info["vehicle"], lo, hi, len(sel),
                                f"{np.sqrt(np.mean((sel[:, 0] - sel[:, 3]) ** 2)):.2f}",
                                f"{np.sqrt(np.mean((sel[:, 0] - sel[:, 1]) ** 2)):.2f}"])
+        rwf = out / f"{info['world']}_runway.txt"
+        if "runway_heading" in winfo and not rwf.exists():
+            rwf.write_text("".join(f"{k}={winfo[k]}\n" for k in winfo if k.startswith("runway_")))
         tf = out / f"{info['world']}_terrain.csv"
         if not tf.exists():
             half_e, half_n = float(winfo["size_e"]) / 2, float(winfo["size_n"]) / 2
@@ -105,7 +108,12 @@ def load(d):
             nums = [float(x) for x in head.replace(",", " ").split() if x.lstrip("-").replace(".", "").isdigit()]
             terrain[w] = (np.loadtxt(f, delimiter=",", comments="#"), nums)   # nums: grid, e0, e1, n0, n1
     radar = list(csv.DictReader(open(d / "radar_by_tilt.csv"))) if (d / "radar_by_tilt.csv").exists() else []
-    return runs, terrain, radar
+    runway = {}
+    for w in WORLD:
+        f = d / f"{w}_runway.txt"
+        if f.exists():
+            runway[w] = {k[len("runway_"):]: float(v) for k, v in (l.split("=", 1) for l in f.read_text().split())}
+    return runs, terrain, radar, runway
 
 
 def xtrack(route, e, n):
@@ -118,7 +126,7 @@ def plot(d, out):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.colors import LightSource
-    runs, terrain, radar = load(d)
+    runs, terrain, radar, runway = load(d)
     plt.rcParams.update({"font.size": 9, "axes.edgecolor": GRID, "axes.labelcolor": INK2, "xtick.color": INK2,
                          "ytick.color": INK2, "axes.titlesize": 10, "axes.titleweight": "bold"})
     fig = plt.figure(figsize=(13, 10.2))
@@ -147,6 +155,15 @@ def plot(d, out):
             ok = "check exit 0" in runs[(w, veh)]["check"] or "FAIL" not in runs[(w, veh)]["check"]
             ax.plot(tr["east_m"][air], tr["north_m"][air], color=c, ls=lsy, lw=1.6, zorder=4,
                     label=label + ("" if ok else " (check FAILED)"))
+        if w in runway:
+            r = runway[w]
+            h = np.radians(r["heading"])
+            u = np.array([np.sin(h), np.cos(h)])          # along (east, north)
+            v = np.array([np.cos(h), -np.sin(h)])         # across
+            c = [u * a + v * b for a, b in ((r["from"], -r["width"] / 2), (r["to"], -r["width"] / 2),
+                                           (r["to"], r["width"] / 2), (r["from"], r["width"] / 2))]
+            ax.fill([p[0] for p in c], [p[1] for p in c], color="#ffd23f", ec=INK, lw=0.6, zorder=3.5,
+                    label="runway" if i == 0 else None)
         ax.plot(0, 0, marker="s", ms=7, color="#ffffff", mec=INK, zorder=5)
         ax.annotate("pad", (0, 0), (8, -14), textcoords="offset points", color=INK, fontsize=8)
         span = np.abs(route[:, :2]).max() + 250

@@ -11,6 +11,8 @@
 #                                         # GDN on its GLO-30 map (tools/make_site.py)
 #   GDN_VEHICLE=standard_vtol tools/sim_run.sh   # R2.3: x500 (default), standard_vtol or
 #                                         # rc_cessna (tools/sim_vehicles.py --list)
+#   GDN_VEHICLE=rc_cessna GDN_FW_LAUNCH=catapult tools/sim_run.sh   # the fixed-wing takes
+#                                         # off from the runway unless launched by catapult
 #
 # One-time setup: tools/setup_sim.sh. Logs: $GDN_LOG_DIR (default /tmp/gdn_sim).
 # Ctrl+C stops everything.
@@ -26,7 +28,8 @@ if [ -n "$SITE" ]; then
   MAP="$ROOT/data/maps/${SITE}_truth.bin"
 fi
 VEHICLE="${GDN_VEHICLE:-x500}"
-VEHICLE_SH="$(python3 tools/sim_vehicles.py shell "$VEHICLE")" || exit 1
+LAUNCH="${GDN_FW_LAUNCH:-runway}"
+VEHICLE_SH="$(python3 tools/sim_vehicles.py shell "$VEHICLE" "$LAUNCH")" || exit 1
 eval "$VEHICLE_SH"
 MODEL_INSTANCE="$VEHICLE_INSTANCE"
 LOG="${GDN_LOG_DIR:-/tmp/gdn_sim}"
@@ -52,10 +55,11 @@ elif [ ! -f "$WDIR/$WORLD.sdf" ] || [ "$MAP" -nt "$WDIR/$WORLD.sdf" ] || [ tools
 fi
 winfo() { sed -n "s/^$1=//p" "$WDIR/world_info.txt"; }
 # The world places the x500; this run's copy has the chosen vehicle in its place
-# (a fixed-wing facing its launch heading).
+# (a fixed-wing facing down the runway, or its catapult heading).
 RUN_WORLD="$LOG/$WORLD.sdf"
-python3 tools/sim_vehicles.py world "$VEHICLE" "$WDIR" "$RUN_WORLD" || die "no world for $VEHICLE"
-printf "vehicle=%s\nworld=%s\nworld_dir=%s\nsite=%s\n" "$VEHICLE" "$WORLD" "$WDIR" "$SITE" > "$LOG/run_info.txt"
+python3 tools/sim_vehicles.py world "$VEHICLE" "$WDIR" "$RUN_WORLD" "$LAUNCH" || die "no world for $VEHICLE"
+printf "vehicle=%s\nworld=%s\nworld_dir=%s\nsite=%s\nlaunch=%s\n" "$VEHICLE" "$WORLD" "$WDIR" "$SITE" "$LAUNCH" \
+  > "$LOG/run_info.txt"
 # GDN's own map: on a site, GLO-30, in the world's frame (origin at the pad); otherwise
 # the world's map itself.
 NAV_MAP="$(winfo onboard_map)"; NAV_MAP="${NAV_MAP:-$MAP}"
@@ -244,7 +248,7 @@ grep -h "static alignment" "$LOG/gdn.log" | tail -1 || echo "sim_run: warning, G
 
 echo "sim_run: flying (Ctrl+C to stop early)"
 python3 tools/sim_fly.py --map "$MAP" --px4-dir "$PX4_DIR" --vehicle "$VEHICLE" --gz-world "$WORLD" \
-  --route-out "$LOG/route.csv" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"
+  --world-info "$WDIR/world_info.txt" --launch "$LAUNCH" --route-out "$LOG/route.csv" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"
 sleep 20     # let it land (or circle) and the scorer catch the end
 kill -INT "$(pgrep -f replay_scorer.py)" 2>/dev/null
 kill -INT "$(pgrep -f "ros2 bag record")" 2>/dev/null; sleep 4

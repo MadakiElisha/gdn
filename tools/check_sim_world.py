@@ -49,7 +49,7 @@ def main():
 
     wdir = Path(a.world_dir)
     info = read_info(wdir / "world_info.txt")
-    alt, hdr = load_map(info["map"])
+    alt, hdr = load_map(info.get("world_map", info["map"]))
     alt = alt.astype(np.float64)
     z0 = float(info["z0_amsl"])
     half_e, half_n = 0.40 * float(info["size_e"]), 0.40 * float(info["size_n"])

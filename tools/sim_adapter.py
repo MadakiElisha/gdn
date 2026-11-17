@@ -78,7 +78,7 @@ class SimAdapter(Node):
         info = dict(l.split("=", 1) for l in Path(info_path).read_text().split() if "=" in l)
         self.gz_model = str(self.declare_parameter("gz_model", info.get("model_instance", "x500_gdn_0")).value)
         self.z0_amsl = float(info["z0_amsl"])
-        self.alt, self.hdr = load_map(info["map"])
+        self.alt, self.hdr = load_map(info.get("world_map", info["map"]))
         self.alt = self.alt.astype(np.float64)
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -110,6 +110,7 @@ class SimAdapter(Node):
         self.resid = []
         self.n_scan = self.n_mag = self.n_baro = 0
         self.fallback_warned = False
+        self.t_node = self.now_s()      # the radar gets 5 s to start before the fallback
         self.tpath = PathMsg()
         self.tpath.header.frame_id = "map"
         self.tfb = TransformBroadcaster(self)
@@ -118,7 +119,7 @@ class SimAdapter(Node):
             threading.Thread(target=self.gz_follow, daemon=True).start()
         self.create_timer(0.5, self.tick)
         self.create_timer(10.0, self.report)
-        self.get_logger().info(f"sim adapter: map {info['map']}, world z=0 at {self.z0_amsl:.1f} m AMSL, "
+        self.get_logger().info(f"sim adapter: map {info.get('world_map', info['map'])}, world z=0 at {self.z0_amsl:.1f} m AMSL, "
                                f"agl_source={self.agl_source}")
 
     # --- helpers -------------------------------------------------------------
@@ -261,7 +262,9 @@ class SimAdapter(Node):
         if self.truth is None:
             return
         use_truth = self.agl_source == "truth"
-        if self.agl_source == "auto" and (self.last_scan_t is None or self.now_s() - self.last_scan_t > 3.0):
+        no_radar = (self.now_s() - self.t_node > 5.0 if self.last_scan_t is None
+                    else self.now_s() - self.last_scan_t > 3.0)
+        if self.agl_source == "auto" and no_radar:
             use_truth = True
             if not self.fallback_warned:
                 self.get_logger().warn("no radar altimeter data (GPU rendering off?): AGL now comes from the "
