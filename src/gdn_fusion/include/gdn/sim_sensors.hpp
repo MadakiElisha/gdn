@@ -54,7 +54,9 @@ public:
         if (t <= t0_) return;
         // Sample times from an integer count of periods (or ticks), not a running sum, so
         // rounding doesn't build up over a flight.
-        for (double next = Next(); next <= t; next = Next()) {
+        while (true) {
+            const double next = Next();
+            if (next > t) break;
             const double f = (next - t0_) / (t - t0_);
             deliver(next, V3(a0_ + f * (a - a0_)), V3(w0_ + f * (w - w0_)));
             n_ += tick_ > 0.0 && u_(rng_) < skip_ ? 2 : 1;

@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <queue>
@@ -36,6 +37,13 @@ namespace {
 constexpr double kG = 9.80665;
 
 double Sec(const builtin_interfaces::msg::Time& t) { return t.sec + t.nanosec * 1e-9; }
+
+// "sim_sensors: " followed by the parts, for a configuration error.
+[[noreturn]] void ConfigError(std::initializer_list<std::string> parts) {
+    std::string msg = "sim_sensors: ";
+    for (const auto& s : parts) msg += s;
+    throw std::runtime_error(msg);
+}
 
 builtin_interfaces::msg::Time ToMsg(double s) {
     builtin_interfaces::msg::Time t;
@@ -66,7 +74,7 @@ public:
             else if (kind == "range")
                 AddRange(n);
             else
-                throw std::runtime_error("sim_sensors: " + n + ": unknown kind '" + kind + "'");
+                ConfigError({n, ": unknown kind '", kind, "'"});
         }
         timer_ = create_wall_timer(std::chrono::microseconds(500), [this] { Flush(); });
         report_ = create_wall_timer(std::chrono::seconds(10), [this] { Report(); });
@@ -76,8 +84,7 @@ private:
     gdn::simsens::Timing ReadTiming(const std::string& n) {
         gdn::simsens::Timing t;
         const std::string st = declare_parameter<std::string>(n + ".stamp");
-        if (st != "sensor" && st != "arrival")
-            throw std::runtime_error("sim_sensors: " + n + ".stamp is sensor or arrival");
+        if (st != "sensor" && st != "arrival") ConfigError({n, ".stamp is sensor or arrival"});
         t.arrival_stamp = st == "arrival";
         t.latency = declare_parameter<double>(n + ".latency_ms") * 1e-3;
         t.latency_jitter = declare_parameter<double>(n + ".latency_jitter_ms") * 1e-3;
@@ -107,12 +114,11 @@ private:
         const double tick = declare_parameter<double>(n + ".tick_hz");
         const double skip = declare_parameter<double>(n + ".skip_prob");
         const auto seed = static_cast<uint64_t>(declare_parameter<int>(n + ".seed"));
-        if (rate <= 0.0 && tick <= 0.0)
-            throw std::runtime_error("sim_sensors: " + n + ": rate_hz or tick_hz must be > 0");
+        if (rate <= 0.0 && tick <= 0.0) ConfigError({n, ": rate_hz or tick_hz must be > 0"});
         gdn::ImuNoiseModel m;
         std::string err;
         const std::string path = declare_parameter<std::string>(n + ".model");
-        if (!gdn::LoadImuModel(gdn::DataPath(path), &m, &err)) throw std::runtime_error("sim_sensors: " + err);
+        if (!gdn::LoadImuModel(gdn::DataPath(path), &m, &err)) ConfigError({err});
         s->resample = std::make_unique<gdn::simsens::Resampler>(rate, tick, skip, seed);
         s->err = std::make_unique<gdn::ImuErrorSim>(m, seed + 1000);
         s->timing = std::make_unique<gdn::simsens::TimingModel>(ReadTiming(n), seed + 2000);
@@ -121,7 +127,7 @@ private:
         Imu* p = s.get();
         s->sub = create_subscription<sensor_msgs::msg::Imu>(
             declare_parameter<std::string>(n + ".raw_topic"), rclcpp::SensorDataQoS().keep_last(200),
-            [this, p](sensor_msgs::msg::Imu::ConstSharedPtr msg) { OnImu(p, *msg); });
+            [this, p](const sensor_msgs::msg::Imu::ConstSharedPtr& msg) { OnImu(p, *msg); });
         RCLCPP_INFO(get_logger(), "%s: %s (%s), model %s, %s", n.c_str(), topic.c_str(), s->frame.c_str(),
                     m.name.c_str(),
                     tick > 0 ? ("tick " + std::to_string(tick) + " Hz, skip " + std::to_string(skip)).c_str()
@@ -191,7 +197,7 @@ private:
         Range* p = s.get();
         s->sub = create_subscription<sensor_msgs::msg::LaserScan>(
             declare_parameter<std::string>(n + ".raw_topic"), rclcpp::SensorDataQoS().keep_last(100),
-            [this, p](sensor_msgs::msg::LaserScan::ConstSharedPtr msg) { OnScan(p, *msg); });
+            [this, p](const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg) { OnScan(p, *msg); });
         RCLCPP_INFO(get_logger(), "%s: %s (%s), %.0f Hz, %.2f to %.1f m", n.c_str(), topic.c_str(), s->frame.c_str(),
                     s->rate, s->spec.min_range, s->spec.max_range);
         ranges_.push_back(std::move(s));

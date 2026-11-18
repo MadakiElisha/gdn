@@ -1305,7 +1305,7 @@ int main() {
             const double n = (tt[i] - tt[i - 1]) * 394.5;
             steps_ok &= std::abs(n - 1.0) < 1e-6 || std::abs(n - 2.0) < 1e-6;
         }
-        const double rate = (tt.size() - 1) / (tt.back() - tt.front());
+        const double rate = static_cast<double>(tt.size() - 1) / (tt.back() - tt.front());
         std::printf("      OAK-D tick clock: %.1f Hz\n", rate);
         CHECK(steps_ok && std::abs(rate - 239.1) < 3.0, "sim: TEST-035 OAK-D tick clock skips ticks, 239 Hz");
         // Timing: arrival stamps carry the latency; sensor stamps carry the jitter; in order; losses.
