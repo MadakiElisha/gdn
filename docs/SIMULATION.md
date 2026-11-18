@@ -17,20 +17,24 @@ vehicle is an x500 quadcopter by default, or a standard VTOL or a fixed-wing (R2
 ```
  Gazebo Harmonic  ──IMU, baro, mag, GPS──►  PX4 v1.16 SITL  ──uXRCE-DDS──►  /fmu/out/*  ──►  GDN eskf_node
    vehicle model                             (flies the                     sensor_combined,      (shadow mode,
-   + GDN payload (radar altimeter)            route, offboard)              attitude, local pos    no GPS input)
-   + truth odometry                                                                                   │
+   + GDN payload (radar altimeter,            route, offboard)              attitude, local pos    no GPS input)
+     IMUs, TFmini-S, truth)                                                                           │
         │                                                                                             ▼
-        └──ros_gz_bridge──► sim_adapter.py ──► /gdn/agl_meas, /gdn/baro_meas, /gdn/mag_meas ──────────┘
-                                         └──► /gdn/truth, /gdn/truth_path ──► replay_scorer, RViz
+        ├─ros_gz_bridge──► sim_adapter.py ──► /gdn/agl_meas, /gdn/baro_meas, /gdn/mag_meas ──────────┘
+        │                                └──► /gdn/truth, /gdn/truth_path ──► replay_scorer, RViz
+        └─ros_gz_bridge──► sim_sensors ──► /imu/data, /livox/imu, /oak/imu/data, /tfmini/range
+                                           (as the real drivers publish them; not used by GDN yet)
 ```
 
 - **World:** `tools/make_sim_world.py` builds it straight from GDN's map file, so terrain
   and map share one geometry. The heightmap is oversampled 4x, so Gazebo's
   triangulated surface stays close to the map's bilinear one.
 - **Vehicle:** `sim/models/x500_gdn` (default), `standard_vtol_gdn` or `rc_cessna_gdn`:
-  PX4's own model with the GDN payload (`sim/models/gdn_payload`, a downward radar
-  altimeter: 1-beam lidar, 0.2 to 1500 m, 20 Hz, 0.3 m noise) included and fixed under
-  the body, plus a truth-pose publisher. The truth is used for scoring only.
+  PX4's own model with the GDN payload (`sim/models/gdn_payload`) included and fixed
+  under the body. The payload holds a downward radar altimeter (1-beam lidar, 0.2 to
+  1500 m, 20 Hz, 0.3 m noise), three IMUs and a TFmini-S (see "Simulated sensors"),
+  and the truth publisher: the payload frame's true pose, used for scoring and checks
+  only.
 - **Adapter:** `tools/sim_adapter.py` turns raw Gazebo sensors into GDN's inputs. It
   removes tilt from the altimeter using PX4's attitude, converts pressure to height,
   and converts the magnetometer to body FRD in microtesla. Every 10 s it also logs
@@ -140,6 +144,7 @@ Everything is logged to `/tmp/gdn_sim/`:
 | `adapter.log` | `field in NED ...` every 10 s should stay constant. `radar AGL minus map-predicted AGL: mean ..., rms ...` every 10 s. About 0.3 m while level (hover, the pad) means the rendered terrain matches the map; in cruise over slopes it's metres, from the tilt (OI-016). If it says `no radar altimeter data`, GPU rendering isn't working, and AGL falls back to the map at the true position. |
 | `scorer.log` | horizontal error every 20 s, and the summary |
 | `fly.log` | route progress; on Stage B, the GPS cut, PX4 taking it, and PX4 leaving offboard |
+| `sensors.log` | the simulated sensors (R2.4): each one's rate and lost messages every 10 s |
 | `px4.log`, `gz.log`, `agent.log`, `bridge.log` | if something doesn't start |
 
 Useful variations:
@@ -230,8 +235,7 @@ python3 tools/plot_sites.py --out sites.png   # one overview image of all five
 
 Three vehicles, one payload. Each is PX4's own Gazebo model and airframe, with the GDN
 payload included through an SDF `<include>` and fixed to its body. Sensors are added to
-`sim/models/gdn_payload` once and every vehicle carries them (R2.4 adds the Mid-360S,
-TFmini-S and OAK-D Lite there). `tools/sim_vehicles.py` holds the table: model, PX4
+`sim/models/gdn_payload` once and every vehicle carries them (see "Simulated sensors"). `tools/sim_vehicles.py` holds the table: model, PX4
 airframe, PX4 settings and how the vehicle flies.
 
 | `GDN_VEHICLE` | Model | PX4 airframe | How it flies the route |
@@ -311,6 +315,61 @@ python3 tools/check_vehicles.py --run /tmp/gdn_sim # judge a flight (phases, rou
   altimeter input is metres off: 6 to 9.5 m RMS on the x500, which cruises tilted, and
   2 to 5 m on the planes (OI-016, TEST-034). `check_vehicles.py` checks the radar along
   its beam, where it matches the terrain to 0.4 to 0.7 m.
+
+## Simulated sensors (R2.4)
+
+The payload carries GDN's sensors, and `sim_sensors` (gdn_fusion; settings in
+`config/sim/sensors.yaml`) publishes each the way its real driver does: the same topic,
+message type, frame, units and rate, with the sensor's errors and timing. GDN doesn't
+read them yet; LIO, VIO and the rangefinder come in Phases 3 and 4. R2.4 comes in three
+parts: R2.4a the IMUs and the TFmini-S (now), R2.4b the OAK-D Lite's cameras, R2.4c the
+Mid-360S lidar.
+
+| Sensor | Topic | Type, frame | Rate | Errors | Timing |
+|---|---|---|---|---|---|
+| H30WP | `/imu/data` | `sensor_msgs/Imu`, `imu_link` | 200 Hz, even | R1.6 model (`config/imu/h30wp.yaml`) | stamped on arrival, as `tools/h30wp_node.py` does (no sample time in the factory output); 3 ms latency |
+| Mid-360S IMU | `/livox/imu` | `sensor_msgs/Imu`, `livox_frame`; acceleration in g | 200 Hz | R1.6 model (`mid360s.yaml`) | stamp jitter 0.53 ms (the 15% spacing spread TEST-025 measured); 1 ms latency |
+| OAK-D Lite IMU | `/oak/imu/data` | `sensor_msgs/Imu`, `oak_imu_frame` | about 239 Hz: 394.5 Hz ticks, 65% of steps skip one (TEST-025) | R1.6 model (`oakd_lite.yaml`) | device stamps; 4 ms latency |
+| TFmini-S | `/tfmini/range` | `sensor_msgs/Range`, `tfmini_link`; infrared, 0.1 to 12 m, 2° | 100 Hz | 3 cm sigma to 6 m, 0.5% of the range beyond; 1 cm steps; +inf beyond 12 m, -inf under 0.1 m | stamped on arrival; 5 ms latency; 0.2% lost |
+
+```bash
+python3 tools/check_sim_sensors.py                  # the payload and config/sim/sensors.yaml
+python3 tools/check_sim_sensors.py --run /tmp/gdn_sim   # judge a run against the real sensors
+```
+
+- **How it works.** The payload's Gazebo sensors are error-free, at the physics rate
+  (IMUs 250 Hz). `sim_sensors`:
+  - **puts each IMU on its own clock**, interpolating between Gazebo's samples: an even
+    200 Hz, or the OAK-D Lite's tick clock with skipped ticks;
+  - **adds each IMU's R1.6 errors** with `gdn::ImuErrorSim`, the code the Monte Carlo
+    uses (white noise, bias drift, a turn-on bias per run);
+  - **converts units and frames** as the driver does (the Mid-360S in g);
+  - **for every message,** draws a latency, a stamp (the sample time plus jitter, or
+    the arrival time) and whether it's lost, and publishes it when it would arrive.
+- **Which numbers are measured.** The IMU rates, the Mid-360S's stamp jitter and the
+  OAK-D Lite's skip pattern come from the bench logs (TEST-024, TEST-025), the IMU
+  errors from R1.6. Every latency, and the TFmini-S's noise and dropouts (from its
+  datasheet), are placeholders until Phase 6 measures them on the vehicle.
+- **The clock.** Gazebo stamps in simulation time. `sim_sensors` maps that to wall time
+  like a driver's clock: the smallest delay the bridge shows over 2 s, smoothed, plus
+  5 ms of headroom, the same for every sensor. So the sensors are consistent with each
+  other.
+- **Mounts are placeholders** until the vehicle profiles (R2.5) hold the real
+  extrinsics:
+  - the H30WP level at the payload origin;
+  - the Mid-360S upside down (so the lidar's -7 to 52° field of view looks at the
+    ground);
+  - the OAK-D Lite forward, pitched 30° down;
+  - the TFmini-S pointing down.
+- **Not simulated yet:**
+  - the H30WP's own orientation estimate (the `orientation` field is marked empty, as
+    for a driver without one);
+  - its magnetometer and temperature (`/imu/mag`, `/imu/temperature`);
+  - the TFmini-S's shorter range on dark ground (about 7 m): Gazebo has no reflectivity.
+- **`check_sim_sensors.py --run`** judges each sensor against the real one: topic,
+  type, frame, rate, measured spacing spread, gravity in the right units at rest,
+  white noise against its model, the configured timing, and the TFmini-S against the
+  true range.
 
 ## Current result (read this before judging the red line)
 
@@ -460,8 +519,9 @@ flight path (`radar AGL minus map-predicted AGL`).
   latch (R1.2).
 - **The terrain has no photo texture yet.** That matters once the OAK-D Lite cameras are
   simulated for VIO (R2.2, R2.4).
-- **Only the radar altimeter is simulated so far.** The Mid-360S, TFmini-S and OAK-D
-  Lite come next (R2.4), in the payload every vehicle carries.
+- **The lidar and cameras aren't simulated yet.** The payload has the radar altimeter,
+  three IMUs and the TFmini-S (R2.4a); the OAK-D Lite's cameras (R2.4b) and the
+  Mid-360S (R2.4c) come next. GDN doesn't read the R2.4 sensors yet.
 - **GDN itself is still tuned for the multirotor.** On the planes it runs in shadow
   mode like on the x500, with the same settings; per-airframe profiles are R2.5.
 - **GDN's altimeter input assumes flat ground under a tilted vehicle** (OI-016): metres

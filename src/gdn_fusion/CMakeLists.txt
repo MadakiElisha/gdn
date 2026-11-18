@@ -73,6 +73,12 @@ target_link_libraries(gdn_selftest Eigen3::Eigen)
 target_include_directories(gdn_selftest PRIVATE include)
 
 
+# Simulated sensors: the payload's Gazebo sensors as the real drivers publish them (R2.4a)
+add_executable(sim_sensors src/sim_sensors_node.cpp)
+ament_target_dependencies(sim_sensors rclcpp sensor_msgs)
+target_link_libraries(sim_sensors Eigen3::Eigen)
+target_include_directories(sim_sensors PRIVATE include)
+
 add_executable(map_viz_node src/map_viz_node.cpp)
 ament_target_dependencies(map_viz_node rclcpp visualization_msgs nav_msgs geometry_msgs std_msgs sensor_msgs)
 target_link_libraries(map_viz_node Eigen3::Eigen)
@@ -82,7 +88,7 @@ install(TARGETS eskf_node_component
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
-install(TARGETS eskf_node gdn_replay gdn_selftest mc_campaign imu_sim map_viz_node
+install(TARGETS eskf_node gdn_replay gdn_selftest mc_campaign imu_sim map_viz_node sim_sensors
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 
 # `colcon test --packages-select gdn_fusion` runs the ROS-free selftest.

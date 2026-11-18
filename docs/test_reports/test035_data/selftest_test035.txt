@@ -1,0 +1,10 @@
+PASS  sim: TEST-035 IMU resampled onto an even 200 Hz clock, exactly, from 250 Hz
+      OAK-D tick clock: 238.6 Hz
+PASS  sim: TEST-035 OAK-D tick clock skips ticks, 239 Hz
+      timing: latency 2.99 ms, sensor stamp sigma 0.527 ms, lost 1.97%
+PASS  sim: TEST-035 timing: latency, stamp jitter, order and losses as set
+      TFmini-S sigma: 0.0302 m at 2 m, 0.0505 m at 10 m
+PASS  sim: TEST-035 TFmini-S range: limits, noise by range, 1 cm steps
+      clock map offset over the floor: 0.005 ms
+PASS  sim: TEST-035 clock map finds the transport delay's floor
+ALL TESTS PASSED

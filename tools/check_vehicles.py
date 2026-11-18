@@ -7,7 +7,8 @@
 
 The models, for every vehicle in tools/sim_vehicles.py:
   - sim/models/<model>/model.sdf merges PX4's own model, includes model://gdn_payload
-    exactly once and fixes it to base_link, and publishes truth on gdn/truth_odom;
+    exactly once and fixes it to base_link, with no truth publisher of its own (the
+    payload publishes the truth, gdn/truth_odom: the payload frame);
   - no vehicle carries GDN sensors of its own: they all come from the payload;
   - PX4's airframe file exists and simulates the same PX4 model (if PX4 is installed:
     $PX4_DIR, default ~/PX4-Autopilot-1.16, or /opt/PX4-Autopilot in the dev image);
@@ -83,6 +84,8 @@ def check_models():
     payload = (ROOT / "sim/models/gdn_payload/model.sdf").read_text()
     ok &= ck('<topic>gdn/agl_radar</topic>' in payload and 'type="gpu_lidar"' in payload,
              "gdn_payload has the radar altimeter (gpu_lidar on gdn/agl_radar)")
+    ok &= ck("<odom_topic>gdn/truth_odom</odom_topic>" in payload,
+             "gdn_payload publishes the truth (gdn/truth_odom, the payload frame)")
     px4 = px4_dir()
     gz = shutil.which("gz")
     for name, v in sim_vehicles.VEHICLES.items():
@@ -101,7 +104,7 @@ def check_models():
         ok &= ck(n_payload == 1 and joint is not None, f"{name}: includes gdn_payload once, fixed to base_link",
                  f"{n_payload} include(s), joint {'found' if joint else 'missing'}")
         ok &= ck(not own, f"{name}: no GDN sensors outside the payload", ", ".join(own) if own else "")
-        ok &= ck("<odom_topic>gdn/truth_odom</odom_topic>" in sdf_nc, f"{name}: truth on gdn/truth_odom")
+        ok &= ck("<odom_topic>" not in sdf_nc, f"{name}: no truth publisher of its own (the payload's is the truth)")
         if px4 is not None:
             af = px4 / "ROMFS/px4fmu_common/init.d-posix/airframes" / v.airframe
             m = re.search(r"PX4_SIM_MODEL:=(\w+)", af.read_text()) if af.exists() else None
@@ -233,20 +236,29 @@ def read_truth(bag):
     return np.array(truth), np.array(status), np.array(agl).reshape(-1, 2), np.array(scan).reshape(-1, 2)
 
 
-def cast(alt, hdr, z0, x, y, z, q):
+def cast(alt, hdr, z0, x, y, z, q, min_height=5.0):
     """Range from (x, y, z) (world ENU) along body down at attitude q (w, x, y, z) to the
-    map's terrain, the tilt in degrees and the height straight above the ground."""
+    map's terrain, the tilt in degrees and the height straight above the ground; None
+    under min_height or tilted past 72 degrees. The crossing is found in 0.25 m steps,
+    then to a millimetre by bisection (the TFmini-S's noise is 3 cm)."""
     from make_sim_world import sample_map
     qw, qx, qy, qz = q
     down = -np.array([2 * (qx * qz + qw * qy), 2 * (qy * qz - qw * qx), 1 - 2 * (qx * qx + qy * qy)])
     nadir = z - (float(sample_map(alt, hdr, np.array(x), np.array(y))) - z0)
-    if nadir < 5.0 or down[2] > -0.3:
+    if nadir < min_height or nadir <= 0.0 or down[2] > -0.3:
         return None
     s = np.arange(0.0, 3.0 * (nadir + 50.0) / -down[2], 0.25)
     hit = np.nonzero(z + s * down[2] <= sample_map(alt, hdr, x + s * down[0], y + s * down[1]) - z0)[0]
     if not len(hit):
         return None
-    return s[hit[0]], math.degrees(math.acos(-down[2])), nadir
+    lo, hi = (s[hit[0] - 1] if hit[0] > 0 else 0.0), s[hit[0]]
+
+    def above(t):
+        return z + t * down[2] > float(sample_map(alt, hdr, np.array(x + t * down[0]), np.array(y + t * down[1]))) - z0
+    for _ in range(10):
+        mid = 0.5 * (lo + hi)
+        lo, hi = (mid, hi) if above(mid) else (lo, mid)
+    return 0.5 * (lo + hi), math.degrees(math.acos(-down[2])), nadir
 
 
 def beam_scan(truth, scan, alt, hdr, z0, every=10):

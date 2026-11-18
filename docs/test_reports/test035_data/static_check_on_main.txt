@@ -1,0 +1,15 @@
+# python3 tools/check_sim_sensors.py against main (before R2.4a): the payload has no IMUs or TFmini-S
+PASS  h30wp: publishes the real topic and frame: /imu/data (imu_link)
+FAIL  h30wp: an error-free Gazebo sensor in gdn_payload: no sensor on gdn/imu/h30wp
+PASS  h30wp: its R1.6 model: config/imu/h30wp.yaml
+PASS  h30wp: acceleration units: m/s^2
+PASS  mid360s_imu: publishes the real topic and frame: /livox/imu (livox_frame)
+FAIL  mid360s_imu: an error-free Gazebo sensor in gdn_payload: no sensor on gdn/imu/mid360s
+PASS  mid360s_imu: its R1.6 model: config/imu/mid360s.yaml
+PASS  mid360s_imu: acceleration units: g
+PASS  oakd_imu: publishes the real topic and frame: /oak/imu/data (oak_imu_frame)
+FAIL  oakd_imu: an error-free Gazebo sensor in gdn_payload: no sensor on gdn/imu/oakd
+PASS  oakd_imu: its R1.6 model: config/imu/oakd_lite.yaml
+PASS  oakd_imu: acceleration units: m/s^2
+PASS  tfmini: publishes the real topic and frame: /tfmini/range (tfmini_link)
+FAIL  tfmini: an error-free Gazebo sensor in gdn_payload: no sensor on gdn/tfmini
