@@ -21,14 +21,24 @@
 #   seed           random seed (errors, timing)
 # Range (TFmini-S): min_range, max_range (m), fov_deg, resolution (m), and the noise
 #   sigma: noise_near_m below near_limit_m, noise_far_frac times the range beyond.
+# Stereo (R2.4b, the OAK-D Lite's mono pair): per side (left_, right_) raw_topic, topic,
+#   info_topic and frame_id; width, height (pixels), hfov_deg and baseline_m, which must
+#   match the payload's two Gazebo cameras (tools/check_sim_sensors.py checks); rate_hz,
+#   the cameras' update_rate there (the images aren't resampled: each carries the time
+#   Gazebo rendered it); auto_exposure [target, tau_s, gain_min, gain_max]: Gazebo renders
+#   linear light at 16 bits, and one gain for the pair brings its mean to target (0.18,
+#   mid-grey) with time constant tau_s before the 8-bit sRGB encoding; noise_dn, read
+#   noise sigma in grey levels, on the 8-bit image. One timing draw per pair: both
+#   images get the same stamp and are lost together.
 #
+# The cameras' latency, losses and read noise are placeholders too (R6.3 measures them).
 # Measured: the IMU rates, the Mid-360S's stamp jitter and the OAK-D Lite's tick and
 # skip pattern (TEST-024, TEST-025), the IMU error models (R1.6). Placeholders until
 # Phase 6 measures them: every latency, the TFmini-S's dropouts and noise (from its
 # datasheet: +-6 cm to 6 m, +-1% to 12 m, read as 2 sigma).
 gdn_sim_sensors:
   ros__parameters:
-    sensors: [h30wp, mid360s_imu, oakd_imu, tfmini]
+    sensors: [h30wp, mid360s_imu, oakd_imu, tfmini, oakd_stereo]
 
     h30wp:
       kind: imu
@@ -100,3 +110,29 @@ gdn_sim_sensors:
       stamp_jitter_ms: 0.0
       drop_prob: 0.002        # placeholder
       seed: 14
+
+    oakd_stereo:
+      kind: stereo
+      # depthai_ros_driver_v3 names (its URDF: <camera>_left_camera_optical_frame); the
+      # simulated images are distortion-free, so raw is already rectified
+      left_raw_topic: /gdn/sim/raw/oak_left
+      left_topic: /oak/left/image_raw
+      left_info_topic: /oak/left/camera_info
+      left_frame_id: oak_left_camera_optical_frame
+      right_raw_topic: /gdn/sim/raw/oak_right
+      right_topic: /oak/right/image_raw
+      right_info_topic: /oak/right/camera_info
+      right_frame_id: oak_right_camera_optical_frame
+      width: 640              # OV7251: 640 x 480, global shutter, mono
+      height: 480
+      hfov_deg: 73.0          # Luxonis: 73 x 58 degrees
+      baseline_m: 0.075       # Luxonis; our unit's calibration says 7.50 cm (tools/oak_check.py)
+      rate_hz: 30.0           # R6.2's VIO setup: 30 Hz or more (depthai-ros's vio.yaml runs 60)
+      auto_exposure: [0.18, 0.2, 0.25, 16.0]   # placeholder: mid-grey, 0.2 s, gain 0.25 to 16
+      noise_dn: 2.0           # placeholder: OV7251 read noise in good light, grey levels
+      stamp: sensor           # device time, synced to the host (R6.3)
+      latency_ms: 25.0        # placeholder: exposure, readout and USB to the driver
+      latency_jitter_ms: 3.0  # placeholder
+      stamp_jitter_ms: 0.0
+      drop_prob: 0.002        # placeholder, per pair
+      seed: 15

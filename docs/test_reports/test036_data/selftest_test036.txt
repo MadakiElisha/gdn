@@ -1,0 +1,11 @@
+      OAK-D tick clock: 238.6 Hz
+      clock: offset 0.0035 s, 5 ms of simulation is 5.000000 ms of stamps
+PASS  sim: TEST-035 clock: stamps keep Gazebo's seconds at 0.92 real time; now within one step
+      pinhole: fx 432.46, cx 319.5, cy 239.5, vertical FOV 58.06 deg
+PASS  sim: TEST-036 camera intrinsics from the field of view (edges at -0.5 and 639.5, 58 deg vertical)
+      image noise: sigma 2.021, mean 0.0030, image-to-image correlation 0.0007
+PASS  sim: TEST-036 camera read noise: sigma as set, zero mean, new every image, clipped to 0..255
+      auto-exposure: gain 2.00, after 0.2 s twice as dark 3.10 (63% of the way)
+PASS  sim: TEST-036 auto-exposure: settled at start, time constant, gain range
+      tone map at gain 2: 0 118 255 255
+PASS  sim: TEST-036 tone map: linear times gain, sRGB-encoded to 8 bits, clipped

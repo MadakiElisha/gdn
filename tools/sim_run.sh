@@ -13,6 +13,9 @@
 #                                         # rc_cessna (tools/sim_vehicles.py --list)
 #   GDN_VEHICLE=rc_cessna GDN_FW_LAUNCH=catapult tools/sim_run.sh   # the fixed-wing takes
 #                                         # off from the runway unless launched by catapult
+#   GDN_BAG_IMAGES=1 tools/sim_run.sh     # R2.4b: record the OAK-D Lite's images too, in
+#                                         # $LOG/image_bag (about 18 MB/s; by default only
+#                                         # their camera_info, in sitl_bag)
 #
 # One-time setup: tools/setup_sim.sh. Logs: $GDN_LOG_DIR (default /tmp/gdn_sim).
 # Ctrl+C stops everything.
@@ -75,13 +78,14 @@ PIDS=()
 # and keeps redrawing the old path in RViz.
 SIM_PROCS=("px4_sitl_default/bin/px4" "gz sim" "MicroXRCEAgent" "ros_gz_bridge/parameter_bridge" "gdn_fusion/sim_sensors"
            "tools/sim_adapter.py" "tools/replay_scorer.py" "tools/sim_fly.py" "gdn_fusion/map_viz_node"
-           "rviz2 -d $ROOT/sim/gdn_sim.rviz" "ros2 bag record -s mcap -o $LOG/sitl_bag")
+           "rviz2 -d $ROOT/sim/gdn_sim.rviz" "ros2 bag record -s mcap -o $LOG/sitl_bag"
+           "ros2 bag record -s mcap -o $LOG/image_bag")
 stop_sim() {
   # GDN first, with SIGINT (its clean shutdown), so its run log (R1.11) is closed and
   # indexed; after a hard kill it needs "ros2 bag reindex". Up to 15 s.
   pkill -INT -f "gdn_fusion/eskf_node" 2>/dev/null
   for _ in $(seq 1 30); do pgrep -f "gdn_fusion/eskf_node" >/dev/null || break; sleep 0.5; done
-  pkill -INT -f "ros2 bag record -s mcap -o $LOG/sitl_bag" 2>/dev/null   # closes the bag
+  pkill -INT -f "ros2 bag record -s mcap -o $LOG/(sitl|image)_bag" 2>/dev/null   # closes the bags
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
   for n in "${SIM_PROCS[@]}"; do pkill -f "$n" 2>/dev/null; done
   sleep 1
@@ -192,8 +196,9 @@ cat > "$LOG/bridge.yaml" <<YAML
   gz_type_name: gz.msgs.Odometry
   direction: GZ_TO_ROS
 YAML
-# The payload's error-free sensors for tools/sim_sensors (R2.4a), which publishes them
-# as the real drivers do: /imu/data, /livox/imu, /oak/imu/data, /tfmini/range.
+# The payload's error-free sensors for tools/sim_sensors (R2.4a, R2.4b), which publishes
+# them as the real drivers do: /imu/data, /livox/imu, /oak/imu/data, /tfmini/range and
+# the OAK-D Lite's /oak/left and /oak/right images.
 for s in h30wp mid360s oakd; do
   cat >> "$LOG/bridge.yaml" <<YAML
 - ros_topic_name: /gdn/sim/raw/imu_$s
@@ -210,6 +215,15 @@ cat >> "$LOG/bridge.yaml" <<YAML
   gz_type_name: gz.msgs.LaserScan
   direction: GZ_TO_ROS
 YAML
+for s in left right; do
+  cat >> "$LOG/bridge.yaml" <<YAML
+- ros_topic_name: /gdn/sim/raw/oak_$s
+  gz_topic_name: /gdn/oak/$s
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+YAML
+done
 ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:="$LOG/bridge.yaml" > "$LOG/bridge.log" 2>&1 & PIDS+=($!)
 ros2 run gdn_fusion sim_sensors --ros-args --params-file "$ROOT/config/sim/sensors.yaml" \
   > "$LOG/sensors.log" 2>&1 & PIDS+=($!)
@@ -242,12 +256,21 @@ python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & PIDS+=($!)
 # Record everything GDN sees plus truth, so any run can be replayed offline through
 # eskf_node with different settings (ros2 bag play $LOG/sitl_bag). The raw radar scan
 # too: it and the truth carry Gazebo's time, so tools/check_vehicles.py can compare
-# them at the same instant.
-rm -rf "$LOG/sitl_bag"
+# them at the same instant. The OAK-D Lite's camera_info always (each marks an image's
+# stamp and arrival), and Gazebo's raw H30WP (250 Hz, Gazebo stamps: the reference
+# check_sim_sensors.py turns receive times into Gazebo time with). Its images, with
+# GDN_BAG_IMAGES=1, go to a bag of their own
+# ($LOG/image_bag): in the same recorder, 18 MB/s held every topic up by about 0.3 s.
+rm -rf "$LOG/sitl_bag" "$LOG/image_bag"
+if [ -n "${GDN_BAG_IMAGES:-}" ]; then
+  ros2 bag record -s mcap -o "$LOG/image_bag" /oak/left/image_raw /oak/right/image_raw \
+    > "$LOG/image_bag.log" 2>&1 & PIDS+=($!)
+fi
 ros2 bag record -s mcap -o "$LOG/sitl_bag" --qos-profile-overrides-path "$ROOT/tools/bag_qos.yaml" \
   /fmu/out/sensor_combined /fmu/out/vehicle_attitude /fmu/out/vehicle_local_position \
   /fmu/out/vehicle_status_v1 /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
   /gdn/sim/truth_odom /gdn/sim/agl_scan /imu/data /livox/imu /oak/imu/data /tfmini/range \
+  /oak/left/camera_info /oak/right/camera_info /gdn/sim/raw/imu_h30wp \
   > "$LOG/bag.log" 2>&1 & PIDS+=($!)
 
 if [ -z "$HEADLESS" ]; then
@@ -272,7 +295,7 @@ python3 tools/sim_fly.py --map "$MAP" --px4-dir "$PX4_DIR" --vehicle "$VEHICLE" 
   --world-info "$WDIR/world_info.txt" --launch "$LAUNCH" --route-out "$LOG/route.csv" ${GPS_OFF_AT:+--gps-off-at "$GPS_OFF_AT"} ${GDN_FLY_ARGS:-} 2>&1 | tee "$LOG/fly.log"
 sleep 20     # let it land (or circle) and the scorer catch the end
 kill -INT "$(pgrep -f replay_scorer.py)" 2>/dev/null
-kill -INT "$(pgrep -f "ros2 bag record")" 2>/dev/null; sleep 4
+pkill -INT -f "ros2 bag record" 2>/dev/null; sleep 4
 echo; echo "=== GDN vs truth (horizontal) ==="
 grep -hE "RMS|MAX" "$LOG/scorer.log" || tail -3 "$LOG/scorer.log"
 # The whole flight, not the last report: that one is the landing over the level pad,

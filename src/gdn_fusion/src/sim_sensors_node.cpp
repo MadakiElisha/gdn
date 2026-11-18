@@ -10,10 +10,27 @@
 // range-dependent noise (gdn::simsens::RangeReading), on its own 100 Hz clock from the
 // latest raw beam. Every message gets a latency, a stamp (sample time plus jitter, or
 // arrival time) and may be lost (gdn::simsens::TimingModel), and is published when it
-// would arrive. Simulation time maps to wall time like a driver's clock
-// (gdn::simsens::ClockMap). All parameters: config/sim/sensors.yaml.
+// would arrive. All of that runs on Gazebo's clock (gdn::simsens::SimClock): stamps are
+// Gazebo time plus one offset fixed at start-up (logged: "clock: stamps are Gazebo time
+// + ... s"), so their spacing is the simulation's even when it runs slower than real
+// time. All parameters: config/sim/sensors.yaml.
+//
+// Stereo (R2.4b, the OAK-D Lite's mono pair): Gazebo renders both cameras at the same
+// simulation time; the pair is matched on that time and gets one timing draw, so both
+// images carry the same stamp and are lost together, as the real hardware-synced pair.
+// Gazebo's grey cameras give linear light (no gamma), so the pair is rendered at 16 bits
+// and made into what a camera sends: one auto-exposure gain for both
+// (gdn::simsens::AutoExposure), sRGB-encoded to 8 bits (gdn::simsens::ToneMap), mono8.
+// Each image gets read noise (gdn::simsens::ImageNoise) and its camera_info: the
+// distortion-free pinhole of gdn::simsens::PinholeFromHfov, and for the right camera
+// the baseline in its projection (Tx = -fx * baseline, as a rectified ROS pair).
+//
+// Every publisher is reliable, as the real drivers' are (tools/h30wp_node.py, depthai-
+// ros, livox_ros_driver2): a reliable publisher also serves best-effort subscribers,
+// but not the other way round, and VIO nodes subscribe reliable.
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -24,6 +41,8 @@
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/range.hpp>
@@ -73,6 +92,8 @@ public:
                 AddImu(n);
             else if (kind == "range")
                 AddRange(n);
+            else if (kind == "stereo")
+                AddStereo(n);
             else
                 ConfigError({n, ": unknown kind '", kind, "'"});
         }
@@ -123,7 +144,7 @@ private:
         s->err = std::make_unique<gdn::ImuErrorSim>(m, seed + 1000);
         s->timing = std::make_unique<gdn::simsens::TimingModel>(ReadTiming(n), seed + 2000);
         const std::string topic = declare_parameter<std::string>(n + ".topic");
-        s->pub = create_publisher<sensor_msgs::msg::Imu>(topic, rclcpp::SensorDataQoS().keep_last(200));
+        s->pub = create_publisher<sensor_msgs::msg::Imu>(topic, rclcpp::QoS(200));
         Imu* p = s.get();
         s->sub = create_subscription<sensor_msgs::msg::Imu>(
             declare_parameter<std::string>(n + ".raw_topic"), rclcpp::SensorDataQoS().keep_last(200),
@@ -137,7 +158,7 @@ private:
 
     void OnImu(Imu* s, const sensor_msgs::msg::Imu& raw) {
         const double t = Sec(raw.header.stamp);
-        clock_.Observe(t, now().seconds());
+        ObserveClock(t);
         const gdn::simsens::V3 a(raw.linear_acceleration.x, raw.linear_acceleration.y, raw.linear_acceleration.z);
         const gdn::simsens::V3 w(raw.angular_velocity.x, raw.angular_velocity.y, raw.angular_velocity.z);
         s->resample->Add(t, a, w, [&](double ts, gdn::simsens::V3 aa, gdn::simsens::V3 ww) {
@@ -145,13 +166,14 @@ private:
             s->t_last = ts;
             s->err->Corrupt(&aa, &ww, dt);  // the error model runs whether or not the message is lost
             if (s->in_g) aa /= kG;
-            const gdn::simsens::Message msg = s->timing->Apply(clock_.ToWall(ts));
+            // Not before the raw sample at t, which this one is interpolated towards.
+            const gdn::simsens::Message msg = s->timing->Apply(ts, t);
             if (msg.lost) {
                 ++s->n_lost;
                 return;
             }
             auto out = std::make_shared<sensor_msgs::msg::Imu>();
-            out->header.stamp = ToMsg(msg.stamp);
+            out->header.stamp = ToMsg(clock_.ToStamp(msg.stamp));
             out->header.frame_id = s->frame;
             out->orientation_covariance[0] = -1.0;  // no orientation (REP-145)
             out->linear_acceleration.x = aa.x();
@@ -168,7 +190,8 @@ private:
 
     struct Range {
         std::string name, frame;
-        double rate = 100.0, next = -1.0, fov = 0.0, last_raw = NAN;
+        double rate = 100.0, next = -1.0, start = 0.0, fov = 0.0, last_raw = NAN;
+        int64_t n = 0;  // readings since start (an integer count: no rounding build-up)
         gdn::simsens::RangeSpec spec;
         std::mt19937_64 rng;
         std::unique_ptr<gdn::simsens::TimingModel> timing;
@@ -193,7 +216,7 @@ private:
         s->rng.seed(seed);
         s->timing = std::make_unique<gdn::simsens::TimingModel>(ReadTiming(n), seed + 2000);
         const std::string topic = declare_parameter<std::string>(n + ".topic");
-        s->pub = create_publisher<sensor_msgs::msg::Range>(topic, rclcpp::SensorDataQoS().keep_last(100));
+        s->pub = create_publisher<sensor_msgs::msg::Range>(topic, rclcpp::QoS(100));
         Range* p = s.get();
         s->sub = create_subscription<sensor_msgs::msg::LaserScan>(
             declare_parameter<std::string>(n + ".raw_topic"), rclcpp::SensorDataQoS().keep_last(100),
@@ -204,29 +227,33 @@ private:
     }
 
     // Gazebo renders the beam at its own steps (8 and 12 ms at 100 Hz on 4 ms physics);
-    // the sensor reads on its own even clock, from the latest beam.
+    // the sensor reads on its own even clock, from the latest beam, as Gazebo's time
+    // passes each reading (R2.4b: R2.4a waited for the next beam, up to 12 ms late).
     void OnScan(Range* s, const sensor_msgs::msg::LaserScan& raw) {
         const double t = Sec(raw.header.stamp);
-        clock_.Observe(t, now().seconds());
-        const double r_raw = raw.ranges.empty() ? NAN : raw.ranges[0];
-        if (s->next < 0) s->next = t;
-        while (s->next <= t) {
-            const double r_true = std::isnan(s->last_raw) ? r_raw : s->last_raw;
-            Emit(s, s->next, r_true);
-            s->next += 1.0 / s->rate;
+        ObserveClock(t);
+        if (s->next < 0) s->start = s->next = t;
+        TickRange(s, t);  // readings before this beam read the one before
+        s->last_raw = raw.ranges.empty() ? NAN : raw.ranges[0];
+    }
+
+    void TickRange(Range* s, double now_sim) {
+        if (s->next < 0 || std::isnan(s->last_raw)) return;
+        while (s->next <= now_sim) {
+            Emit(s, s->next, s->last_raw);
+            s->next = s->start + static_cast<double>(++s->n) / s->rate;
         }
-        s->last_raw = r_raw;
     }
 
     void Emit(Range* s, double ts, double r_true) {
         const double r = gdn::simsens::RangeReading(s->spec, r_true, s->rng);
-        const gdn::simsens::Message msg = s->timing->Apply(clock_.ToWall(ts));
+        const gdn::simsens::Message msg = s->timing->Apply(ts);
         if (msg.lost) {
             ++s->n_lost;
             return;
         }
         auto out = std::make_shared<sensor_msgs::msg::Range>();
-        out->header.stamp = ToMsg(msg.stamp);
+        out->header.stamp = ToMsg(clock_.ToStamp(msg.stamp));
         out->header.frame_id = s->frame;
         out->radiation_type = sensor_msgs::msg::Range::INFRARED;
         out->field_of_view = static_cast<float>(s->fov);
@@ -238,10 +265,159 @@ private:
         Queue(msg.arrival, [pub, out] { pub->publish(*out); });
     }
 
+    struct Camera {
+        std::string frame;
+        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub;
+        rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub;
+        rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub;
+        sensor_msgs::msg::CameraInfo info;
+        std::map<double, sensor_msgs::msg::Image::ConstSharedPtr> waiting;  // by Gazebo time
+    };
+
+    struct Stereo {
+        std::string name;
+        int width = 0, height = 0;
+        Camera cam[2];  // left, right
+        std::unique_ptr<gdn::simsens::AutoExposure> ae;
+        gdn::simsens::ToneMap tone;
+        double t_last = -1.0;
+        std::unique_ptr<gdn::simsens::ImageNoise> noise;
+        std::unique_ptr<gdn::simsens::TimingModel> timing;
+        long n_out = 0, n_lost = 0, n_unpaired = 0;
+    };
+
+    void AddStereo(const std::string& n) {
+        auto s = std::make_unique<Stereo>();
+        s->name = n;
+        s->width = static_cast<int>(declare_parameter<int>(n + ".width"));
+        s->height = static_cast<int>(declare_parameter<int>(n + ".height"));
+        const double hfov = declare_parameter<double>(n + ".hfov_deg") * M_PI / 180.0;
+        const double baseline = declare_parameter<double>(n + ".baseline_m");
+        const auto seed = static_cast<uint64_t>(declare_parameter<int>(n + ".seed"));
+        if (s->width <= 0 || s->height <= 0 || hfov <= 0.0 || hfov >= M_PI || baseline <= 0.0)
+            ConfigError({n, ": width, height, hfov_deg (0 to 180) and baseline_m must be > 0"});
+        const gdn::simsens::Pinhole k = gdn::simsens::PinholeFromHfov(s->width, s->height, hfov);
+        s->noise = std::make_unique<gdn::simsens::ImageNoise>(declare_parameter<double>(n + ".noise_dn"), seed);
+        const auto ae = declare_parameter<std::vector<double>>(n + ".auto_exposure");  // target, tau, gain range
+        if (ae.size() != 4 || ae[0] <= 0.0 || ae[1] <= 0.0 || ae[2] <= 0.0 || ae[3] < ae[2])
+            ConfigError({n, ".auto_exposure is [target, tau_s, gain_min, gain_max]"});
+        s->ae = std::make_unique<gdn::simsens::AutoExposure>(ae[0], ae[1], ae[2], ae[3]);
+        s->timing = std::make_unique<gdn::simsens::TimingModel>(ReadTiming(n), seed + 2000);
+        const char* side[2] = {"left", "right"};
+        Stereo* p = s.get();
+        for (int i = 0; i < 2; ++i) {
+            Camera& c = s->cam[i];
+            const std::string pre = n + "." + side[i] + "_";
+            c.frame = declare_parameter<std::string>(pre + "frame_id");
+            auto& info = c.info;
+            info.header.frame_id = c.frame;
+            info.width = static_cast<uint32_t>(s->width);
+            info.height = static_cast<uint32_t>(s->height);
+            info.distortion_model = "plumb_bob";
+            info.d = {0.0, 0.0, 0.0, 0.0, 0.0};
+            info.k = {k.fx, 0.0, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0};
+            info.r = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+            info.p = {k.fx, 0.0, k.cx, i == 1 ? -k.fx * baseline : 0.0, 0.0, k.fy, k.cy, 0.0, 0.0, 0.0, 1.0, 0.0};
+            const std::string topic = declare_parameter<std::string>(pre + "topic");
+            c.pub = create_publisher<sensor_msgs::msg::Image>(topic, rclcpp::QoS(5));
+            c.info_pub = create_publisher<sensor_msgs::msg::CameraInfo>(
+                declare_parameter<std::string>(pre + "info_topic"), rclcpp::QoS(5));
+            c.sub = create_subscription<sensor_msgs::msg::Image>(
+                declare_parameter<std::string>(pre + "raw_topic"), rclcpp::QoS(5),
+                [this, p, i](const sensor_msgs::msg::Image::ConstSharedPtr& msg) { OnImage(p, i, msg); });
+            RCLCPP_INFO(get_logger(), "%s: %s (%s)", n.c_str(), topic.c_str(), c.frame.c_str());
+        }
+        RCLCPP_INFO(get_logger(), "%s: %dx%d, fx %.2f, cx %.1f, cy %.1f, baseline %.3f m", n.c_str(), s->width,
+                    s->height, k.fx, k.cx, k.cy, baseline);
+        stereos_.push_back(std::move(s));
+    }
+
+    // Holds each image until its partner from the same Gazebo time arrives; an image
+    // whose partner never comes is dropped once a newer pair is out. The raw images are
+    // subscribed reliable: best-effort lost a few of these 600 kB messages every 10 s.
+    void OnImage(Stereo* s, int side, const sensor_msgs::msg::Image::ConstSharedPtr& raw) {
+        const double t = Sec(raw->header.stamp);
+        ObserveClock(t);
+        if (raw->encoding != "mono16" || raw->is_bigendian || static_cast<int>(raw->width) != s->width ||
+            static_cast<int>(raw->height) != s->height || raw->data.size() < size_t{2} * raw->width * raw->height) {
+            RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "%s: raw image is %s %ux%u, want mono16 %dx%d",
+                                  s->name.c_str(), raw->encoding.c_str(), raw->width, raw->height, s->width, s->height);
+            return;
+        }
+        auto& mine = s->cam[side].waiting;
+        mine[t] = raw;
+        if (mine.size() > 10) {  // its partners stopped coming
+            mine.erase(mine.begin());
+            ++s->n_unpaired;
+        }
+        auto& other = s->cam[1 - side].waiting;
+        const auto it = other.find(t);
+        if (it == other.end()) return;
+        const auto pair = side == 0 ? std::make_pair(raw, it->second) : std::make_pair(it->second, raw);
+        for (auto& c : s->cam) {
+            const auto stale = c.waiting.upper_bound(t);
+            for (auto j = c.waiting.begin(); j != stale; ++j)
+                if (j->first < t) ++s->n_unpaired;
+            c.waiting.erase(c.waiting.begin(), stale);
+        }
+        EmitPair(s, t, pair.first, pair.second);
+    }
+
+    void EmitPair(Stereo* s, double t, const sensor_msgs::msg::Image::ConstSharedPtr& left,
+                  const sensor_msgs::msg::Image::ConstSharedPtr& right) {
+        const gdn::simsens::Message msg = s->timing->Apply(t);
+        if (msg.lost) {
+            ++s->n_lost;
+            return;
+        }
+        const sensor_msgs::msg::Image::ConstSharedPtr raw[2] = {left, right};
+        const size_t npx = static_cast<size_t>(s->width) * static_cast<size_t>(s->height);
+        // One exposure for the pair, from both images' mean (every 7th pixel).
+        double sum = 0.0;
+        size_t cnt = 0;
+        for (const auto& r : raw) {
+            const auto* px = reinterpret_cast<const uint16_t*>(r->data.data());
+            for (size_t j = 0; j < npx; j += 7, ++cnt) sum += px[j];
+        }
+        s->tone.SetGain(s->ae->Update(sum / (65535.0 * static_cast<double>(cnt)), s->t_last < 0 ? 0.0 : t - s->t_last));
+        s->t_last = t;
+        for (int i = 0; i < 2; ++i) {
+            Camera& c = s->cam[i];
+            auto img = std::make_shared<sensor_msgs::msg::Image>();
+            img->header.stamp = ToMsg(clock_.ToStamp(msg.stamp));
+            img->header.frame_id = c.frame;
+            img->width = static_cast<uint32_t>(s->width);
+            img->height = static_cast<uint32_t>(s->height);
+            img->encoding = "mono8";
+            img->step = img->width;
+            img->data.resize(npx);
+            s->tone.Apply(reinterpret_cast<const uint16_t*>(raw[i]->data.data()), img->data.data(), npx);
+            s->noise->Apply(img->data.data(), img->data.size());
+            auto info = std::make_shared<sensor_msgs::msg::CameraInfo>(c.info);
+            info->header.stamp = img->header.stamp;
+            auto pub = c.pub;
+            auto info_pub = c.info_pub;
+            Queue(msg.arrival, [pub, info_pub, img, info] {
+                pub->publish(*img);
+                info_pub->publish(*info);
+            });
+        }
+        ++s->n_out;
+    }
+
+    void ObserveClock(double sim_t) {
+        const bool first = !clock_.Ready();
+        clock_.Observe(sim_t, now().seconds());
+        if (first) RCLCPP_INFO(get_logger(), "clock: stamps are Gazebo time + %.6f s", clock_.Offset());
+    }
+
+    // arrival: on Gazebo's clock.
     void Queue(double arrival, std::function<void()> f) { q_.push(Pending{arrival, order_++, std::move(f)}); }
 
     void Flush() {
-        const double now_s = now().seconds();
+        if (!clock_.Ready()) return;
+        const double now_s = clock_.Now(now().seconds());
+        for (auto& r : ranges_) TickRange(r.get(), now_s);
         while (!q_.empty() && q_.top().arrival <= now_s) {
             q_.top().publish();
             q_.pop();
@@ -258,13 +434,21 @@ private:
             msg += " " + s->name + " " + std::to_string(s->n_out / 10) + " Hz (" + std::to_string(s->n_lost) + " lost)";
             s->n_out = s->n_lost = 0;
         }
+        for (auto& s : stereos_) {
+            char gain[32];
+            std::snprintf(gain, sizeof gain, "%.2f", s->ae->Gain());
+            msg += " " + s->name + " " + std::to_string(s->n_out / 10) + " Hz pairs (" + std::to_string(s->n_lost) +
+                   " lost, " + std::to_string(s->n_unpaired) + " unpaired, gain " + gain + ")";
+            s->n_out = s->n_lost = s->n_unpaired = 0;
+        }
         if (!clock_.Ready()) msg += "; no Gazebo sensor data yet (is the bridge running?)";
         RCLCPP_INFO(get_logger(), "%s", msg.c_str());
     }
 
-    gdn::simsens::ClockMap clock_;
+    gdn::simsens::SimClock clock_;
     std::vector<std::unique_ptr<Imu>> imus_;
     std::vector<std::unique_ptr<Range>> ranges_;
+    std::vector<std::unique_ptr<Stereo>> stereos_;
     std::priority_queue<Pending, std::vector<Pending>, std::greater<Pending>> q_;
     uint64_t order_ = 0;
     rclcpp::TimerBase::SharedPtr timer_, report_;

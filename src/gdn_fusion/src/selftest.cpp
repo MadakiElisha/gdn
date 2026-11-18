@@ -1357,17 +1357,92 @@ int main() {
         CHECK(limits && steps && std::abs(std::sqrt(s1 / 20000) - 0.0301) < 0.002 &&
                   std::abs(std::sqrt(s2 / 20000) - 0.0501) < 0.002,
               "sim: TEST-035 TFmini-S range: limits, noise by range, 1 cm steps");
-        // Simulation time to wall time: the floor of the transport delay.
-        simsens::ClockMap cm(2.0);
+        // Gazebo's clock (R2.4b): a simulation at 0.92 of real time, raw messages 0.5 ms
+        // plus a random delay late. Stamps keep Gazebo's seconds (5 ms apart stays 5 ms);
+        // its time now is the latest seen plus the wall time since, up to one 4 ms step.
+        simsens::SimClock clk;
         std::mt19937_64 r2(6);
         std::exponential_distribution<double> delay(1.0 / 0.002);
         for (int k = 0; k < 2000; ++k) {
             const double sim = 0.004 * k;
-            cm.Observe(sim, 1000.0 + sim + 0.0005 + delay(r2));
+            clk.Observe(sim, 1000.0 + sim / 0.92 + 0.0005 + delay(r2));
         }
-        const double off = cm.ToWall(8.0) - 8.0 - 1000.0 - 0.005;  // less the 5 ms headroom
-        std::printf("      clock map offset over the floor: %.3f ms\n", 1e3 * (off - 0.0005));
-        CHECK(off >= 0.0005 && off - 0.0005 < 0.0002, "sim: TEST-035 clock map finds the transport delay's floor");
+        const double first_off = clk.Offset();
+        const double spacing = clk.ToStamp(7.005) - clk.ToStamp(7.0);
+        const double last_wall = 1000.0 + 7.996 / 0.92;  // about when the last one came in
+        std::printf("      clock: offset %.4f s, 5 ms of simulation is %.6f ms of stamps\n", first_off - 1000.0,
+                    1e3 * spacing);
+        CHECK(std::abs(spacing - 0.005) < 1e-9 && first_off > 1000.0 && first_off < 1000.02 && clk.Now(-1.0) == 7.996 &&
+                  std::abs(clk.Now(1e9) - 8.0) < 1e-12 && clk.Now(last_wall + 1.0) <= 8.0 + 1e-12,
+              "sim: TEST-035 clock: stamps keep Gazebo's seconds at 0.92 real time; now within one step");
+    }
+
+    // TEST-036 (R2.4b): the OAK-D Lite cameras' intrinsics and read noise (gdn/sim_sensors.hpp).
+    {
+        // 640 by 480 at 73 degrees: a ray at half the field of view lands on the outer
+        // edge of the outermost pixel (-0.5 and 639.5), and square pixels give 58 degrees
+        // vertically (the OV7251's datasheet: 72.9 by 57.7).
+        const double hfov = 73.0 * M_PI / 180.0;
+        const simsens::Pinhole p = simsens::PinholeFromHfov(640, 480, hfov);
+        const double u_edge = p.cx + p.fx * std::tan(0.5 * hfov);
+        const double vfov = 2.0 * std::atan(240.0 / p.fy) * 180.0 / M_PI;
+        std::printf("      pinhole: fx %.2f, cx %.1f, cy %.1f, vertical FOV %.2f deg\n", p.fx, p.cx, p.cy, vfov);
+        CHECK(std::abs(u_edge - 639.5) < 1e-9 && std::abs(p.cx - 319.5) < 1e-12 && std::abs(p.cy - 239.5) < 1e-12 &&
+                  p.fx == p.fy && std::abs(vfov - 58.0) < 0.1,
+              "sim: TEST-036 camera intrinsics from the field of view (edges at -0.5 and 639.5, 58 deg vertical)");
+        // Read noise of 2 grey levels: sigma 2 (plus rounding, sqrt(4 + 1/12)), zero mean,
+        // clipped at 0 and 255, a different pattern every image, and no repeat inside one.
+        simsens::ImageNoise noise(2.0, 7);
+        const size_t n = size_t{640} * 480;
+        std::vector<uint8_t> a(n, 128), b(n, 128), lo(n, 0), hi(n, 255);
+        noise.Apply(a.data(), n);
+        noise.Apply(b.data(), n);
+        noise.Apply(lo.data(), n);
+        noise.Apply(hi.data(), n);
+        double s = 0.0, s2 = 0.0, ab = 0.0;
+        for (size_t i = 0; i < n; ++i) {
+            const double x = a[i] - 128.0;
+            s += x;
+            s2 += x * x;
+            ab += x * (b[i] - 128.0);
+        }
+        const double mean = s / n, sig = std::sqrt(s2 / n - mean * mean), corr = ab / s2;
+        // The same pixels one table period (2^20 draws) apart would repeat; a 640 by 480
+        // image is 0.29 of that, so check the first and last 1000 pixels differ.
+        bool repeats = true;
+        for (size_t i = 0; i < 1000; ++i) repeats &= a[i] == a[n - 1000 + i];
+        bool clipped = true;
+        for (size_t i = 0; i < n; ++i) clipped &= lo[i] <= 12 && hi[i] >= 243;
+        std::printf("      image noise: sigma %.3f, mean %.4f, image-to-image correlation %.4f\n", sig, mean, corr);
+        CHECK(std::abs(sig - std::sqrt(4.0 + 1.0 / 12.0)) < 0.02 && std::abs(mean) < 0.02 && std::abs(corr) < 0.01 &&
+                  !repeats && clipped,
+              "sim: TEST-036 camera read noise: sigma as set, zero mean, new every image, clipped to 0..255");
+        // Auto-exposure: settled at once on the first image; after a scene twice as dark
+        // the gain doubles with the time constant (63% of the way in log gain after one
+        // tau); kept within its range.
+        simsens::AutoExposure ae(0.18, 0.2, 0.25, 16.0);
+        const double g0 = ae.Update(0.09, 0.0);
+        double g = g0;
+        for (int k = 0; k < 6; ++k) g = ae.Update(0.045, 1.0 / 30.0);  // 0.2 s
+        const double frac = std::log(g / g0) / std::log(2.0);
+        double g_dark = 0.0;
+        for (int k = 0; k < 300; ++k) g_dark = ae.Update(1e-4, 1.0 / 30.0);
+        std::printf("      auto-exposure: gain %.2f, after 0.2 s twice as dark %.2f (%.0f%% of the way)\n", g0, g,
+                    100 * frac);
+        CHECK(std::abs(g0 - 2.0) < 1e-12 && std::abs(frac - (1.0 - std::exp(-1.0))) < 0.01 &&
+                  std::abs(g_dark - 16.0) < 1e-6,
+              "sim: TEST-036 auto-exposure: settled at start, time constant, gain range");
+        // Tone map: sRGB of the linear value times the gain; mid-grey 0.18 is 118; full
+        // scale clips at 255.
+        simsens::ToneMap tm;
+        tm.SetGain(2.0);
+        const uint16_t lin[4] = {0, static_cast<uint16_t>(std::lround(0.09 * 65535)), 32768, 65535};
+        uint8_t out8[4];
+        tm.Apply(lin, out8, 4);
+        std::printf("      tone map at gain 2: %u %u %u %u\n", out8[0], out8[1], out8[2], out8[3]);
+        CHECK(out8[0] == 0 && out8[1] == 118 && out8[2] == 255 && out8[3] == 255 &&
+                  std::abs(simsens::SrgbEncode(0.0031308) - 0.0404) < 1e-4,
+              "sim: TEST-036 tone map: linear times gain, sRGB-encoded to 8 bits, clipped");
     }
 
     try {
