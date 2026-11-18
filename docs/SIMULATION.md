@@ -322,7 +322,7 @@ The payload carries GDN's sensors, and `sim_sensors` (gdn_fusion; settings in
 `config/sim/sensors.yaml`) publishes each the way its real driver does: the same topic,
 message type, frame, units and rate, with the sensor's errors and timing. GDN doesn't
 read them yet; LIO, VIO and the rangefinder come in Phases 3 and 4. R2.4 comes in three
-parts: R2.4a the IMUs and the TFmini-S (now), R2.4b the OAK-D Lite's cameras, R2.4c the
+parts: R2.4a the IMUs and the TFmini-S, R2.4b the OAK-D Lite's cameras (now), R2.4c the
 Mid-360S lidar.
 
 | Sensor | Topic | Type, frame | Rate | Errors | Timing |
@@ -331,6 +331,7 @@ Mid-360S lidar.
 | Mid-360S IMU | `/livox/imu` | `sensor_msgs/Imu`, `livox_frame`; acceleration in g | 200 Hz | R1.6 model (`mid360s.yaml`) | stamp jitter 0.53 ms (the 15% spacing spread TEST-025 measured); 1 ms latency |
 | OAK-D Lite IMU | `/oak/imu/data` | `sensor_msgs/Imu`, `oak_imu_frame` | about 239 Hz: 394.5 Hz ticks, 65% of steps skip one (TEST-025) | R1.6 model (`oakd_lite.yaml`) | device stamps; 4 ms latency |
 | TFmini-S | `/tfmini/range` | `sensor_msgs/Range`, `tfmini_link`; infrared, 0.1 to 12 m, 2° | 100 Hz | 3 cm sigma to 6 m, 0.5% of the range beyond; 1 cm steps; +inf beyond 12 m, -inf under 0.1 m | stamped on arrival; 5 ms latency; 0.2% lost |
+| OAK-D Lite cameras | `/oak/left/image_raw`, `/oak/right/image_raw`, each with its `camera_info` | `sensor_msgs/Image` mono8, 640 x 480, `oak_left_camera_optical_frame`, `oak_right_camera_optical_frame` | 30 Hz, a synced pair | 73° pinhole, no distortion (raw is already rectified); 7.5 cm baseline in the right camera's projection; auto-exposure, 8-bit sRGB; read noise 2 grey levels | device stamps, the same on both images; 25 ms latency; 0.2% of pairs lost |
 
 ```bash
 python3 tools/check_sim_sensors.py                  # the payload and config/sim/sensors.yaml
@@ -346,30 +347,66 @@ python3 tools/check_sim_sensors.py --run /tmp/gdn_sim   # judge a run against th
   - **converts units and frames** as the driver does (the Mid-360S in g);
   - **for every message,** draws a latency, a stamp (the sample time plus jitter, or
     the arrival time) and whether it's lost, and publishes it when it would arrive.
+  - **for the cameras (R2.4b),** pairs the left and right images Gazebo rendered at the
+    same moment, gives the pair one stamp, one latency and one chance of being lost (the
+    real pair is synced in hardware), and makes each image what the camera sends:
+    - Gazebo's grey cameras give linear light, which in 8 bits looks about three times
+      too dark (a mean of 20 where the colour camera shows 70). So they render 16-bit,
+      and `sim_sensors` applies one auto-exposure gain to the pair (mean to mid-grey,
+      0.2 s to settle), encodes sRGB to 8 bits and adds the read noise;
+    - the `camera_info` is the distortion-free pinhole of the 73° field of view
+      (fx 432.46, centre 319.5, 239.5), the right one with `Tx = -fx * 0.075`, as a
+      rectified ROS pair.
+- **All publishers are reliable,** as the real drivers' are (`h30wp_node.py` publishes
+  `/imu/data` reliable). A reliable publisher serves best-effort subscribers too, but a
+  reliable subscriber (VINS and OpenVINS subscribe that way) gets nothing from a
+  best-effort one; R2.4a's IMUs and TFmini-S were best-effort.
+- **Images aren't recorded by default** (about 18 MB/s, 3 GB for a short flight): the
+  bag has both `camera_info` topics, which carry every image's stamp, and
+  `GDN_BAG_IMAGES=1` adds the images.
+- **Use a site for the cameras** (`GDN_SITE=...`): the default Zermatt world has no
+  photo on its terrain, so the cameras see plain grey shading there.
 - **Which numbers are measured.** The IMU rates, the Mid-360S's stamp jitter and the
   OAK-D Lite's skip pattern come from the bench logs (TEST-024, TEST-025), the IMU
   errors from R1.6. Every latency, and the TFmini-S's noise and dropouts (from its
   datasheet), are placeholders until Phase 6 measures them on the vehicle.
-- **The clock.** Gazebo stamps in simulation time. `sim_sensors` maps that to wall time
-  like a driver's clock: the smallest delay the bridge shows over 2 s, smoothed, plus
-  5 ms of headroom, the same for every sensor. So the sensors are consistent with each
-  other.
+- **The clock (changed in R2.4b).** Every stamp is Gazebo's time plus one offset,
+  fixed when the first raw message comes in and logged in `sensors.log` ("clock: stamps
+  are Gazebo time + ... s"). Latencies run on Gazebo's clock too: a message goes out
+  once Gazebo's time passes its arrival. So stamps start near wall time and keep
+  simulated seconds, the same for every sensor.
+  - **Why it changed:** R2.4a followed the wall clock (the bridge's delay floor). With
+    the cameras rendering, this laptop runs the simulation at about 0.92 of real time,
+    and every stamp interval then stretched by 1 / 0.92: the IMUs read 183 Hz instead
+    of 200, so each sample's interval was 9% longer than the motion it carries.
+  - **What it means for a subscriber:** in a run slower than real time, stamps fall
+    behind `now()` by the time lost. Use the stamps, not the receive time, as a real
+    driver's stamps would be used. `check_sim_sensors.py` judges timing in Gazebo
+    seconds, turning the bag's receive times into Gazebo time through the truth's.
 - **Mounts are placeholders** until the vehicle profiles (R2.5) hold the real
   extrinsics:
   - the H30WP level at the payload origin;
   - the Mid-360S upside down (so the lidar's -7 to 52° field of view looks at the
     ground);
-  - the OAK-D Lite forward, pitched 30° down;
+  - the OAK-D Lite forward, pitched 30° down, its two cameras 3.75 cm either side of its
+    IMU (left at +y), pointing the same way;
   - the TFmini-S pointing down.
 - **Not simulated yet:**
   - the H30WP's own orientation estimate (the `orientation` field is marked empty, as
     for a driver without one);
   - its magnetometer and temperature (`/imu/mag`, `/imu/temperature`);
-  - the TFmini-S's shorter range on dark ground (about 7 m): Gazebo has no reflectivity.
+  - the TFmini-S's shorter range on dark ground (about 7 m): Gazebo has no reflectivity;
+  - the cameras' lens distortion, motion blur, vignetting and the sensor's own response
+    curve (the sRGB curve stands in for it); the colour camera (IMX214); the OAK-D's
+    own depth, rectified-pair and feature-tracker topics.
 - **`check_sim_sensors.py --run`** judges each sensor against the real one: topic,
   type, frame, rate, measured spacing spread, gravity in the right units at rest,
   white noise against its model, the configured timing, and the TFmini-S against the
-  true range.
+  true range. For the cameras: the `camera_info`, the synced pair, rate and timing, and
+  with the images recorded the exposure, the read noise at rest and the stereo
+  geometry: 1.5 to 15 m up, the left image shifted by the disparity the truth gives
+  must reproduce the right one best at 0.95 to 1.05 times that disparity (TEST-036:
+  1.013 to 1.017; a swapped pair gives -1). Timing is judged on Gazebo's clock.
 
 ## Current result (read this before judging the red line)
 
@@ -517,11 +554,12 @@ flight path (`radar AGL minus map-predicted AGL`).
   and R2.2 build the world from a finer DEM, with real map error.
 - **The node still reads PX4's `vehicle_local_position`** for its ground ZUPT and take-off
   latch (R1.2).
-- **The terrain has no photo texture yet.** That matters once the OAK-D Lite cameras are
-  simulated for VIO (R2.2, R2.4).
-- **The lidar and cameras aren't simulated yet.** The payload has the radar altimeter,
-  three IMUs and the TFmini-S (R2.4a); the OAK-D Lite's cameras (R2.4b) and the
-  Mid-360S (R2.4c) come next. GDN doesn't read the R2.4 sensors yet.
+- **The default Zermatt world has no photo on its terrain;** the R2.2 sites have the
+  2 m orthophoto, which the cameras see as a soft image: 2 m per photo pixel against
+  about 0.2 to 0.5 m per camera pixel at 100 to 200 m. Finer photos for VIO are R3.5's.
+- **The lidar isn't simulated yet.** The payload has the radar altimeter, three IMUs,
+  the TFmini-S (R2.4a) and the OAK-D Lite's cameras (R2.4b); the Mid-360S comes in
+  R2.4c. GDN doesn't read the R2.4 sensors yet.
 - **GDN itself is still tuned for the multirotor.** On the planes it runs in shadow
   mode like on the x500, with the same settings; per-airframe profiles are R2.5.
 - **GDN's altimeter input assumes flat ground under a tilted vehicle** (OI-016): metres

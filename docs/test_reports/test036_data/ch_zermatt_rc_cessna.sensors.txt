@@ -1,0 +1,55 @@
+run: rc_cessna over ch_zermatt
+at rest on the pad for 13 s
+PASS  sim_sensors logged its clock (stamps are Gazebo time plus an offset): offset 1795018086.983856 s
+clock reference: the raw H30WP, 76170 samples
+real-time factor 0.908 (Gazebo seconds per wall second, from the truth)
+PASS  h30wp: on /imu/data as sensor_msgs/msg/Imu: 61036 messages, sensor_msgs/msg/Imu
+PASS  h30wp: frame: imu_link
+PASS  h30wp: rate 194 to 206 Hz: 200.0 Hz
+PASS  h30wp: at rest it reads gravity, in m/s^2: |a| 9.842 m/s^2 (1.0036 g) over 2593 samples
+PASS  h30wp: accel white noise as its R1.6 model (within 25%): sigma 7.57e-03 7.15e-03 8.63e-03 m/s^2, model 7.60e-03 7.20e-03 8.62e-03
+PASS  h30wp: gyro white noise as its R1.6 model (within 25%): sigma 1.29e-03 1.31e-03 1.02e-03 rad/s, model 1.34e-03 1.32e-03 1.04e-03
+PASS  h30wp: arrival minus stamp 0.0 ms on Gazebo's clock (arrival stamps, latency 3.0 ms): median 0.38 ms, 1st percentile -1.49, max 909.99
+PASS  h30wp: messages lost 0.0% (within 1 point): 0.01%
+PASS  mid360s_imu: on /livox/imu as sensor_msgs/msg/Imu: 61032 messages, sensor_msgs/msg/Imu
+PASS  mid360s_imu: frame: livox_frame
+PASS  mid360s_imu: rate 194 to 206 Hz: 200.0 Hz
+PASS  mid360s_imu: spacing spread 10 to 20% (measured): 15.0%
+PASS  mid360s_imu: at rest it reads gravity, in g: |a| 9.829 m/s^2 (1.0023 g) over 2592 samples
+PASS  mid360s_imu: accel white noise as its R1.6 model (within 25%): sigma 8.44e-03 7.99e-03 9.87e-03 m/s^2, model 8.58e-03 8.28e-03 1.00e-02
+PASS  mid360s_imu: gyro white noise as its R1.6 model (within 25%): sigma 1.24e-03 9.79e-04 2.08e-03 rad/s, model 1.26e-03 1.01e-03 2.04e-03
+PASS  mid360s_imu: arrival minus stamp 1.0 ms on Gazebo's clock (sensor stamps, latency 1.0 ms): median 2.52 ms, 1st percentile 0.13, max 911.54
+PASS  mid360s_imu: messages lost 0.0% (within 1 point): 0.04%
+PASS  oakd_imu: on /oak/imu/data as sensor_msgs/msg/Imu: 73032 messages, sensor_msgs/msg/Imu
+PASS  oakd_imu: frame: oak_imu_frame
+PASS  oakd_imu: rate 230 to 255 Hz: 239.3 Hz
+PASS  oakd_imu: spacing spread 20 to 38% (measured): 29.0%
+PASS  oakd_imu: at rest it reads gravity, in m/s^2: |a| 9.763 m/s^2 (0.9956 g) over 3116 samples
+PASS  oakd_imu: accel white noise as its R1.6 model (within 25%): sigma 2.08e-02 1.81e-02 2.02e-02 m/s^2, model 2.04e-02 1.82e-02 2.02e-02
+PASS  oakd_imu: gyro white noise as its R1.6 model (within 25%): sigma 1.64e-03 1.61e-03 1.62e-03 rad/s, model 1.62e-03 1.62e-03 1.64e-03
+PASS  oakd_imu: arrival minus stamp 4.0 ms on Gazebo's clock (sensor stamps, latency 4.0 ms): median 4.61 ms, 1st percentile 1.85, max 746.05
+PASS  oakd_imu: messages lost 0.0% (within 1 point): 0.00%
+PASS  tfmini: on /tfmini/range as sensor_msgs/msg/Range: 30462 messages, sensor_msgs/msg/Range
+PASS  tfmini: frame: tfmini_link
+PASS  tfmini: Range fields (infrared, 0.1 to 12 m, 2 deg): type 1, 0.10000000149011612 to 12.0 m, 2.00 deg
+PASS  tfmini: rate 97 to 103 Hz: 99.8 Hz
+PASS  tfmini: at rest, the true height and the model's noise: mean 0.131 m against 0.142 m, sigma 0.023 m (model 0.030)
+PASS  tfmini: +inf beyond 12 m: 24673 of 24673 readings
+PASS  tfmini: in flight within 12 m, error RMS under twice the model: RMS 0.067 m (limit 0.077) over 1251 readings
+PASS  tfmini: arrival minus stamp 0.0 ms on Gazebo's clock (arrival stamps, latency 5.0 ms): median 0.38 ms, 1st percentile -1.79, max 921.09
+PASS  tfmini: messages lost 0.2% (within 1 point): 0.20%
+PASS  oakd_stereo: left camera_info on /oak/left/camera_info: 9130 messages, sensor_msgs/msg/CameraInfo
+PASS  oakd_stereo: left frame and size: oak_left_camera_optical_frame, 640 x 480
+PASS  oakd_stereo: left camera_info is the 73 deg pinhole, no distortion: fx 432.46 (want 432.46), cx 319.5, cy 239.5, Tx 0.000
+PASS  oakd_stereo: right camera_info on /oak/right/camera_info: 9129 messages, sensor_msgs/msg/CameraInfo
+PASS  oakd_stereo: right frame and size: oak_right_camera_optical_frame, 640 x 480
+PASS  oakd_stereo: right camera_info is the 73 deg pinhole, no distortion, Tx = -fx * 7.5 cm: fx 432.46 (want 432.46), cx 319.5, cy 239.5, Tx -32.434
+PASS  oakd_stereo: every left image has a right one with the same stamp (a synced pair): 9129 pairs of 9130 left, 9129 right
+PASS  oakd_stereo: rate 29 to 31 Hz: 29.92 Hz
+PASS  oakd_stereo: arrival minus stamp 25.0 ms on Gazebo's clock (sensor stamps, latency 25.0 ms): median 25.58 ms, 1st percentile 18.73, max 191.84
+PASS  oakd_stereo: messages lost 0.2% (within 1 point): 0.27%
+PASS  oakd_stereo: images mono8 640 x 480, with the camera_info's stamps and frames: 386 of 386 looked at
+PASS  oakd_stereo: exposed (median image mean 70 to 170 grey): median 102, 87 to 122 over 147 images in flight
+PASS  oakd_stereo: read noise at rest as set (within 25%): 1.97 grey levels from 19 images in a row (model 2.02)
+PASS  oakd_stereo: stereo geometry as the truth's (the right image is the left shifted by 0.95 to 1.05 times the true disparity): best scale 1.017 over 15 pairs 1.5 to 15 m up (23 with texture; per pair median 1.01, 1.01 to 1.03); no disparity fits 1.6 times worse
+sensors exit 0

@@ -40,7 +40,17 @@
   The IMUs run at 250 Hz, the physics rate; sim_sensors puts them on each sensor's own
   clock.
 
-  R2.4b adds the OAK-D Lite's cameras, R2.4c the Mid-360S.
+  R2.4b: the OAK-D Lite's two OV7251 mono cameras, 640 x 480, 73 deg wide, 30 Hz,
+  7.5 cm apart: left at +y, as seen looking out of the camera. They sit either side of
+  the OAK-D Lite's IMU and point the same way (forward, 30 deg down), as on the real
+  board. Distortion-free and noise-free, and grey at 16 bits (L16): Gazebo's grey
+  cameras give linear light, not the gamma-encoded image a camera sends, which would
+  look about three times too dark in 8 bits. sim_sensors adds the auto-exposure, the
+  8-bit encoding, the read noise, the camera_info and the timing (/oak/left/image_raw,
+  /oak/right/image_raw). gz cameras
+  look along their +x axis with +z up in the image, like the radar's beam convention.
+
+  R2.4c adds the Mid-360S.
 -->
 <sdf version="1.9">
   <model name="gdn_payload">
@@ -83,6 +93,29 @@
         <topic>gdn/imu/oakd</topic>
         <update_rate>250</update_rate>
         <always_on>1</always_on>
+      </sensor>
+
+      <sensor name="gdn_oak_left" type="camera">
+        <pose>0.08 0.0375 -0.02 0 0.5235988 0</pose>
+        <topic>gdn/oak/left</topic>
+        <update_rate>30</update_rate>
+        <always_on>1</always_on>
+        <camera name="oak_left">
+          <horizontal_fov>1.2740904</horizontal_fov>
+          <image><width>640</width><height>480</height><format>L16</format></image>
+          <clip><near>0.05</near><far>3000</far></clip>
+        </camera>
+      </sensor>
+      <sensor name="gdn_oak_right" type="camera">
+        <pose>0.08 -0.0375 -0.02 0 0.5235988 0</pose>
+        <topic>gdn/oak/right</topic>
+        <update_rate>30</update_rate>
+        <always_on>1</always_on>
+        <camera name="oak_right">
+          <horizontal_fov>1.2740904</horizontal_fov>
+          <image><width>640</width><height>480</height><format>L16</format></image>
+          <clip><near>0.05</near><far>3000</far></clip>
+        </camera>
       </sensor>
 
       <sensor name="gdn_tfmini" type="gpu_lidar">

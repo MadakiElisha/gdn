@@ -1,0 +1,11 @@
+flight: x500 (multirotor) over ch_emmental
+PASS  went through its phases (at cruise height; route done, landing; landed and disarmed)
+PASS  no fail-safe
+PASS  came down on the pad (within 10 m): 0.3 m from it
+PASS  whole route flown (every route point within 60 m): worst 2 m
+PASS  follows the route hovering (cross-track p95 under 15 m): p95 1.5 m, max 3.7 m over 4211 samples
+PASS  clear of the terrain on the route (at least 25 m away from the pad): lowest 60.0 m above the ground
+PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.50 m, p95 1.02 m, max 2.3 m over 723 readings (36 tilted past 35 deg left out); radar ranges at Gazebo time
+PASS  GDN ran alongside (scorer reported): RMS 60-300s: 3018.6 m | MAX 60-300s: 7167.9 m
+airborne 424 s, 2.7 km
+vehicle exit 0

@@ -36,7 +36,7 @@ jobs:
             clang clang-tidy clang-format cppcheck \
             ros-jazzy-rosbag2-storage-mcap ros-jazzy-rclcpp-components \
             python3-numpy python3-scipy python3-matplotlib python3-h5py \
-            python3-yaml python3-pil python3-rasterio
+            python3-yaml python3-pil python3-rasterio python3-opencv
           rosdep update --rosdistro jazzy
           source /opt/ros/jazzy/setup.bash
           rosdep install --from-paths src --ignore-src -y --rosdistro jazzy
@@ -121,10 +121,11 @@ jobs:
           python3 tools/check_vehicles.py
           python3 tools/check_vehicles.py --selfcheck
 
-      # R2.4a: the payload's simulated sensors and their config match the real drivers'
-      # topics and frames, and the run check's statistics work on made-up data. The
-      # timing and range code itself is in the selftest (TEST-035).
-      - name: Simulated sensors check and self-check (R2.4a)
+      # R2.4a/b: the payload's simulated sensors and their config match the real drivers'
+      # topics and frames (and the OAK-D Lite's cameras its geometry), and the run check's
+      # statistics, ray cast and stereo matcher work on made-up data. The timing, range,
+      # exposure and noise code itself is in the selftest (TEST-035, TEST-036).
+      - name: Simulated sensors check and self-check (R2.4a, R2.4b)
         run: |
           python3 tools/check_sim_sensors.py
           python3 tools/check_sim_sensors.py --selfcheck
