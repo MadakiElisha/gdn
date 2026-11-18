@@ -23,7 +23,24 @@
   doesn't block it. gpu_lidar renders the terrain, so it needs a working GPU
   (see docs/SETUP.md).
 
-  R2.4 adds the Mid-360S, TFmini-S and OAK-D Lite here.
+  R2.4a: three IMUs and the TFmini-S. All error-free here: tools/sim_sensors (config/
+  sim/sensors.yaml) adds each sensor's errors and timing and publishes what its real
+  driver does. Mounts are placeholders until the vehicle profiles (R2.5) hold the real
+  extrinsics:
+  - H30WP: level, front-left-up, at the payload origin (/imu/data).
+  - Mid-360S's IMU: where the lidar goes in R2.4c, upside down (roll 180 deg), so the
+    lidar's -7 to 52 deg field of view looks at the ground (/livox/imu).
+  - OAK-D Lite's IMU: with the camera, forward and pitched 30 deg down (/oak/imu/data).
+  - TFmini-S: a 1-beam gpu_lidar pointing straight down (/tfmini/range). The raw beam
+    reads from 2 cm to 13 m; the 0.1 to 12 m limits are applied by tools/sim_sensors.
+    It starts that close because Gazebo's beam doesn't see anything nearer than its
+    start, which would give "no target" (+inf) for ground a few cm away (a VTOL parked
+    on its belly) where the real sensor says "too close" (-inf). Nothing of the
+    airframe is below the sensor, so the beam can't hit the vehicle itself.
+  The IMUs run at 250 Hz, the physics rate; sim_sensors puts them on each sensor's own
+  clock.
+
+  R2.4b adds the OAK-D Lite's cameras, R2.4c the Mid-360S.
 -->
 <sdf version="1.9">
   <model name="gdn_payload">
@@ -48,6 +65,53 @@
           <noise><type>gaussian</type><mean>0.0</mean><stddev>0.3</stddev></noise>
         </lidar>
       </sensor>
+
+      <sensor name="gdn_imu_h30wp" type="imu">
+        <pose>0 0 0.02 0 0 0</pose>
+        <topic>gdn/imu/h30wp</topic>
+        <update_rate>250</update_rate>
+        <always_on>1</always_on>
+      </sensor>
+      <sensor name="gdn_imu_mid360s" type="imu">
+        <pose>0 0 -0.05 3.1415927 0 0</pose>
+        <topic>gdn/imu/mid360s</topic>
+        <update_rate>250</update_rate>
+        <always_on>1</always_on>
+      </sensor>
+      <sensor name="gdn_imu_oakd" type="imu">
+        <pose>0.08 0 -0.02 0 0.5235988 0</pose>
+        <topic>gdn/imu/oakd</topic>
+        <update_rate>250</update_rate>
+        <always_on>1</always_on>
+      </sensor>
+
+      <sensor name="gdn_tfmini" type="gpu_lidar">
+        <!-- gpu_lidar fires along its +x axis; pitch +90 deg points that straight down -->
+        <pose>-0.05 0 -0.02 0 1.5707963 0</pose>
+        <topic>gdn/tfmini</topic>
+        <update_rate>100</update_rate>
+        <always_on>1</always_on>
+        <lidar>
+          <scan>
+            <horizontal><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></horizontal>
+            <vertical><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+          </scan>
+          <range><min>0.02</min><max>13.0</max><resolution>0.001</resolution></range>
+        </lidar>
+      </sensor>
     </link>
+
+    <!-- Truth: the payload frame's true pose in the world (ENU, origin = map centre), for
+         scoring and checks only, never fed to GDN. It's here, not in the vehicle model,
+         because a model's own origin isn't its base_link: PX4's x500, standard_vtol and
+         rc_cessna put base_link 0.24 to 0.246 m above it (TEST-035). Here truth is the
+         frame every sensor pose below is given in. -->
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>gdn_payload_link</robot_base_frame>
+      <odom_publish_frequency>20</odom_publish_frequency>
+      <odom_topic>gdn/truth_odom</odom_topic>
+      <dimensions>3</dimensions>
+    </plugin>
   </model>
 </sdf>

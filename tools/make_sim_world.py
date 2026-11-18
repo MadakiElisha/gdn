@@ -140,13 +140,13 @@ def write_map(path, alt, hdr):
 
 
 def runway_sdf(heading, grade, length, pad_z):
-    """A grey strip with a white centreline, laid 3 cm over the graded ground (visual
-    only: the wheels roll on the heightmap)."""
+    """A grey strip with a white centreline, its top 2 cm over the graded ground (visual
+    only: the wheels roll on the heightmap; the radar and the TFmini-S see it)."""
     mid = length / 2.0 - RUNWAY_BEHIND
     ce, cn = math.sin(math.radians(heading)), math.cos(math.radians(heading))
     yaw = math.radians(90.0 - heading)          # the boxes' x along the runway (ENU)
     pitch = -math.atan(grade)                   # x end up for a positive grade
-    pose = f"{mid * ce:.2f} {mid * cn:.2f} {pad_z + grade * mid + 0.03:.3f} 0 {pitch:.5f} {yaw:.5f}"
+    pose = f"{mid * ce:.2f} {mid * cn:.2f} {pad_z + grade * mid + 0.015:.3f} 0 {pitch:.5f} {yaw:.5f}"
     def box(name, size, colour, dz=0.0):
         return (f'<visual name="{name}"><pose>0 0 {dz} 0 0 0</pose><geometry><box><size>{size}</size></box>'
                 f'</geometry><material><ambient>{colour}</ambient><diffuse>{colour}</diffuse></material></visual>')
@@ -154,8 +154,8 @@ def runway_sdf(heading, grade, length, pad_z):
       <static>true</static>
       <pose>{pose}</pose>
       <link name="link">
-        {box("strip", f"{length:.1f} {RUNWAY_WIDTH:.1f} 0.02", "0.32 0.32 0.33 1")}
-        {box("centreline", f"{length - 20:.1f} 0.6 0.02", "0.95 0.95 0.95 1", 0.005)}
+        {box("strip", f"{length:.1f} {RUNWAY_WIDTH:.1f} 0.01", "0.32 0.32 0.33 1")}
+        {box("centreline", f"{length - 20:.1f} 0.6 0.01", "0.95 0.95 0.95 1", 0.003)}
       </link>
     </model>
 """

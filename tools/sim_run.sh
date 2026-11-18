@@ -73,7 +73,7 @@ PIDS=()
 # "ros2 run ..." the PID is the launcher, and the program it started survives it.
 # A bridge or map_viz_node left from an earlier run doubles every Gazebo message
 # and keeps redrawing the old path in RViz.
-SIM_PROCS=("px4_sitl_default/bin/px4" "gz sim" "MicroXRCEAgent" "ros_gz_bridge/parameter_bridge"
+SIM_PROCS=("px4_sitl_default/bin/px4" "gz sim" "MicroXRCEAgent" "ros_gz_bridge/parameter_bridge" "gdn_fusion/sim_sensors"
            "tools/sim_adapter.py" "tools/replay_scorer.py" "tools/sim_fly.py" "gdn_fusion/map_viz_node"
            "rviz2 -d $ROOT/sim/gdn_sim.rviz" "ros2 bag record -s mcap -o $LOG/sitl_bag")
 stop_sim() {
@@ -192,7 +192,27 @@ cat > "$LOG/bridge.yaml" <<YAML
   gz_type_name: gz.msgs.Odometry
   direction: GZ_TO_ROS
 YAML
+# The payload's error-free sensors for tools/sim_sensors (R2.4a), which publishes them
+# as the real drivers do: /imu/data, /livox/imu, /oak/imu/data, /tfmini/range.
+for s in h30wp mid360s oakd; do
+  cat >> "$LOG/bridge.yaml" <<YAML
+- ros_topic_name: /gdn/sim/raw/imu_$s
+  gz_topic_name: /gdn/imu/$s
+  ros_type_name: sensor_msgs/msg/Imu
+  gz_type_name: gz.msgs.IMU
+  direction: GZ_TO_ROS
+YAML
+done
+cat >> "$LOG/bridge.yaml" <<YAML
+- ros_topic_name: /gdn/sim/raw/tfmini
+  gz_topic_name: /gdn/tfmini
+  ros_type_name: sensor_msgs/msg/LaserScan
+  gz_type_name: gz.msgs.LaserScan
+  direction: GZ_TO_ROS
+YAML
 ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:="$LOG/bridge.yaml" > "$LOG/bridge.log" 2>&1 & PIDS+=($!)
+ros2 run gdn_fusion sim_sensors --ros-args --params-file "$ROOT/config/sim/sensors.yaml" \
+  > "$LOG/sensors.log" 2>&1 & PIDS+=($!)
 python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" -p gz_model:="$MODEL_INSTANCE" ${GDN_SIM_ADAPTER_ARGS:-} \
   > "$LOG/adapter.log" 2>&1 & PIDS+=($!)
 
@@ -227,7 +247,8 @@ rm -rf "$LOG/sitl_bag"
 ros2 bag record -s mcap -o "$LOG/sitl_bag" --qos-profile-overrides-path "$ROOT/tools/bag_qos.yaml" \
   /fmu/out/sensor_combined /fmu/out/vehicle_attitude /fmu/out/vehicle_local_position \
   /fmu/out/vehicle_status_v1 /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
-  /gdn/sim/truth_odom /gdn/sim/agl_scan > "$LOG/bag.log" 2>&1 & PIDS+=($!)
+  /gdn/sim/truth_odom /gdn/sim/agl_scan /imu/data /livox/imu /oak/imu/data /tfmini/range \
+  > "$LOG/bag.log" 2>&1 & PIDS+=($!)
 
 if [ -z "$HEADLESS" ]; then
   ros2 run gdn_fusion map_viz_node --ros-args -p map_path:="$MAP" > "$LOG/viz.log" 2>&1 & PIDS+=($!)

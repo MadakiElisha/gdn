@@ -121,6 +121,14 @@ jobs:
           python3 tools/check_vehicles.py
           python3 tools/check_vehicles.py --selfcheck
 
+      # R2.4a: the payload's simulated sensors and their config match the real drivers'
+      # topics and frames, and the run check's statistics work on made-up data. The
+      # timing and range code itself is in the selftest (TEST-035).
+      - name: Simulated sensors check and self-check (R2.4a)
+        run: |
+          python3 tools/check_sim_sensors.py
+          python3 tools/check_sim_sensors.py --selfcheck
+
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |
           source env.sh

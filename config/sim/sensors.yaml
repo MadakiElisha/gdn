@@ -1,0 +1,102 @@
+# Simulated sensors (roadmap R2.4a): what tools/sim_sensors (gdn_sim_sensors) makes of
+# Gazebo's error-free sensors in the GDN payload (sim/models/gdn_payload), so that each
+# publishes what its real driver does: topic, message type, frame, units, rate, errors
+# and timing.
+#
+# Per sensor:
+#   kind           imu | range
+#   raw_topic      the error-free Gazebo sensor, bridged by tools/sim_run.sh
+#   topic, frame_id   as the real driver (docs/hardware/)
+#   rate_hz        the sensor's own clock; IMU samples are interpolated onto it
+#   tick_hz, skip_prob   (IMU) a sensor clock of tick_hz where each sample skips one tick
+#                  with probability skip_prob (the OAK-D Lite's BMI270, TEST-025)
+#   accel_in_g     (IMU) acceleration in g, as livox_ros_driver2 passes it through
+#   model          (IMU) the R1.6 error model (config/imu/), applied by gdn::ImuErrorSim
+#   stamp          sensor: the header carries the sample time (plus stamp_jitter_ms);
+#                  arrival: the driver stamps it when it arrives (the H30WP's factory
+#                  output has no sample time), i.e. the sample time plus the latency
+#   latency_ms, latency_jitter_ms   from the sample to its arrival (normal, cut at 0)
+#   stamp_jitter_ms   sigma of the error on a sensor stamp
+#   drop_prob      probability that a message never arrives
+#   seed           random seed (errors, timing)
+# Range (TFmini-S): min_range, max_range (m), fov_deg, resolution (m), and the noise
+#   sigma: noise_near_m below near_limit_m, noise_far_frac times the range beyond.
+#
+# Measured: the IMU rates, the Mid-360S's stamp jitter and the OAK-D Lite's tick and
+# skip pattern (TEST-024, TEST-025), the IMU error models (R1.6). Placeholders until
+# Phase 6 measures them: every latency, the TFmini-S's dropouts and noise (from its
+# datasheet: +-6 cm to 6 m, +-1% to 12 m, read as 2 sigma).
+gdn_sim_sensors:
+  ros__parameters:
+    sensors: [h30wp, mid360s_imu, oakd_imu, tfmini]
+
+    h30wp:
+      kind: imu
+      raw_topic: /gdn/sim/raw/imu_h30wp
+      topic: /imu/data
+      frame_id: imu_link
+      rate_hz: 200.0          # TEST-024: 200.004 Hz, even (it has its own clock)
+      tick_hz: 0.0
+      skip_prob: 0.0
+      accel_in_g: false
+      model: config/imu/h30wp.yaml
+      stamp: arrival          # factory output has no sample time: tools/h30wp_node.py stamps on arrival
+      latency_ms: 3.0         # placeholder: 460800 baud frame (about 1.5 ms) + USB polling
+      latency_jitter_ms: 0.5  # placeholder
+      stamp_jitter_ms: 0.0
+      drop_prob: 0.0          # TEST-024: 0 lost of 1,620,010
+      seed: 11
+
+    mid360s_imu:
+      kind: imu
+      raw_topic: /gdn/sim/raw/imu_mid360s
+      topic: /livox/imu
+      frame_id: livox_frame   # tools/livox_run.sh frame_id
+      rate_hz: 200.0          # TEST-025
+      tick_hz: 0.0
+      skip_prob: 0.0
+      accel_in_g: true        # livox_ros_driver2 passes Livox's g through
+      model: config/imu/mid360s.yaml
+      stamp: sensor
+      latency_ms: 1.0         # placeholder: Ethernet
+      latency_jitter_ms: 0.2  # placeholder
+      stamp_jitter_ms: 0.53   # TEST-025: spacing spread 15% of 5 ms = sqrt(2) x stamp sigma
+      drop_prob: 0.0          # TEST-025: none lost
+      seed: 12
+
+    oakd_imu:
+      kind: imu
+      raw_topic: /gdn/sim/raw/imu_oakd
+      topic: /oak/imu/data    # depthai_ros_driver_v3 (its IMU frame name to confirm in Phase 6)
+      frame_id: oak_imu_frame
+      rate_hz: 0.0            # set by the tick and the skips: about 239 Hz
+      tick_hz: 394.5          # TEST-025: the BMI270's gyro ticks every 2.53 ms
+      skip_prob: 0.65         # TEST-025: 65% of the steps skip one tick (60% of ticks come through)
+      accel_in_g: false
+      model: config/imu/oakd_lite.yaml
+      stamp: sensor           # device time
+      latency_ms: 4.0         # placeholder: USB
+      latency_jitter_ms: 1.0  # placeholder
+      stamp_jitter_ms: 0.0
+      drop_prob: 0.0          # TEST-025: 0 lost reports
+      seed: 13
+
+    tfmini:
+      kind: range
+      raw_topic: /gdn/sim/raw/tfmini
+      topic: /tfmini/range
+      frame_id: tfmini_link
+      rate_hz: 100.0          # datasheet default frame rate
+      min_range: 0.1          # datasheet
+      max_range: 12.0         # datasheet, 90% reflectivity (about 7 m on dark ground: not modelled)
+      fov_deg: 2.0            # datasheet
+      resolution: 0.01        # datasheet: 1 cm
+      noise_near_m: 0.03      # datasheet +-6 cm (0.1 to 6 m) as 2 sigma
+      near_limit_m: 6.0
+      noise_far_frac: 0.005   # datasheet +-1% (6 to 12 m) as 2 sigma
+      stamp: arrival          # UART, no sample time
+      latency_ms: 5.0         # placeholder
+      latency_jitter_ms: 1.0  # placeholder
+      stamp_jitter_ms: 0.0
+      drop_prob: 0.002        # placeholder
+      seed: 14

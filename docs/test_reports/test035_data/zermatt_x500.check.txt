@@ -1,0 +1,11 @@
+flight: x500 (multirotor) over zermatt
+PASS  went through its phases (at cruise height; route done, landing; landed and disarmed)
+PASS  no fail-safe
+PASS  came down on the pad (within 10 m): 0.9 m from it
+PASS  whole route flown (every route point within 60 m): worst 2 m
+PASS  follows the route hovering (cross-track p95 under 15 m): p95 1.0 m, max 2.5 m over 4100 samples
+PASS  clear of the terrain on the route (at least 25 m away from the pad): lowest 59.8 m above the ground
+PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.36 m, p95 0.72 m, max 1.2 m over 666 readings (19 tilted past 35 deg left out); radar ranges at Gazebo time
+PASS  GDN ran alongside (scorer reported): RMS 60-300s: 153.2 m | MAX 60-300s: 367.2 m
+airborne 346 s, 2.7 km
+vehicle exit 0

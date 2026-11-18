@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <random>
 #include <vector>
 #include "gdn/map_db.hpp"
@@ -17,6 +18,7 @@
 #include "gdn/ground_monitor.hpp"
 #include "gdn/imu_model.hpp"
 #include "gdn/paths.hpp"
+#include "gdn/sim_sensors.hpp"
 
 using namespace gdn;
 static int g_fail = 0;
@@ -1272,6 +1274,100 @@ int main() {
                     name, r[0], r[1], r[2], r[3]);
         CHECK(loaded && r[0] >= 1.0 && r[1] >= 1.0 && r[2] >= 1.0 && r[3] >= 1.0,
               (std::string("eskf: TEST-025 default process noise is not below the ") + name + "'s").c_str());
+    }
+
+    // TEST-035 (R2.4a): the simulated sensors' resampling, timing and range reading
+    // (gdn/sim_sensors.hpp), which tools/sim_sensors applies to the payload's Gazebo sensors.
+    {
+        using simsens::V3;
+        // An even 200 Hz clock from 250 Hz raw samples: exact on a linear signal, 5 ms apart.
+        simsens::Resampler even(200.0, 0.0, 0.0, 1);
+        std::vector<double> ts;
+        double worst = 0.0;
+        for (int k = 0; k <= 2500; ++k) {
+            const double t = 0.004 * k;
+            even.Add(t, V3(t, 2 * t, -t), V3(3 * t, 0, 1), [&](double s, const V3& a, const V3& w) {
+                ts.push_back(s);
+                worst = std::max({worst, (a - V3(s, 2 * s, -s)).norm(), (w - V3(3 * s, 0, 1)).norm()});
+            });
+        }
+        double dt_err = 0.0;
+        for (size_t i = 1; i < ts.size(); ++i) dt_err = std::max(dt_err, std::abs(ts[i] - ts[i - 1] - 0.005));
+        CHECK(ts.size() == 2001 && worst < 1e-9 && dt_err < 1e-9,
+              "sim: TEST-035 IMU resampled onto an even 200 Hz clock, exactly, from 250 Hz");
+        // The OAK-D Lite's BMI270: 394.5 Hz ticks, 65% of the steps skip one: 239 Hz.
+        simsens::Resampler tick(0.0, 394.5, 0.65, 2);
+        std::vector<double> tt;
+        for (int k = 0; k <= 25000; ++k)
+            tick.Add(0.004 * k, V3::Zero(), V3::Zero(), [&](double s, const V3&, const V3&) { tt.push_back(s); });
+        bool steps_ok = true;
+        for (size_t i = 1; i < tt.size(); ++i) {
+            const double n = (tt[i] - tt[i - 1]) * 394.5;
+            steps_ok &= std::abs(n - 1.0) < 1e-6 || std::abs(n - 2.0) < 1e-6;
+        }
+        const double rate = static_cast<double>(tt.size() - 1) / (tt.back() - tt.front());
+        std::printf("      OAK-D tick clock: %.1f Hz\n", rate);
+        CHECK(steps_ok && std::abs(rate - 239.1) < 3.0, "sim: TEST-035 OAK-D tick clock skips ticks, 239 Hz");
+        // Timing: arrival stamps carry the latency; sensor stamps carry the jitter; in order; losses.
+        simsens::Timing ta;
+        ta.arrival_stamp = true;
+        ta.latency = 0.003;
+        ta.latency_jitter = 0.0005;
+        ta.drop_prob = 0.02;
+        simsens::TimingModel tma(ta, 3);
+        simsens::Timing tsn;
+        tsn.latency = 0.001;
+        tsn.stamp_jitter = 0.00053;
+        simsens::TimingModel tms(tsn, 4);
+        double lat_sum = 0.0, prev_arr = -1.0, sj2 = 0.0;
+        int lost = 0, n = 20000;
+        bool same = true, ordered = true;
+        for (int k = 0; k < n; ++k) {
+            const double s = 0.005 * k;
+            const simsens::Message a = tma.Apply(s), b = tms.Apply(s);
+            lost += a.lost;
+            same &= a.stamp == a.arrival;
+            ordered &= a.arrival >= prev_arr;
+            prev_arr = a.arrival;
+            lat_sum += a.arrival - s;
+            sj2 += (b.stamp - s) * (b.stamp - s);
+        }
+        std::printf("      timing: latency %.2f ms, sensor stamp sigma %.3f ms, lost %.2f%%\n", 1e3 * lat_sum / n,
+                    1e3 * std::sqrt(sj2 / n), 100.0 * lost / n);
+        CHECK(same && ordered && std::abs(lat_sum / n - 0.003) < 1e-4 &&
+                  std::abs(std::sqrt(sj2 / n) - 0.00053) < 3e-5 &&
+                  std::abs(lost / static_cast<double>(n) - 0.02) < 0.004,
+              "sim: TEST-035 timing: latency, stamp jitter, order and losses as set");
+        // The TFmini-S: limits, noise by range, 1 cm steps.
+        simsens::RangeSpec rs;
+        std::mt19937_64 rng(5);
+        const double inf = std::numeric_limits<double>::infinity();
+        bool limits = simsens::RangeReading(rs, 12.5, rng) == inf && simsens::RangeReading(rs, inf, rng) == inf &&
+                      simsens::RangeReading(rs, 0.05, rng) == -inf;
+        double s1 = 0.0, s2 = 0.0;
+        bool steps = true;
+        for (int k = 0; k < 20000; ++k) {
+            const double r1 = simsens::RangeReading(rs, 2.0, rng), r2 = simsens::RangeReading(rs, 10.0, rng);
+            s1 += (r1 - 2.0) * (r1 - 2.0);
+            s2 += (r2 - 10.0) * (r2 - 10.0);
+            steps &= std::abs(r1 * 100.0 - std::round(r1 * 100.0)) < 1e-6;
+        }
+        std::printf("      TFmini-S sigma: %.4f m at 2 m, %.4f m at 10 m\n", std::sqrt(s1 / 20000),
+                    std::sqrt(s2 / 20000));
+        CHECK(limits && steps && std::abs(std::sqrt(s1 / 20000) - 0.0301) < 0.002 &&
+                  std::abs(std::sqrt(s2 / 20000) - 0.0501) < 0.002,
+              "sim: TEST-035 TFmini-S range: limits, noise by range, 1 cm steps");
+        // Simulation time to wall time: the floor of the transport delay.
+        simsens::ClockMap cm(2.0);
+        std::mt19937_64 r2(6);
+        std::exponential_distribution<double> delay(1.0 / 0.002);
+        for (int k = 0; k < 2000; ++k) {
+            const double sim = 0.004 * k;
+            cm.Observe(sim, 1000.0 + sim + 0.0005 + delay(r2));
+        }
+        const double off = cm.ToWall(8.0) - 8.0 - 1000.0 - 0.005;  // less the 5 ms headroom
+        std::printf("      clock map offset over the floor: %.3f ms\n", 1e3 * (off - 0.0005));
+        CHECK(off >= 0.0005 && off - 0.0005 < 0.0002, "sim: TEST-035 clock map finds the transport delay's floor");
     }
 
     try {

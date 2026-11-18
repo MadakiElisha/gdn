@@ -1,0 +1,38 @@
+run: standard_vtol over zermatt
+at rest on the pad for 9 s
+PASS  h30wp: on /imu/data as sensor_msgs/msg/Imu: 57598 messages, sensor_msgs/msg/Imu
+PASS  h30wp: frame: imu_link
+PASS  h30wp: rate 194 to 206 Hz: 200.0 Hz
+PASS  h30wp: at rest it reads gravity, in m/s^2: |a| 9.841 m/s^2 (1.0035 g) over 1869 samples
+PASS  h30wp: accel white noise as its R1.6 model (within 25%): sigma 7.46e-03 6.96e-03 8.61e-03 m/s^2, model 7.60e-03 7.20e-03 8.61e-03
+PASS  h30wp: gyro white noise as its R1.6 model (within 25%): sigma 1.32e-03 1.29e-03 1.02e-03 rad/s, model 1.34e-03 1.32e-03 1.03e-03
+PASS  h30wp: arrival minus stamp 0.0 ms (arrival stamps, latency 3.0 ms): median 0.31 ms, min 0.01, max 13.78
+PASS  h30wp: messages lost 0.0% (within 1 point): 0.02%
+PASS  mid360s_imu: on /livox/imu as sensor_msgs/msg/Imu: 57598 messages, sensor_msgs/msg/Imu
+PASS  mid360s_imu: frame: livox_frame
+PASS  mid360s_imu: rate 194 to 206 Hz: 200.0 Hz
+PASS  mid360s_imu: spacing spread 10 to 20% (measured): 15.0%
+PASS  mid360s_imu: at rest it reads gravity, in g: |a| 9.827 m/s^2 (1.0021 g) over 1870 samples
+PASS  mid360s_imu: accel white noise as its R1.6 model (within 25%): sigma 8.38e-03 8.22e-03 9.86e-03 m/s^2, model 8.57e-03 8.27e-03 1.00e-02
+PASS  mid360s_imu: gyro white noise as its R1.6 model (within 25%): sigma 1.22e-03 9.92e-04 2.02e-03 rad/s, model 1.26e-03 1.01e-03 2.03e-03
+PASS  mid360s_imu: arrival minus stamp 1.0 ms (sensor stamps, latency 1.0 ms): median 1.34 ms, min -1.12, max 16.30
+PASS  mid360s_imu: messages lost 0.0% (within 1 point): 0.03%
+PASS  oakd_imu: on /oak/imu/data as sensor_msgs/msg/Imu: 68948 messages, sensor_msgs/msg/Imu
+PASS  oakd_imu: frame: oak_imu_frame
+PASS  oakd_imu: rate 230 to 255 Hz: 239.4 Hz
+PASS  oakd_imu: spacing spread 20 to 38% (measured): 29.0%
+PASS  oakd_imu: at rest it reads gravity, in m/s^2: |a| 9.759 m/s^2 (0.9951 g) over 2259 samples
+PASS  oakd_imu: accel white noise as its R1.6 model (within 25%): sigma 2.00e-02 1.83e-02 2.03e-02 m/s^2, model 2.05e-02 1.82e-02 2.03e-02
+PASS  oakd_imu: gyro white noise as its R1.6 model (within 25%): sigma 1.63e-03 1.59e-03 1.61e-03 rad/s, model 1.63e-03 1.62e-03 1.64e-03
+PASS  oakd_imu: arrival minus stamp 4.0 ms (sensor stamps, latency 4.0 ms): median 4.36 ms, min 0.24, max 20.64
+PASS  oakd_imu: messages lost 0.0% (within 1 point): 0.00%
+PASS  tfmini: on /tfmini/range as sensor_msgs/msg/Range: 28746 messages, sensor_msgs/msg/Range
+PASS  tfmini: frame: tfmini_link
+PASS  tfmini: Range fields (infrared, 0.1 to 12 m, 2 deg): type 1, 0.10000000149011612 to 12.0 m, 2.00 deg
+PASS  tfmini: rate 97 to 103 Hz: 99.8 Hz
+PASS  tfmini: at rest, the true height and the model's noise: mean 0.180 m against 0.203 m, sigma 0.029 m (model 0.030)
+PASS  tfmini: +inf beyond 12 m: 23058 of 23058 readings
+PASS  tfmini: in flight within 12 m, error RMS under twice the model: RMS 0.045 m (limit 0.071) over 1718 readings
+PASS  tfmini: arrival minus stamp 0.0 ms (arrival stamps, latency 5.0 ms): median 0.38 ms, min 0.01, max 15.68
+PASS  tfmini: messages lost 0.2% (within 1 point): 0.20%
+sensors exit 0
