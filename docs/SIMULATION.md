@@ -106,6 +106,12 @@ tools/docker_dev.sh shell --gpu --gui      # a shell, with Gazebo and RViz windo
   - **What stays:** the IMUs, TFmini-S and radar altimeter, which is all the loop
     needs.
   - **On a PC without a GPU,** `GDN_SIM_CPU=1 tools/sim_run.sh` does the same.
+- **Gazebo's programs run on the system's Gazebo libraries.** ROS 2 brings its own copy of
+  some of them (`/opt/ros/jazzy/opt/gz_*_vendor`), first on `LD_LIBRARY_PATH`. When the
+  system's Gazebo is newer (gz-transport 13.7.0 against ROS's 13.6.0, November 2026), `gz
+  service` fails with "symbol lookup error", and PX4 never finds the world. So
+  `sim_run.sh` takes ROS's copies off the path for `gz sim`, the `gz` command line and
+  PX4. `docker_check.sh` tests `gz service` the same way.
 - **A slow connection:** the build retries interrupted downloads (git, apt, pip). On a
   very slow link it can still take hours; it resumes from the last finished step if
   run again.

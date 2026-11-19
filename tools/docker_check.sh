@@ -84,6 +84,11 @@ check "GDN builds (colcon, Release)" \
 # shellcheck disable=SC1091
 set +u; source "$ROOT/env.sh" >/dev/null 2>&1; set -u
 check "selftest passes (tools/run_selftest.sh)" "$ROOT/tools/run_selftest.sh"
+# As tools/sim_run.sh runs it: on the system's Gazebo libraries, not ROS's copies (R2.4c:
+# gz-transport 13.7.0 against ROS's 13.6.0 broke "gz service", and PX4 never started).
+check "Gazebo's command line runs (gz service, as sim_run.sh runs it)" bash -c \
+  'LD_LIBRARY_PATH="$(printf %s "${LD_LIBRARY_PATH:-}" | tr ":" "\n" | grep -v "/opt/gz_[a-z]*_vendor/lib$" | paste -sd: -)" \
+   gz service -i --service /gdn/none 2>&1 | grep -q "No service providers"'
 check "the Zermatt world is generated" python3 "$ROOT/tools/make_sim_world.py"
 check "world physics check (tools/check_sim_world.py)" python3 "$ROOT/tools/check_sim_world.py"
 check "the simulated vehicles carry the GDN payload and match their PX4 airframes (tools/check_vehicles.py)" \

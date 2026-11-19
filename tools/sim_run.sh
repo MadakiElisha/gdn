@@ -139,6 +139,15 @@ PY
   echo "sim_run: GDN_SIM_CPU=1, no cameras or lidar (IMUs, TFmini and radar only)"
 fi
 
+# Gazebo's own programs (gz sim, the gz command line, PX4 and its gz_bridge) run on the
+# system's Gazebo libraries, as they were built. ROS 2 puts its own copies (gz_*_vendor)
+# first on LD_LIBRARY_PATH, and env.sh adds the system's gz commands after ROS's. Once the
+# system's Gazebo is newer than ROS's copy (gz-transport 13.7.0 against 13.6.0, 18 Nov
+# 2026), "gz service" fails with "symbol lookup error ... ResolveServiceTypes", and PX4,
+# which asks it for the world, never starts (the R2.4c CI image). ROS programs (the
+# bridge, sim_sensors) keep ROS's copies.
+GZ_LD="$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -v '/opt/gz_[a-z]*_vendor/lib$' | paste -sd: -)"
+
 # Gazebo's messaging uses multicast discovery; with no network route (offline laptop,
 # some VPNs) it fails with "Network is unreachable". Everything here is on one machine.
 export GZ_IP="${GZ_IP:-127.0.0.1}"
@@ -155,9 +164,9 @@ export GZ_SIM_SERVER_CONFIG_PATH="$LOG/server.config"
 # Server and GUI run as separate processes, so a GUI crash doesn't stop the simulation.
 echo "sim_run: starting Gazebo ($WORLD, $VEHICLE, render engine $RENDER)"
 if [ -n "$HEADLESS" ]; then
-  gz sim -v 4 -s -r --headless-rendering "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
+  LD_LIBRARY_PATH="$GZ_LD" gz sim -v 4 -s -r --headless-rendering "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
 else
-  gz sim -v 4 -s -r "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
+  LD_LIBRARY_PATH="$GZ_LD" gz sim -v 4 -s -r "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
 fi
 PIDS+=($GZ_PID)
 gz_dead() {
@@ -176,33 +185,34 @@ gz_dead() {
 # failed start (in the CI artifact).
 gz_discovery() {
   { date; echo "GZ_IP=${GZ_IP:-} GZ_PARTITION=${GZ_PARTITION:-} world=$WORLD"
-    echo "--- gz topic -l (PX4 takes the first /world/*/clock)"; timeout 30 gz topic -l 2>&1
-    echo "--- gz service -i /world/$WORLD/scene/info"; timeout 30 gz service -i --service "/world/$WORLD/scene/info" 2>&1
+    echo "--- gz topic -l (PX4 takes the first /world/*/clock)"; LD_LIBRARY_PATH="$GZ_LD" timeout 30 gz topic -l 2>&1
+    echo "--- gz service -i /world/$WORLD/scene/info"; LD_LIBRARY_PATH="$GZ_LD" timeout 30 gz service -i --service "/world/$WORLD/scene/info" 2>&1
+    echo "--- LD_LIBRARY_PATH for Gazebo: $GZ_LD"
     echo "--- processes"; ps -eo pid,pcpu,etime,args --sort=-pcpu | head -25; } > "$LOG/gz_discovery.txt" 2>&1
   echo "sim_run: Gazebo's discovery written to $LOG/gz_discovery.txt"
 }
 T0=$SECONDS
 echo -n "sim_run: waiting for Gazebo's world "
 for i in $(seq 1 240); do
-  gz service -i --service "/world/$WORLD/scene/info" 2>&1 | grep -q "Service providers" && break
+  LD_LIBRARY_PATH="$GZ_LD" gz service -i --service "/world/$WORLD/scene/info" 2>&1 | grep -q "Service providers" && break
   gz_dead && exit 1
   [ "$i" -eq 240 ] && { echo; gz_discovery; die "Gazebo's world didn't come up in 4 minutes; see $LOG/gz.log"; }
   echo -n "."; sleep 1
 done
 echo " up after $((SECONDS - T0)) s"
 # PX4 attaches to the first world Gazebo lists, so another one running would take its place.
-FIRST_WORLD="$(gz topic -l 2>/dev/null | grep -m 1 -e "^/world/.*/clock" | sed 's#/world/##; s#/clock##')"
+FIRST_WORLD="$(LD_LIBRARY_PATH="$GZ_LD" gz topic -l 2>/dev/null | grep -m 1 -e "^/world/.*/clock" | sed 's#/world/##; s#/clock##')"
 [ "$FIRST_WORLD" = "$WORLD" ] || echo "sim_run: warning, Gazebo lists world '${FIRST_WORLD}' first, not '$WORLD': PX4 would attach to it"
 if [ -z "$HEADLESS" ]; then
   # Gazebo's own start camera is inside our terrain; tools/gz_gui_config.py fixes it.
   python3 tools/gz_gui_config.py "$WDIR" "$LOG/gui.config"
-  gz sim -v 3 -g --render-engine-gui "$RENDER" --gui-config "$LOG/gui.config" > "$LOG/gz_gui.log" 2>&1 & PIDS+=($!)
+  LD_LIBRARY_PATH="$GZ_LD" gz sim -v 3 -g --render-engine-gui "$RENDER" --gui-config "$LOG/gui.config" > "$LOG/gz_gui.log" 2>&1 & PIDS+=($!)
 fi
 
 MicroXRCEAgent udp4 -p 8888 > "$LOG/agent.log" 2>&1 & PIDS+=($!)
 
 echo "sim_run: starting PX4 (airframe $VEHICLE_AUTOSTART, attaching to $MODEL_INSTANCE)"
-( cd "$PX4_DIR" && PX4_SYS_AUTOSTART="$VEHICLE_AUTOSTART" PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
+( cd "$PX4_DIR" && LD_LIBRARY_PATH="$GZ_LD" PX4_SYS_AUTOSTART="$VEHICLE_AUTOSTART" PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
     PX4_GZ_WORLD="$WORLD" ./build/px4_sitl_default/bin/px4 -d > "$LOG/px4.log" 2>&1 ) & PIDS+=($!)
 
 echo -n "sim_run: waiting for PX4 over DDS "
