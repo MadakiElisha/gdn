@@ -1,0 +1,41 @@
+{
+ "frames": 693,
+ "frame_ids": [
+  "livox_frame"
+ ],
+ "lidar_ids": [
+  192
+ ],
+ "rate_hz": 9.999963127944719,
+ "spacing_ms": [
+  98.56390953063965,
+  100.00121593475342,
+  101.49073600769043
+ ],
+ "points_per_frame": [
+  19872,
+  19968.0,
+  20160
+ ],
+ "stamp_is_timebase": 1.0,
+ "arrival_minus_stamp_ms": [
+  102.42676734924316,
+  109.10606384277344,
+  112.79821395874023
+ ],
+ "line_shares": [
+  0.25,
+  0.25,
+  0.25,
+  0.25
+ ],
+ "no_return_share": 0.24076059607950775,
+ "no_return_reflectivity_0": true,
+ "nearest_return_m": 0.12884486825256142,
+ "offset_time_max_ms": 100.627669,
+ "point_spacing_us": 4.947,
+ "pattern_frames": 70,
+ "line_spread_iqr_deg": 2.488875388538964,
+ "azimuth_step_deg": 1.3015454304936043,
+ "source": "mid360s_lidar_real: our Mid-360S, livox_ros_driver2 1.2.8, static in a room, every 10th frame's points"
+}

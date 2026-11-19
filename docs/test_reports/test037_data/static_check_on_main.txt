@@ -1,0 +1,25 @@
+PASS  h30wp: publishes the real topic and frame: /imu/data (imu_link)
+PASS  h30wp: an error-free Gazebo sensor in gdn_payload: imu on gdn/imu/h30wp
+PASS  h30wp: its R1.6 model: config/imu/h30wp.yaml
+PASS  h30wp: acceleration units: m/s^2
+PASS  mid360s_imu: publishes the real topic and frame: /livox/imu (livox_frame)
+PASS  mid360s_imu: an error-free Gazebo sensor in gdn_payload: imu on gdn/imu/mid360s
+PASS  mid360s_imu: its R1.6 model: config/imu/mid360s.yaml
+PASS  mid360s_imu: acceleration units: g
+PASS  oakd_imu: publishes the real topic and frame: /oak/imu/data (oak_imu_frame)
+PASS  oakd_imu: an error-free Gazebo sensor in gdn_payload: imu on gdn/imu/oakd
+PASS  oakd_imu: its R1.6 model: config/imu/oakd_lite.yaml
+PASS  oakd_imu: acceleration units: m/s^2
+PASS  tfmini: publishes the real topic and frame: /tfmini/range (tfmini_link)
+PASS  tfmini: an error-free Gazebo sensor in gdn_payload: gpu_lidar on gdn/tfmini
+PASS  oakd_stereo: left on the real topics and frame: /oak/left/image_raw, /oak/left/camera_info (oak_left_camera_optical_frame)
+PASS  oakd_stereo: right on the real topics and frame: /oak/right/image_raw, /oak/right/camera_info (oak_right_camera_optical_frame)
+PASS  oakd_stereo: the OAK-D Lite's 640 x 480, 73 deg, 7.5 cm: 640 x 480, 73.0 deg, 0.075 m, 30.0 Hz
+PASS  oakd_stereo: left is an error-free 16-bit grey Gazebo camera: camera, L16 on gdn/oak/left
+PASS  oakd_stereo: left camera as the config (size, field of view, rate): 640 x 480, 73.00 deg, 30 Hz
+PASS  oakd_stereo: right is an error-free 16-bit grey Gazebo camera: camera, L16 on gdn/oak/right
+PASS  oakd_stereo: right camera as the config (size, field of view, rate): 640 x 480, 73.00 deg, 30 Hz
+PASS  oakd_stereo: parallel, 7.5 cm apart, left at +y (left of the view): left minus right in the camera frame [0.0, 0.075, 0.0] m
+PASS  oakd_stereo: on one board with the OAK-D Lite's IMU (same direction, within 5 cm): 0.0 cm apart, pitch 30 deg
+FAIL  mid360s_lidar: a livox sensor in config/sim/sensors.yaml
+exit 1

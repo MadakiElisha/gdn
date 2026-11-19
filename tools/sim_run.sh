@@ -16,6 +16,10 @@
 #   GDN_BAG_IMAGES=1 tools/sim_run.sh     # R2.4b: record the OAK-D Lite's images too, in
 #                                         # $LOG/image_bag (about 18 MB/s; by default only
 #                                         # their camera_info, in sitl_bag)
+#   GDN_SIM_CPU=1 tools/sim_run.sh        # no GPU: leave out the OAK-D Lite's cameras and
+#                                         # the Mid-360S lidar, which Gazebo can't render
+#                                         # fast enough on the processor (the CPU
+#                                         # tools/docker_check.sh; IMUs, TFmini and radar stay)
 #
 # One-time setup: tools/setup_sim.sh. Logs: $GDN_LOG_DIR (default /tmp/gdn_sim).
 # Ctrl+C stops everything.
@@ -45,6 +49,10 @@ command -v gz >/dev/null || die "Gazebo (gz) not found (run tools/setup_sim.sh)"
 command -v MicroXRCEAgent >/dev/null || die "MicroXRCEAgent not found (run tools/setup_sim.sh)"
 command -v ros2 >/dev/null || die "ROS 2 not sourced: source env.sh"
 ros2 pkg prefix ros_gz_bridge >/dev/null 2>&1 || die "ros_gz_bridge missing: sudo apt install ros-jazzy-ros-gz-bridge"
+# R2.4c: the simulated Mid-360S needs Livox's scan pattern and livox_ros_driver2's messages.
+"$ROOT/tools/fetch_livox_pattern.sh" >/dev/null || die "couldn't fetch the Mid-360 scan pattern (tools/fetch_livox_pattern.sh)"
+ros2 interface show livox_ros_driver2/msg/CustomMsg >/dev/null 2>&1 \
+  || die "livox_ros_driver2 messages missing: use the dev image, or source a Livox driver workspace (env.sh looks in ~/ws_livox)"
 ros2 pkg prefix gdn_fusion >/dev/null 2>&1 || die "GDN not built: colcon build --base-paths src ..."
 
 # World (generated per machine because it holds absolute paths).
@@ -110,6 +118,35 @@ set +u
 source "$PX4_DIR/build/px4_sitl_default/rootfs/gz_env.sh"
 set -u
 export GZ_SIM_RESOURCE_PATH="$GZ_SIM_RESOURCE_PATH:$ROOT/sim/models:$WDIR"
+# GDN_SIM_CPU=1: a copy of the payload without its cameras and lidar, found first. Rendered
+# on the processor they slowed Gazebo to a tenth of real time, and the CPU docker check's
+# x500 never finished its climb (R2.4c).
+SIM_SENSOR_ARGS=()
+if [ -n "${GDN_SIM_CPU:-}" ]; then
+  rm -rf "$LOG/models"; mkdir -p "$LOG/models"
+  cp -r "$ROOT/sim/models/gdn_payload" "$LOG/models/"
+  python3 - "$LOG/models/gdn_payload/model.sdf" <<'PY' || die "couldn't strip the payload's rendered sensors"
+import re, sys
+p = sys.argv[1]
+s, n = re.subn(r'\n\s*<sensor name="(gdn_oak_left|gdn_oak_right|gdn_mid360s_lidar)".*?</sensor>', "",
+               open(p).read(), flags=re.S)
+if n != 3:
+    sys.exit(f"expected the 2 cameras and the lidar in {p}, found {n}")
+open(p, "w").write(s)
+PY
+  export GZ_SIM_RESOURCE_PATH="$LOG/models:$GZ_SIM_RESOURCE_PATH"
+  SIM_SENSOR_ARGS=(-p "sensors:=[h30wp, mid360s_imu, oakd_imu, tfmini]")
+  echo "sim_run: GDN_SIM_CPU=1, no cameras or lidar (IMUs, TFmini and radar only)"
+fi
+
+# Gazebo's own programs (gz sim, the gz command line, PX4 and its gz_bridge) run on the
+# system's Gazebo libraries, as they were built. ROS 2 puts its own copies (gz_*_vendor)
+# first on LD_LIBRARY_PATH, and env.sh adds the system's gz commands after ROS's. Once the
+# system's Gazebo is newer than ROS's copy (gz-transport 13.7.0 against 13.6.0, 18 Nov
+# 2026), "gz service" fails with "symbol lookup error ... ResolveServiceTypes", and PX4,
+# which asks it for the world, never starts (the R2.4c CI image). ROS programs (the
+# bridge, sim_sensors) keep ROS's copies.
+GZ_LD="$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -v '/opt/gz_[a-z]*_vendor/lib$' | paste -sd: -)"
 
 # Gazebo's messaging uses multicast discovery; with no network route (offline laptop,
 # some VPNs) it fails with "Network is unreachable". Everything here is on one machine.
@@ -127,12 +164,11 @@ export GZ_SIM_SERVER_CONFIG_PATH="$LOG/server.config"
 # Server and GUI run as separate processes, so a GUI crash doesn't stop the simulation.
 echo "sim_run: starting Gazebo ($WORLD, $VEHICLE, render engine $RENDER)"
 if [ -n "$HEADLESS" ]; then
-  gz sim -v 4 -s -r --headless-rendering "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
+  LD_LIBRARY_PATH="$GZ_LD" gz sim -v 4 -s -r --headless-rendering "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
 else
-  gz sim -v 4 -s -r "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
+  LD_LIBRARY_PATH="$GZ_LD" gz sim -v 4 -s -r "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
 fi
 PIDS+=($GZ_PID)
-sleep 5
 gz_dead() {
   kill -0 "$GZ_PID" 2>/dev/null && return 1
   echo; echo "sim_run: the Gazebo server stopped. Last lines of $LOG/gz.log:"
@@ -142,28 +178,60 @@ gz_dead() {
   fi
   return 0
 }
-gz_dead && exit 1
+# Wait for the world to answer before starting PX4, which gives up after about 30 s
+# ("Timed out waiting for Gazebo world"). A fixed 5 s was enough on a desktop, but
+# GitHub's CPU runner needed longer, and PX4 never came up (R2.4c).
+# gz_discovery: what Gazebo's discovery shows, the way PX4's startup asks it, for a
+# failed start (in the CI artifact).
+gz_discovery() {
+  { date; echo "GZ_IP=${GZ_IP:-} GZ_PARTITION=${GZ_PARTITION:-} world=$WORLD"
+    echo "--- gz topic -l (PX4 takes the first /world/*/clock)"; LD_LIBRARY_PATH="$GZ_LD" timeout 30 gz topic -l 2>&1
+    echo "--- gz service -i /world/$WORLD/scene/info"; LD_LIBRARY_PATH="$GZ_LD" timeout 30 gz service -i --service "/world/$WORLD/scene/info" 2>&1
+    echo "--- LD_LIBRARY_PATH for Gazebo: $GZ_LD"
+    echo "--- processes"; ps -eo pid,pcpu,etime,args --sort=-pcpu | head -25; } > "$LOG/gz_discovery.txt" 2>&1
+  echo "sim_run: Gazebo's discovery written to $LOG/gz_discovery.txt"
+}
+T0=$SECONDS
+echo -n "sim_run: waiting for Gazebo's world "
+for i in $(seq 1 240); do
+  LD_LIBRARY_PATH="$GZ_LD" gz service -i --service "/world/$WORLD/scene/info" 2>&1 | grep -q "Service providers" && break
+  gz_dead && exit 1
+  [ "$i" -eq 240 ] && { echo; gz_discovery; die "Gazebo's world didn't come up in 4 minutes; see $LOG/gz.log"; }
+  echo -n "."; sleep 1
+done
+echo " up after $((SECONDS - T0)) s"
+# PX4 attaches to the first world Gazebo lists, so another one running would take its place.
+FIRST_WORLD="$(LD_LIBRARY_PATH="$GZ_LD" gz topic -l 2>/dev/null | grep -m 1 -e "^/world/.*/clock" | sed 's#/world/##; s#/clock##')"
+[ "$FIRST_WORLD" = "$WORLD" ] || echo "sim_run: warning, Gazebo lists world '${FIRST_WORLD}' first, not '$WORLD': PX4 would attach to it"
 if [ -z "$HEADLESS" ]; then
   # Gazebo's own start camera is inside our terrain; tools/gz_gui_config.py fixes it.
   python3 tools/gz_gui_config.py "$WDIR" "$LOG/gui.config"
-  gz sim -v 3 -g --render-engine-gui "$RENDER" --gui-config "$LOG/gui.config" > "$LOG/gz_gui.log" 2>&1 & PIDS+=($!)
+  LD_LIBRARY_PATH="$GZ_LD" gz sim -v 3 -g --render-engine-gui "$RENDER" --gui-config "$LOG/gui.config" > "$LOG/gz_gui.log" 2>&1 & PIDS+=($!)
 fi
 
 MicroXRCEAgent udp4 -p 8888 > "$LOG/agent.log" 2>&1 & PIDS+=($!)
 
 echo "sim_run: starting PX4 (airframe $VEHICLE_AUTOSTART, attaching to $MODEL_INSTANCE)"
-( cd "$PX4_DIR" && PX4_SYS_AUTOSTART="$VEHICLE_AUTOSTART" PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
+( cd "$PX4_DIR" && LD_LIBRARY_PATH="$GZ_LD" PX4_SYS_AUTOSTART="$VEHICLE_AUTOSTART" PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
     PX4_GZ_WORLD="$WORLD" ./build/px4_sitl_default/bin/px4 -d > "$LOG/px4.log" 2>&1 ) & PIDS+=($!)
 
+# Each try listens 5 s: on GitHub's CPU runner a fresh "ros2 topic echo" needed more than
+# 2 s to start and find PX4. A second, confirming 2 s listen after the loop missed it
+# there, and stopped a run whose PX4 was up (R2.4c); the loop's own success counts now.
+T0=$SECONDS
+PX4_UP=
 echo -n "sim_run: waiting for PX4 over DDS "
-for _ in $(seq 1 90); do
-  timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 && break
+for _ in $(seq 1 40); do
+  if timeout 5 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1; then
+    PX4_UP=1; break
+  fi
   gz_dead && exit 1
   echo -n "."
 done
 echo
-timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
-  || die "no /fmu/out/vehicle_local_position after 3 minutes; see $LOG/px4.log and $LOG/agent.log"
+[ -n "$PX4_UP" ] && echo "sim_run: PX4 up over DDS after $((SECONDS - T0)) s"
+[ -n "$PX4_UP" ] \
+  || { gz_discovery; die "no /fmu/out/vehicle_local_position after $((SECONDS - T0)) s; see $LOG/px4.log and $LOG/agent.log"; }
 # PX4 settings for this setup and vehicle (each one explained in tools/sim_vehicles.py):
 # IMU_INTEG_RATE 100, NAV_DLL_ACT 0 and EKF2_GPS_CTRL 7 always, plus the fixed-wing's
 # catapult launch. PX4 resets its parameters when the airframe changes.
@@ -198,7 +266,7 @@ cat > "$LOG/bridge.yaml" <<YAML
 YAML
 # The payload's error-free sensors for tools/sim_sensors (R2.4a, R2.4b), which publishes
 # them as the real drivers do: /imu/data, /livox/imu, /oak/imu/data, /tfmini/range and
-# the OAK-D Lite's /oak/left and /oak/right images.
+# the OAK-D Lite's /oak/left and /oak/right images, and the Mid-360S's /livox/lidar (R2.4c).
 for s in h30wp mid360s oakd; do
   cat >> "$LOG/bridge.yaml" <<YAML
 - ros_topic_name: /gdn/sim/raw/imu_$s
@@ -215,6 +283,13 @@ cat >> "$LOG/bridge.yaml" <<YAML
   gz_type_name: gz.msgs.LaserScan
   direction: GZ_TO_ROS
 YAML
+cat >> "$LOG/bridge.yaml" <<YAML
+- ros_topic_name: /gdn/sim/raw/mid360s_points
+  gz_topic_name: /gdn/mid360s/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
+  direction: GZ_TO_ROS
+YAML
 for s in left right; do
   cat >> "$LOG/bridge.yaml" <<YAML
 - ros_topic_name: /gdn/sim/raw/oak_$s
@@ -225,7 +300,7 @@ for s in left right; do
 YAML
 done
 ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:="$LOG/bridge.yaml" > "$LOG/bridge.log" 2>&1 & PIDS+=($!)
-ros2 run gdn_fusion sim_sensors --ros-args --params-file "$ROOT/config/sim/sensors.yaml" \
+ros2 run gdn_fusion sim_sensors --ros-args --params-file "$ROOT/config/sim/sensors.yaml" "${SIM_SENSOR_ARGS[@]}" \
   > "$LOG/sensors.log" 2>&1 & PIDS+=($!)
 python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" -p gz_model:="$MODEL_INSTANCE" ${GDN_SIM_ADAPTER_ARGS:-} \
   > "$LOG/adapter.log" 2>&1 & PIDS+=($!)
@@ -270,7 +345,7 @@ ros2 bag record -s mcap -o "$LOG/sitl_bag" --qos-profile-overrides-path "$ROOT/t
   /fmu/out/sensor_combined /fmu/out/vehicle_attitude /fmu/out/vehicle_local_position \
   /fmu/out/vehicle_status_v1 /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
   /gdn/sim/truth_odom /gdn/sim/agl_scan /imu/data /livox/imu /oak/imu/data /tfmini/range \
-  /oak/left/camera_info /oak/right/camera_info /gdn/sim/raw/imu_h30wp \
+  /oak/left/camera_info /oak/right/camera_info /gdn/sim/raw/imu_h30wp /livox/lidar \
   > "$LOG/bag.log" 2>&1 & PIDS+=($!)
 
 if [ -z "$HEADLESS" ]; then

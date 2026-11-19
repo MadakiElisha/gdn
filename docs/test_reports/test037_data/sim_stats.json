@@ -1,0 +1,40 @@
+{
+ "frames": 4326,
+ "frame_ids": [
+  "livox_frame"
+ ],
+ "lidar_ids": [
+  192
+ ],
+ "rate_hz": 9.999988886674652,
+ "spacing_ms": [
+  99.51901435852051,
+  99.99990463256836,
+  100.48079490661621
+ ],
+ "points_per_frame": [
+  19872,
+  19968.0,
+  20064
+ ],
+ "stamp_is_timebase": 1.0,
+ "arrival_minus_stamp_ms": [
+  102.88047790527344,
+  108.78777503967285,
+  416.6560173034668
+ ],
+ "line_shares": [
+  0.25,
+  0.25,
+  0.25,
+  0.25
+ ],
+ "no_return_share": 0.8238183402913484,
+ "no_return_reflectivity_0": true,
+ "nearest_return_m": 0.10000031281752915,
+ "offset_time_max_ms": 99.989196,
+ "point_spacing_us": 4.947,
+ "pattern_frames": 117,
+ "line_spread_iqr_deg": 2.350019050156183,
+ "azimuth_step_deg": 1.3077597487382775
+}

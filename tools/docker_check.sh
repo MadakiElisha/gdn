@@ -70,6 +70,7 @@ check "PX4 SITL is built" test -x "$PX4_DIR/build/px4_sitl_default/bin/px4"
 want "Micro XRCE-DDS Agent ($XRCE_TAG)" "$XRCE_COMMIT" "$(cat /opt/gdn/xrce_commit 2>/dev/null)"
 check "MicroXRCEAgent is installed" command -v MicroXRCEAgent
 check "ros_gz_bridge is installed" ros2 pkg prefix ros_gz_bridge
+check "livox_ros_driver2 messages are installed (R2.4c)" ros2 interface show livox_ros_driver2/msg/CustomMsg
 check "Gazebo Python bindings import" python3 -c "import gz.sim8, gz.math7, gz.transport13"
 check "the workspace is the host's (same path)" test -f "$ROOT/env.sh"
 check "files written in the workspace belong to the host user" \
@@ -83,6 +84,11 @@ check "GDN builds (colcon, Release)" \
 # shellcheck disable=SC1091
 set +u; source "$ROOT/env.sh" >/dev/null 2>&1; set -u
 check "selftest passes (tools/run_selftest.sh)" "$ROOT/tools/run_selftest.sh"
+# As tools/sim_run.sh runs it: on the system's Gazebo libraries, not ROS's copies (R2.4c:
+# gz-transport 13.7.0 against ROS's 13.6.0 broke "gz service", and PX4 never started).
+check "Gazebo's command line runs (gz service, as sim_run.sh runs it)" bash -c \
+  'LD_LIBRARY_PATH="$(printf %s "${LD_LIBRARY_PATH:-}" | tr ":" "\n" | grep -v "/opt/gz_[a-z]*_vendor/lib$" | paste -sd: -)" \
+   gz service -i --service /gdn/none 2>&1 | grep -q "No service providers"'
 check "the Zermatt world is generated" python3 "$ROOT/tools/make_sim_world.py"
 check "world physics check (tools/check_sim_world.py)" python3 "$ROOT/tools/check_sim_world.py"
 check "the simulated vehicles carry the GDN payload and match their PX4 airframes (tools/check_vehicles.py)" \
@@ -101,7 +107,10 @@ if [ -z "$QUICK" ]; then
   SL="$LOGD/sitl"
   rm -rf "$SL"
   n_runs_before=$(find "$ROOT/log/gdn_runs" -maxdepth 1 -name 'gdn_*' 2>/dev/null | wc -l)
-  HEADLESS=1 GDN_LOG_DIR="$SL" GDN_FLY_ARGS="--legs 1 --leg-len 300" \
+  # Without the GPU, the cameras and lidar would render on the processor and slow Gazebo
+  # to a tenth of real time (R2.4c); this flight checks the loop, so they stay out.
+  CPU_SIM=1; [ -n "$GPU" ] && CPU_SIM=
+  HEADLESS=1 GDN_LOG_DIR="$SL" GDN_FLY_ARGS="--legs 1 --leg-len 300" GDN_SIM_CPU="$CPU_SIM" \
     timeout 900 "$ROOT/tools/sim_run.sh" > "$LOGD/sim_run.log" 2>&1
   check "SITL: PX4 reached over DDS" grep -q "flying" "$LOGD/sim_run.log"
   check "SITL: GDN aligned and set its altitude datum" grep -q "altitude datum" "$SL/gdn.log"

@@ -1,0 +1,12 @@
+flight: rc_cessna (fixedwing) over ch_emmental
+PASS  went through its phases (runway take-off; climbed out; route done, landing on the runway; landed and disarmed)
+PASS  no fail-safe
+PASS  came down on the runway: 138 m along it (-60 to 240), -0.6 m across
+PASS  whole route flown (every route point within 60 m): worst 22 m
+PASS  follows the route as a plane (cross-track p95 under 40 m): p95 20.1 m, max 27.9 m over 2465 samples
+PASS  clear of the terrain on the route (at least 25 m away from the pad): lowest 57.9 m above the ground
+PASS  clear of the terrain the rest of the time (at least 15 m, away from the pad and the runway): lowest 45.9 m over 1063 samples
+PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.41 m, p95 0.82 m, max 1.3 m over 515 readings (30 tilted past 35 deg left out); radar ranges at Gazebo time
+PASS  GDN ran alongside (scorer reported): RMS 60-300s: 212.3 m | MAX 60-300s: 375.4 m
+airborne 293 s, 3.8 km
+vehicle exit 0

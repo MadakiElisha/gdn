@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <!-- Messages only (roadmap R2.4c): livox_ros_driver2's CustomMsg and CustomPoint, as
+       the simulated Mid-360S publishes them, so the dev image and CI can build and read
+       /livox/lidar without the Livox SDK. The .msg files are the driver's own, unchanged
+       (Livox-SDK/livox_ros_driver2 at 21445540, MIT, LICENSE.txt). It lives in docker/,
+       not src/, so it never shadows the real driver's workspace on the vehicle. -->
+  <name>livox_ros_driver2</name>
+  <version>1.2.8</version>
+  <description>livox_ros_driver2 messages only (CustomMsg, CustomPoint), for GDN's simulation.</description>
+  <maintainer email="noreply@example.com">GDN</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <depend>std_msgs</depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

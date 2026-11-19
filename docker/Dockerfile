@@ -106,6 +106,12 @@ RUN cd /opt/PX4-Autopilot/platforms/nuttx/NuttX/nuttx \
 ENV PX4_DIR=/opt/PX4-Autopilot
 
 USER root
+# livox_ros_driver2's messages only (R2.4c): the simulated Mid-360S publishes /livox/lidar
+# as its CustomMsg. Built from docker/livox_msgs (the driver's own .msg files, MIT) into
+# /opt/livox_msgs, which the entry point and env.sh source; no Livox SDK, and nothing in
+# src/ that could shadow the real driver on the vehicle.
+COPY docker/livox_msgs/ /tmp/livox_msgs/
+RUN bash /tmp/livox_msgs/build.sh /opt/livox_msgs && rm -rf /tmp/livox_msgs
 COPY docker/entrypoint.sh /opt/gdn/entrypoint.sh
 RUN chmod 755 /opt/gdn/entrypoint.sh && dpkg-query -W > /opt/gdn/packages.txt
 

@@ -30,6 +30,13 @@
 #   mid-grey) with time constant tau_s before the 8-bit sRGB encoding; noise_dn, read
 #   noise sigma in grey levels, on the 8-bit image. One timing draw per pair: both
 #   images get the same stamp and are lost together.
+# Livox (R2.4c, the Mid-360S lidar): pattern, Livox's measured scan pattern (fetched by
+#   tools/fetch_livox_pattern.sh) and pattern_mirror_az; grid_*, the payload's Gazebo
+#   gpu_lidar rays (must match it: tools/check_sim_sensors.py checks); points_per_packet,
+#   point_dt_us, packets_per_frame, frame_hz, the real stream's point clock; min_range,
+#   max_range (no return beyond: published as 0, 0, 0), range_sigma_m, angle_sigma_deg;
+#   reflectivity (Gazebo has none: one value for everything); lidar_id. The stamp is the
+#   frame's first point; latency_ms counts from the frame's end.
 #
 # The cameras' latency, losses and read noise are placeholders too (R6.3 measures them).
 # Measured: the IMU rates, the Mid-360S's stamp jitter and the OAK-D Lite's tick and
@@ -38,7 +45,7 @@
 # datasheet: +-6 cm to 6 m, +-1% to 12 m, read as 2 sigma).
 gdn_sim_sensors:
   ros__parameters:
-    sensors: [h30wp, mid360s_imu, oakd_imu, tfmini, oakd_stereo]
+    sensors: [h30wp, mid360s_imu, oakd_imu, tfmini, oakd_stereo, mid360s_lidar]
 
     h30wp:
       kind: imu
@@ -136,3 +143,37 @@ gdn_sim_sensors:
       stamp_jitter_ms: 0.0
       drop_prob: 0.002        # placeholder, per pair
       seed: 15
+
+    mid360s_lidar:
+      kind: livox
+      # As livox_ros_driver2 1.2.8 publishes it with xfer_format 1 (CustomMsg); the numbers
+      # marked "real" are from a 69 s recording of our unit (TEST-037).
+      raw_topic: /gdn/sim/raw/mid360s_points
+      topic: /livox/lidar
+      frame_id: livox_frame   # tools/livox_run.sh, msg_MID360s_launch.py
+      lidar_id: 192           # real
+      pattern: data/livox/mid360.csv
+      pattern_mirror_az: true # real: the unit sweeps the other way from the file's azimuth
+      grid_h_samples: 720     # 0.5 deg, as the payload's gdn_mid360s_lidar
+      grid_v_samples: 120     # 0.5 deg over -7.2 to 52.2 deg (the pattern's span)
+      grid_h_min_deg: -180.0
+      grid_h_max_deg: 179.5
+      grid_v_min_deg: -7.2
+      grid_v_max_deg: 52.2
+      points_per_packet: 96   # real
+      point_dt_us: 4.947      # real
+      packets_per_frame: 208  # real: 19872 to 20160 points a frame, median 19968
+      frame_hz: 10.0          # real (publish_freq 10)
+      min_range: 0.1          # datasheet; real nearest 0.117 m
+      max_range: 40.0         # datasheet: 40 m at 10% reflectivity (70 m at 80%)
+      range_sigma_m: 0.02     # datasheet: 2 cm (1 sigma at 10 m)
+      angle_sigma_deg: 0.15   # datasheet: < 0.15 deg
+      reflectivity: 40        # placeholder: Gazebo has no reflectivity (real room median 55)
+      stamp: sensor           # the first point's time (header.stamp = timebase)
+      latency_ms: 5.0         # real: a recorder gets the frame 109 ms after its stamp (the frame
+                              # is 100 ms); a 400 kB message takes about 4 ms to reach the bag
+                              # (TEST-037: 113 ms with 9 here), so the driver's own part is 5
+      latency_jitter_ms: 2.4  # real: sigma 2.4 ms (102 to 113 ms)
+      stamp_jitter_ms: 0.0
+      drop_prob: 0.0          # real: 0 of 693 frames
+      seed: 16

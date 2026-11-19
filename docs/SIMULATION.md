@@ -99,6 +99,19 @@ tools/docker_dev.sh shell --gpu --gui      # a shell, with Gazebo and RViz windo
   `docker_dev.sh` asks for a rebuild instead of running an old image.
 - **CI** builds the image and runs `tools/docker_check.sh` (CPU) on PRs that change the
   Docker files (`.github/workflows/docker.yml`).
+- **The CPU check flies without the cameras and lidar** (`GDN_SIM_CPU=1`, set by
+  `docker_check.sh` without `--gpu`).
+  - **Why:** rendered on the processor, they slowed Gazebo to about a tenth of real
+    time, and the x500 never finished its climb (R2.4c).
+  - **What stays:** the IMUs, TFmini-S and radar altimeter, which is all the loop
+    needs.
+  - **On a PC without a GPU,** `GDN_SIM_CPU=1 tools/sim_run.sh` does the same.
+- **Gazebo's programs run on the system's Gazebo libraries.** ROS 2 brings its own copy of
+  some of them (`/opt/ros/jazzy/opt/gz_*_vendor`), first on `LD_LIBRARY_PATH`. When the
+  system's Gazebo is newer (gz-transport 13.7.0 against ROS's 13.6.0, November 2026), `gz
+  service` fails with "symbol lookup error", and PX4 never finds the world. So
+  `sim_run.sh` takes ROS's copies off the path for `gz sim`, the `gz` command line and
+  PX4. `docker_check.sh` tests `gz service` the same way.
 - **A slow connection:** the build retries interrupted downloads (git, apt, pip). On a
   very slow link it can still take hours; it resumes from the last finished step if
   run again.
@@ -322,8 +335,8 @@ The payload carries GDN's sensors, and `sim_sensors` (gdn_fusion; settings in
 `config/sim/sensors.yaml`) publishes each the way its real driver does: the same topic,
 message type, frame, units and rate, with the sensor's errors and timing. GDN doesn't
 read them yet; LIO, VIO and the rangefinder come in Phases 3 and 4. R2.4 comes in three
-parts: R2.4a the IMUs and the TFmini-S, R2.4b the OAK-D Lite's cameras (now), R2.4c the
-Mid-360S lidar.
+parts: R2.4a the IMUs and the TFmini-S, R2.4b the OAK-D Lite's cameras, R2.4c the
+Mid-360S lidar (now).
 
 | Sensor | Topic | Type, frame | Rate | Errors | Timing |
 |---|---|---|---|---|---|
@@ -331,6 +344,7 @@ Mid-360S lidar.
 | Mid-360S IMU | `/livox/imu` | `sensor_msgs/Imu`, `livox_frame`; acceleration in g | 200 Hz | R1.6 model (`mid360s.yaml`) | stamp jitter 0.53 ms (the 15% spacing spread TEST-025 measured); 1 ms latency |
 | OAK-D Lite IMU | `/oak/imu/data` | `sensor_msgs/Imu`, `oak_imu_frame` | about 239 Hz: 394.5 Hz ticks, 65% of steps skip one (TEST-025) | R1.6 model (`oakd_lite.yaml`) | device stamps; 4 ms latency |
 | TFmini-S | `/tfmini/range` | `sensor_msgs/Range`, `tfmini_link`; infrared, 0.1 to 12 m, 2° | 100 Hz | 3 cm sigma to 6 m, 0.5% of the range beyond; 1 cm steps; +inf beyond 12 m, -inf under 0.1 m | stamped on arrival; 5 ms latency; 0.2% lost |
+| Mid-360S lidar | `/livox/lidar` | `livox_ros_driver2/CustomMsg` (xfer_format 1), `livox_frame`, lidar_id 192 | 10 Hz frames of 208 packets of 96 points (19,968), 4.947 µs apart, lines 0 to 3 | Livox's measured scan pattern; 40 m limit (no return: 0, 0, 0, reflectivity 0); 2 cm range and 0.15° angle noise | stamp = timebase = the first point; `offset_time` per point; out 5 ms after the frame ends, so a bag gets it about 109 ms after the stamp, as our unit's |
 | OAK-D Lite cameras | `/oak/left/image_raw`, `/oak/right/image_raw`, each with its `camera_info` | `sensor_msgs/Image` mono8, 640 x 480, `oak_left_camera_optical_frame`, `oak_right_camera_optical_frame` | 30 Hz, a synced pair | 73° pinhole, no distortion (raw is already rectified); 7.5 cm baseline in the right camera's projection; auto-exposure, 8-bit sRGB; read noise 2 grey levels | device stamps, the same on both images; 25 ms latency; 0.2% of pairs lost |
 
 ```bash
@@ -364,6 +378,21 @@ python3 tools/check_sim_sensors.py --run /tmp/gdn_sim   # judge a run against th
 - **Images aren't recorded by default** (about 18 MB/s, 3 GB for a short flight): the
   bag has both `camera_info` topics, which carry every image's stamp, and
   `GDN_BAG_IMAGES=1` adds the images.
+- **The Mid-360S lidar (R2.4c)** follows a 69 s recording of our unit
+  (`docs/test_reports/test037_data/mid360s_real.json`):
+  - Gazebo renders a dense grid of rays (720 x 120, 0.5°, over the Mid-360S's 360° by
+    -7.2 to 52.2°) 20 times a second, error-free;
+  - `sim_sensors` fires Livox's measured Mid-360 pattern into it
+    (`data/livox/mid360.csv`, Livox-SDK/livox_laser_simulation, MIT, fetched and
+    checksum-pinned by `tools/fetch_livox_pattern.sh`, mirrored in azimuth to sweep as
+    our unit does): each point takes the nearest ray, its range interpolated between
+    the renders around the point's own time, so the cloud's motion matches its
+    `offset_time` as LIO's deskewing assumes;
+  - the message is the driver's `CustomMsg`. Its package comes messages-only from
+    `docker/livox_msgs` (the driver's own `.msg` files), built into the dev image and in
+    CI, and kept out of `src/` so it can't shadow the real driver on the vehicle. On a
+    PC with the real driver, `env.sh` sources `~/ws_livox` instead;
+  - `/livox/lidar` is recorded (about 4 MB/s).
 - **Use a site for the cameras** (`GDN_SITE=...`): the default Zermatt world has no
   photo on its terrain, so the cameras see plain grey shading there.
 - **Which numbers are measured.** The IMU rates, the Mid-360S's stamp jitter and the
@@ -398,7 +427,10 @@ python3 tools/check_sim_sensors.py --run /tmp/gdn_sim   # judge a run against th
   - the TFmini-S's shorter range on dark ground (about 7 m): Gazebo has no reflectivity;
   - the cameras' lens distortion, motion blur, vignetting and the sensor's own response
     curve (the sRGB curve stands in for it); the colour camera (IMX214); the OAK-D's
-    own depth, rectified-pair and feature-tracker topics.
+    own depth, rectified-pair and feature-tracker topics;
+  - the lidar's reflectivity (Gazebo has none: one value for every return), its range
+    depending on it (40 m for all), multiple returns and the tag bits, and the dust or
+    rain a real Mid-360S sees.
 - **`check_sim_sensors.py --run`** judges each sensor against the real one: topic,
   type, frame, rate, measured spacing spread, gravity in the right units at rest,
   white noise against its model, the configured timing, and the TFmini-S against the
@@ -406,7 +438,10 @@ python3 tools/check_sim_sensors.py --run /tmp/gdn_sim   # judge a run against th
   with the images recorded the exposure, the read noise at rest and the stereo
   geometry: 1.5 to 15 m up, the left image shifted by the disparity the truth gives
   must reproduce the right one best at 0.95 to 1.05 times that disparity (TEST-036:
-  1.013 to 1.017; a swapped pair gives -1). Timing is judged on Gazebo's clock.
+  1.013 to 1.017; a swapped pair gives -1). For the lidar: the real unit's frame,
+  lidar_id, rate, points a frame, point clock, lines, no-return encoding, scan-pattern
+  fingerprint and arrival time, then every return against the world's terrain from the
+  true pose at the point's own `offset_time`. Timing is judged on Gazebo's clock.
 
 ## Current result (read this before judging the red line)
 
@@ -557,9 +592,10 @@ flight path (`radar AGL minus map-predicted AGL`).
 - **The default Zermatt world has no photo on its terrain;** the R2.2 sites have the
   2 m orthophoto, which the cameras see as a soft image: 2 m per photo pixel against
   about 0.2 to 0.5 m per camera pixel at 100 to 200 m. Finer photos for VIO are R3.5's.
-- **The lidar isn't simulated yet.** The payload has the radar altimeter, three IMUs,
-  the TFmini-S (R2.4a) and the OAK-D Lite's cameras (R2.4b); the Mid-360S comes in
-  R2.4c. GDN doesn't read the R2.4 sensors yet.
+- **GDN doesn't read the R2.4 sensors yet** (the three IMUs, the TFmini-S, the cameras and
+  the lidar); LIO and VIO are Phases 3 and 4.
+- **The Mid-360S sees little from cruise height:** its 40 m limit on dark ground means
+  that above about 40 m most of its points come back empty, as on the real unit.
 - **GDN itself is still tuned for the multirotor.** On the planes it runs in shadow
   mode like on the x500, with the same settings; per-airframe profiles are R2.5.
 - **GDN's altimeter input assumes flat ground under a tilted vehicle** (OI-016): metres

@@ -1,0 +1,12 @@
+flight: rc_cessna (fixedwing) over ch_zermatt
+PASS  went through its phases (runway take-off; climbed out; route done, landing on the runway; landed and disarmed)
+PASS  no fail-safe
+PASS  came down on the runway: 141 m along it (-60 to 240), -0.4 m across
+PASS  whole route flown (every route point within 60 m): worst 21 m
+PASS  follows the route as a plane (cross-track p95 under 40 m): p95 21.6 m, max 29.3 m over 2281 samples
+PASS  clear of the terrain on the route (at least 25 m away from the pad): lowest 58.9 m above the ground
+PASS  clear of the terrain the rest of the time (at least 15 m, away from the pad and the runway): lowest 48.9 m over 972 samples
+PASS  radar altimeter sees the ground along its beam (RMS under 1.0 m): RMS 0.62 m, p95 0.91 m, max 5.9 m over 475 readings (32 tilted past 35 deg left out); radar ranges at Gazebo time
+PASS  GDN ran alongside (scorer reported): RMS 60-300s: 57.6 m | MAX 60-300s: 127.4 m
+airborne 255 s, 3.9 km
+vehicle exit 0

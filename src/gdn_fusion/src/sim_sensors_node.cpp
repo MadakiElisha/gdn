@@ -25,12 +25,24 @@
 // distortion-free pinhole of gdn::simsens::PinholeFromHfov, and for the right camera
 // the baseline in its projection (Tx = -fx * baseline, as a rectified ROS pair).
 //
+// Lidar (R2.4c, the Mid-360S, built when livox_ros_driver2's messages are found): Gazebo
+// renders a dense error-free grid of rays (gdn::simsens::LidarGrid) several times a
+// frame; each point of Livox's measured pattern (gdn::simsens::LivoxPattern) keeps its
+// own direction, its range from the four rays around it (gdn::simsens::GridRange), each
+// interpolated between the renders around the point's own time
+// (gdn::simsens::InterpRange), and fires on the real stream's packet clock
+// (gdn::simsens::LivoxTiming). Points with no return are (0, 0, 0), reflectivity 0, as
+// the driver publishes them. Each 100 ms frame goes out as livox_ros_driver2/CustomMsg:
+// header stamp = timebase = the first point's time, offset_time per point, line 0 to 3.
+//
 // Every publisher is reliable, as the real drivers' are (tools/h30wp_node.py, depthai-
 // ros, livox_ros_driver2): a reliable publisher also serves best-effort subscribers,
 // but not the other way round, and VIO nodes subscribe reliable.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <deque>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -45,7 +57,11 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/range.hpp>
+#ifdef GDN_HAVE_LIVOX
+#include <livox_ros_driver2/msg/custom_msg.hpp>
+#endif
 
 #include "gdn/imu_model.hpp"
 #include "gdn/paths.hpp"
@@ -94,6 +110,8 @@ public:
                 AddRange(n);
             else if (kind == "stereo")
                 AddStereo(n);
+            else if (kind == "livox")
+                AddLivox(n);
             else
                 ConfigError({n, ": unknown kind '", kind, "'"});
         }
@@ -405,6 +423,175 @@ private:
         ++s->n_out;
     }
 
+#ifdef GDN_HAVE_LIVOX
+    struct Lidar {
+        std::string name, frame;
+        uint8_t lidar_id = 192, reflectivity = 40;
+        gdn::simsens::LivoxPattern pattern;
+        gdn::simsens::LidarGrid grid;
+        gdn::simsens::LivoxTiming tim;
+        gdn::simsens::LivoxSpec spec;
+        std::mt19937_64 rng;
+        std::unique_ptr<gdn::simsens::TimingModel> timing;
+        rclcpp::Publisher<livox_ros_driver2::msg::CustomMsg>::SharedPtr pub;
+        rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub;
+        struct Render {
+            double t;
+            std::vector<float> r;  // range per ray, inf where it hit nothing
+        };
+        std::deque<Render> renders;
+        bool started = false;
+        double t0 = 0.0, frame_start = 0.0;
+        int64_t next_point = 0;  // index of the next point to fire, from the first ever
+        long n_out = 0, n_lost = 0, n_points = 0, n_hits = 0;
+    };
+
+    void AddLivox(const std::string& n) {
+        auto s = std::make_unique<Lidar>();
+        s->name = n;
+        s->frame = declare_parameter<std::string>(n + ".frame_id");
+        s->lidar_id = static_cast<uint8_t>(declare_parameter<int>(n + ".lidar_id"));
+        s->reflectivity = static_cast<uint8_t>(declare_parameter<int>(n + ".reflectivity"));
+        std::string err;
+        const std::string pat = declare_parameter<std::string>(n + ".pattern");
+        if (!gdn::simsens::LoadLivoxPattern(gdn::DataPath(pat), declare_parameter<bool>(n + ".pattern_mirror_az"),
+                                            &s->pattern, &err))
+            ConfigError({n, ": ", err});
+        constexpr double kDeg = M_PI / 180.0;
+        auto& g = s->grid;
+        g.nh = static_cast<int>(declare_parameter<int>(n + ".grid_h_samples"));
+        g.nv = static_cast<int>(declare_parameter<int>(n + ".grid_v_samples"));
+        g.h_min = declare_parameter<double>(n + ".grid_h_min_deg") * kDeg;
+        g.h_max = declare_parameter<double>(n + ".grid_h_max_deg") * kDeg;
+        g.v_min = declare_parameter<double>(n + ".grid_v_min_deg") * kDeg;
+        g.v_max = declare_parameter<double>(n + ".grid_v_max_deg") * kDeg;
+        if (g.nh < 2 || g.nv < 2 || g.h_max <= g.h_min || g.v_max <= g.v_min)
+            ConfigError({n, ": the grid needs at least 2 x 2 rays and max > min"});
+        auto& tm = s->tim;
+        tm.points_per_packet = static_cast<int>(declare_parameter<int>(n + ".points_per_packet"));
+        tm.point_dt = declare_parameter<double>(n + ".point_dt_us") * 1e-6;
+        tm.packets_per_frame = static_cast<double>(declare_parameter<int>(n + ".packets_per_frame"));
+        tm.frame_period = 1.0 / declare_parameter<double>(n + ".frame_hz");
+        if (tm.points_per_packet < 1 || tm.point_dt * tm.points_per_packet > tm.PacketPeriod())
+            ConfigError({n, ": a packet's points must fit in its period"});
+        s->spec.min_range = declare_parameter<double>(n + ".min_range");
+        s->spec.max_range = declare_parameter<double>(n + ".max_range");
+        s->spec.range_sigma = declare_parameter<double>(n + ".range_sigma_m");
+        s->spec.angle_sigma = declare_parameter<double>(n + ".angle_sigma_deg") * kDeg;
+        const auto seed = static_cast<uint64_t>(declare_parameter<int>(n + ".seed"));
+        s->rng.seed(seed);
+        s->timing = std::make_unique<gdn::simsens::TimingModel>(ReadTiming(n), seed + 2000);
+        const std::string topic = declare_parameter<std::string>(n + ".topic");
+        s->pub = create_publisher<livox_ros_driver2::msg::CustomMsg>(topic, rclcpp::QoS(10));
+        Lidar* p = s.get();
+        s->sub = create_subscription<sensor_msgs::msg::PointCloud2>(
+            declare_parameter<std::string>(n + ".raw_topic"), rclcpp::QoS(5),
+            [this, p](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg) { OnCloud(p, *msg); });
+        RCLCPP_INFO(get_logger(), "%s: %s (%s), pattern %s (%zu directions), %d x %d rays, %.0f Hz frames", n.c_str(),
+                    topic.c_str(), s->frame.c_str(), pat.c_str(), s->pattern.az.size(), g.nh, g.nv,
+                    1.0 / tm.frame_period);
+        lidars_.push_back(std::move(s));
+    }
+
+    // One Gazebo render: the range of every ray. A frame goes out once Gazebo's time passes
+    // its end (TickLidar, from here and the flush timer); its last points, after the
+    // latest render, are extrapolated from the last two renders.
+    void OnCloud(Lidar* s, const sensor_msgs::msg::PointCloud2& raw) {
+        const double t = Sec(raw.header.stamp);
+        ObserveClock(t);
+        const auto& g = s->grid;
+        const bool xyz = raw.fields.size() >= 3 && raw.fields[0].name == "x" && raw.fields[0].offset == 0 &&
+                         raw.fields[1].offset == 4 && raw.fields[2].offset == 8 &&
+                         raw.fields[0].datatype == sensor_msgs::msg::PointField::FLOAT32;
+        if (!xyz || static_cast<int>(raw.width) != g.nh || static_cast<int>(raw.height) != g.nv || raw.is_bigendian ||
+            raw.data.size() < static_cast<size_t>(raw.point_step) * raw.width * raw.height) {
+            RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000,
+                                  "%s: raw cloud is %u x %u, want %d x %d with x, y, z float32 first", s->name.c_str(),
+                                  raw.width, raw.height, g.nh, g.nv);
+            return;
+        }
+        Lidar::Render rd{t, std::vector<float>(static_cast<size_t>(g.nh) * g.nv)};
+        for (size_t k = 0; k < rd.r.size(); ++k) {
+            float v[3];
+            std::memcpy(v, raw.data.data() + k * raw.point_step, sizeof v);
+            const float r = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            rd.r[k] = std::isfinite(r) ? r : std::numeric_limits<float>::infinity();
+        }
+        s->renders.push_back(std::move(rd));
+        while (s->renders.size() > 6) s->renders.pop_front();
+        if (!s->started) {
+            s->started = true;
+            s->t0 = s->frame_start = t;
+        }
+        TickLidar(s, t);
+    }
+
+    void TickLidar(Lidar* s, double now_sim) {
+        if (!s->started || s->renders.size() < 2) return;
+        while (s->frame_start + s->tim.frame_period <= now_sim + 1e-9) {
+            EmitLidarFrame(s, now_sim);
+            s->frame_start += s->tim.frame_period;
+        }
+    }
+
+    void EmitLidarFrame(Lidar* s, double t_now) {
+        const double end = s->frame_start + s->tim.frame_period;
+        const int64_t k0 = s->next_point, k1 = s->tim.FirstPointAtOrAfter(s->t0, end);
+        s->next_point = k1;
+        if (k1 <= k0) return;
+        const double t_first = s->tim.PointTime(s->t0, k0);
+        const gdn::simsens::Message msg = s->timing->Apply(end, t_now);
+        if (msg.lost) {
+            ++s->n_lost;
+            return;
+        }
+        const double stamp = clock_.ToStamp(t_first + (msg.stamp - end));  // the first point's time (+ jitter)
+        auto out = std::make_shared<livox_ros_driver2::msg::CustomMsg>();
+        out->header.stamp = ToMsg(stamp);
+        out->header.frame_id = s->frame;
+        out->timebase = static_cast<uint64_t>(out->header.stamp.sec) * 1000000000ULL + out->header.stamp.nanosec;
+        out->lidar_id = s->lidar_id;
+        out->rsvd = {0, 0, 0};
+        out->points.resize(static_cast<size_t>(k1 - k0));
+        const auto& rs = s->renders;
+        const auto npat = static_cast<int64_t>(s->pattern.az.size());
+        size_t b = 0;  // the last render at or before the point's time
+        for (int64_t k = k0; k < k1; ++k) {
+            const double tp = s->tim.PointTime(s->t0, k);
+            while (b + 1 < rs.size() && rs[b + 1].t <= tp) ++b;
+            // The renders either side, or past the latest one, the last two.
+            const size_t a = b + 1 < rs.size() ? b + 1 : b;
+            const size_t b2 = a == b && b > 0 ? b - 1 : b;
+            const int64_t pk = k % npat;
+            const double az = s->pattern.az[pk], el = s->pattern.el[pk];
+            auto& pt = out->points[static_cast<size_t>(k - k0)];
+            pt.offset_time = static_cast<uint32_t>(std::lround((tp - t_first) * 1e9));
+            pt.line = static_cast<uint8_t>(k % 4);
+            pt.tag = 0;
+            int idx[4];
+            double w[4], rr[4];
+            if (!s->grid.Around(az, el, idx, w)) continue;
+            for (int m = 0; m < 4; ++m) {
+                const auto c = static_cast<size_t>(idx[m]);
+                rr[m] = gdn::simsens::InterpRange(tp, rs[b2].t, rs[b2].r[c], rs[a].t, rs[a].r[c]);
+            }
+            const double r = gdn::simsens::GridRange(rr, w);
+            const gdn::simsens::LivoxPointOut q = gdn::simsens::LivoxReturn(s->spec, az, el, r, s->rng);
+            if (!q.hit) continue;
+            pt.x = q.x;
+            pt.y = q.y;
+            pt.z = q.z;
+            pt.reflectivity = s->reflectivity;
+            ++s->n_hits;
+        }
+        out->point_num = static_cast<uint32_t>(out->points.size());
+        s->n_points += static_cast<long>(out->points.size());
+        ++s->n_out;
+        auto pub = s->pub;
+        Queue(msg.arrival, [pub, out] { pub->publish(*out); });
+    }
+#endif
+
     void ObserveClock(double sim_t) {
         const bool first = !clock_.Ready();
         clock_.Observe(sim_t, now().seconds());
@@ -418,6 +605,9 @@ private:
         if (!clock_.Ready()) return;
         const double now_s = clock_.Now(now().seconds());
         for (auto& r : ranges_) TickRange(r.get(), now_s);
+#ifdef GDN_HAVE_LIVOX
+        for (auto& l : lidars_) TickLidar(l.get(), now_s);
+#endif
         while (!q_.empty() && q_.top().arrival <= now_s) {
             q_.top().publish();
             q_.pop();
@@ -441,6 +631,15 @@ private:
                    " lost, " + std::to_string(s->n_unpaired) + " unpaired, gain " + gain + ")";
             s->n_out = s->n_lost = s->n_unpaired = 0;
         }
+#ifdef GDN_HAVE_LIVOX
+        for (auto& s : lidars_) {
+            const long pts = s->n_out > 0 ? s->n_points / s->n_out : 0;
+            const long hits = s->n_points > 0 ? 100 * s->n_hits / s->n_points : 0;
+            msg += " " + s->name + " " + std::to_string(s->n_out / 10) + " Hz (" + std::to_string(s->n_lost) +
+                   " lost, " + std::to_string(pts) + " points, " + std::to_string(hits) + "% returns)";
+            s->n_out = s->n_lost = s->n_points = s->n_hits = 0;
+        }
+#endif
         if (!clock_.Ready()) msg += "; no Gazebo sensor data yet (is the bridge running?)";
         RCLCPP_INFO(get_logger(), "%s", msg.c_str());
     }
@@ -449,6 +648,15 @@ private:
     std::vector<std::unique_ptr<Imu>> imus_;
     std::vector<std::unique_ptr<Range>> ranges_;
     std::vector<std::unique_ptr<Stereo>> stereos_;
+#ifdef GDN_HAVE_LIVOX
+    std::vector<std::unique_ptr<Lidar>> lidars_;
+#else
+    void AddLivox(const std::string& n) {
+        ConfigError({n,
+                     ": built without livox_ros_driver2's messages (source /opt/livox_msgs/setup.bash or a "
+                     "Livox driver workspace, then rebuild gdn_fusion)"});
+    }
+#endif
     std::priority_queue<Pending, std::vector<Pending>, std::greater<Pending>> q_;
     uint64_t order_ = 0;
     rclcpp::TimerBase::SharedPtr timer_, report_;
