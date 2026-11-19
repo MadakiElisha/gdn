@@ -45,6 +45,10 @@ command -v gz >/dev/null || die "Gazebo (gz) not found (run tools/setup_sim.sh)"
 command -v MicroXRCEAgent >/dev/null || die "MicroXRCEAgent not found (run tools/setup_sim.sh)"
 command -v ros2 >/dev/null || die "ROS 2 not sourced: source env.sh"
 ros2 pkg prefix ros_gz_bridge >/dev/null 2>&1 || die "ros_gz_bridge missing: sudo apt install ros-jazzy-ros-gz-bridge"
+# R2.4c: the simulated Mid-360S needs Livox's scan pattern and livox_ros_driver2's messages.
+"$ROOT/tools/fetch_livox_pattern.sh" >/dev/null || die "couldn't fetch the Mid-360 scan pattern (tools/fetch_livox_pattern.sh)"
+ros2 interface show livox_ros_driver2/msg/CustomMsg >/dev/null 2>&1 \
+  || die "livox_ros_driver2 messages missing: use the dev image, or source a Livox driver workspace (env.sh looks in ~/ws_livox)"
 ros2 pkg prefix gdn_fusion >/dev/null 2>&1 || die "GDN not built: colcon build --base-paths src ..."
 
 # World (generated per machine because it holds absolute paths).
@@ -198,7 +202,7 @@ cat > "$LOG/bridge.yaml" <<YAML
 YAML
 # The payload's error-free sensors for tools/sim_sensors (R2.4a, R2.4b), which publishes
 # them as the real drivers do: /imu/data, /livox/imu, /oak/imu/data, /tfmini/range and
-# the OAK-D Lite's /oak/left and /oak/right images.
+# the OAK-D Lite's /oak/left and /oak/right images, and the Mid-360S's /livox/lidar (R2.4c).
 for s in h30wp mid360s oakd; do
   cat >> "$LOG/bridge.yaml" <<YAML
 - ros_topic_name: /gdn/sim/raw/imu_$s
@@ -213,6 +217,13 @@ cat >> "$LOG/bridge.yaml" <<YAML
   gz_topic_name: /gdn/tfmini
   ros_type_name: sensor_msgs/msg/LaserScan
   gz_type_name: gz.msgs.LaserScan
+  direction: GZ_TO_ROS
+YAML
+cat >> "$LOG/bridge.yaml" <<YAML
+- ros_topic_name: /gdn/sim/raw/mid360s_points
+  gz_topic_name: /gdn/mid360s/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
   direction: GZ_TO_ROS
 YAML
 for s in left right; do
@@ -270,7 +281,7 @@ ros2 bag record -s mcap -o "$LOG/sitl_bag" --qos-profile-overrides-path "$ROOT/t
   /fmu/out/sensor_combined /fmu/out/vehicle_attitude /fmu/out/vehicle_local_position \
   /fmu/out/vehicle_status_v1 /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
   /gdn/sim/truth_odom /gdn/sim/agl_scan /imu/data /livox/imu /oak/imu/data /tfmini/range \
-  /oak/left/camera_info /oak/right/camera_info /gdn/sim/raw/imu_h30wp \
+  /oak/left/camera_info /oak/right/camera_info /gdn/sim/raw/imu_h30wp /livox/lidar \
   > "$LOG/bag.log" 2>&1 & PIDS+=($!)
 
 if [ -z "$HEADLESS" ]; then

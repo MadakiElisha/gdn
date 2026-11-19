@@ -50,7 +50,12 @@
   /oak/right/image_raw). gz cameras
   look along their +x axis with +z up in the image, like the radar's beam convention.
 
-  R2.4c adds the Mid-360S.
+  R2.4c: the Mid-360S lidar, at its IMU (upside down, so the -7 to 52 deg field looks at
+  the ground). Gazebo renders a dense grid of 720 x 120 rays (0.5 deg, -180 to 179.5 deg
+  by -7.2 to 52.2 deg) 20 times a second, error-free, out to 100 m; sim_sensors fires
+  Livox's measured scan pattern into it at the real unit's point rate, interpolating
+  each point's range between the renders around its time, and publishes /livox/lidar
+  as livox_ros_driver2/CustomMsg with the 40 m limit, noise and timing.
 -->
 <sdf version="1.9">
   <model name="gdn_payload">
@@ -116,6 +121,21 @@
           <image><width>640</width><height>480</height><format>L16</format></image>
           <clip><near>0.05</near><far>3000</far></clip>
         </camera>
+      </sensor>
+
+      <sensor name="gdn_mid360s_lidar" type="gpu_lidar">
+        <!-- the Mid-360S's IMU pose (one unit): gpu_lidar's frame is the sensor's -->
+        <pose>0 0 -0.05 3.1415927 0 0</pose>
+        <topic>gdn/mid360s</topic>
+        <update_rate>20</update_rate>
+        <always_on>1</always_on>
+        <lidar>
+          <scan>
+            <horizontal><samples>720</samples><resolution>1</resolution><min_angle>-3.14159265</min_angle><max_angle>3.13286600</max_angle></horizontal>
+            <vertical><samples>120</samples><resolution>1</resolution><min_angle>-0.12566371</min_angle><max_angle>0.91106186</max_angle></vertical>
+          </scan>
+          <range><min>0.1</min><max>100.0</max><resolution>0.001</resolution></range>
+        </lidar>
       </sensor>
 
       <sensor name="gdn_tfmini" type="gpu_lidar">

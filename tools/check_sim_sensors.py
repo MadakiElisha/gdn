@@ -14,7 +14,9 @@ measured (TEST-024, TEST-025). A run passes if every simulated sensor, as record
     g, the others in m/s^2);
   - with its R1.6 white noise: at rest, each axis's sample sigma within 25% of the model's
     density times sqrt(mean 1/dt) (gdn::ImuErrorSim adds sigma N / sqrt(dt) per sample);
-  - with the configured timing (config/sim/sensors.yaml), on Gazebo's clock (R2.4b: the
+  - with the configured timing (config/sim/sensors.yaml; for an IMU, a latency under
+    half of Gazebo's 4 ms sample interval comes out as half of it, since a sample goes out
+    only once the Gazebo sample after it is in), on Gazebo's clock (R2.4b: the
     stamps are Gazebo time plus the offset sim_sensors logs, and a receive time in the
     bag is turned into Gazebo time through the truth's, so a run slower than real time
     is judged in simulated seconds): arrival minus stamp, its median within 2 ms (the
@@ -82,6 +84,13 @@ REAL = {
                    why="Benewake TFmini-S datasheet: 100 Hz, 0.1 to 12 m, 2 degrees"),
 }
 RAW_REF = "/gdn/sim/raw/imu_h30wp"      # Gazebo-stamped, in the bag since R2.4b (RunClock)
+# R2.4c: the Mid-360S lidar as livox_ros_driver2 1.2.8 publishes it (xfer_format 1). The
+# numbers it's judged against come from a recording of our unit, as livox_stats() makes
+# them (--livox-reference): docs/test_reports/test037_data/mid360s_real.json.
+LIVOX = dict(name="mid360s_lidar", topic="/livox/lidar", type="livox_ros_driver2/msg/CustomMsg",
+             frame="livox_frame", gz="gdn/mid360s",
+             reference=ROOT / "docs/test_reports/test037_data/mid360s_real.json",
+             pattern_sha256="aa1fc08b6a4400608dbd6ee832b7ea3a9c3c37197e734f60f58fe5abf762269a")
 # R2.4b: the OAK-D Lite's mono pair as depthai_ros_driver_v3 publishes it.
 STEREO = dict(name="oakd_stereo", width=640, height=480, hfov_deg=73.0, baseline_m=0.075, rate=(29.0, 31.0),
               encoding="mono8",
@@ -177,6 +186,7 @@ def check_static():
             ok &= ck(bool(c["accel_in_g"]) == real["in_g"], f"{name}: acceleration units",
                      "g" if c["accel_in_g"] else "m/s^2")
     ok &= check_static_stereo(sdf, cfg)
+    ok &= check_static_livox(sdf, cfg)
     return ok
 
 
@@ -327,8 +337,11 @@ def check_imu(name, real, c, msgs, t_rest, clock):
         ratio = sig / exp
         ok &= ck(np.all(np.abs(ratio - 1.0) < 0.25), f"{name}: {what} white noise as its R1.6 model (within 25%)",
                  f"sigma {' '.join(f'{s:.2e}' for s in sig)} {unit}, model {' '.join(f'{e:.2e}' for e in exp)}")
+    gz = {"h30wp": "gdn/imu/h30wp", "mid360s_imu": "gdn/imu/mid360s", "oakd_imu": "gdn/imu/oakd"}[name]
+    sdf = re.sub(r"<!--.*?-->", "", (ROOT / "sim/models/gdn_payload/model.sdf").read_text(), flags=re.S)
+    step_ms = 1000.0 / float(re.search(r"<update_rate>([^<]+)<", payload_sensor(sdf, gz)[2]).group(1))
     ok &= check_timing(name, c, arr, st, 1.0 / (c["tick_hz"] if c["tick_hz"] > 0 else c["rate_hz"]), c["tick_hz"] > 0,
-                       clock)
+                       clock, step_ms)
     return ok
 
 
@@ -365,17 +378,21 @@ class RunClock:
         return float(m.group(1)) if m else None
 
 
-def check_timing(name, c, arr, st, nominal_dt, skip_ticks, clock):
+def check_timing(name, c, arr, st, nominal_dt, skip_ticks, clock, step_ms=0.0):
     """arrival minus stamp on Gazebo's clock: the Gazebo time when the bag received a
-    message, less its stamp's Gazebo time."""
+    message, less its stamp's Gazebo time. step_ms: for an IMU, Gazebo's sample interval.
+    Its samples are interpolated between two Gazebo samples and go out once the second is
+    in (R2.4b), so a latency under one step comes out longer: for a sample time anywhere
+    in the step, the median delay is the larger of the latency and half a step."""
     ok = True
     lat = (clock.sim_of_wall(arr) - clock.sample(st)) * 1000.0
     med = float(np.median(lat))
-    want = c["latency_ms"] if c["stamp"] == "sensor" else 0.0
+    want = max(c["latency_ms"], 0.5 * step_ms) if c["stamp"] == "sensor" else 0.0
     p1 = float(np.percentile(lat, 1))
     ok &= ck(abs(med - want) <= 2.0 and p1 > -2.5 - 3 * c["stamp_jitter_ms"],
              f"{name}: arrival minus stamp {want:.1f} ms on Gazebo's clock ({c['stamp']} stamps, latency "
-             f"{c['latency_ms']} ms)", f"median {med:.2f} ms, 1st percentile {p1:.2f}, max {lat.max():.2f}")
+             f"{c['latency_ms']} ms" + (f", Gazebo samples every {step_ms:.0f} ms" if step_ms else "") + ")",
+             f"median {med:.2f} ms, 1st percentile {p1:.2f}, max {lat.max():.2f}")
     lost = lost_share(st, nominal_dt, skip_ticks)
     ok &= ck(abs(lost - c["drop_prob"]) <= 0.01, f"{name}: messages lost {100 * c['drop_prob']:.1f}% (within 1 point)",
              f"{100 * lost:.2f}%")
@@ -711,6 +728,301 @@ def check_stereo(c, types, msgs, t_rest, world, bag, clock):
     return ok
 
 
+# --- the Mid-360S lidar (R2.4c) ---
+
+# One CustomPoint as serialized: offset_time, x, y, z, reflectivity, tag, line, padded to 20.
+LIVOX_POINT = np.dtype({"names": ["offset_time", "x", "y", "z", "reflectivity", "tag", "line"],
+                        "formats": ["<u4", "<f4", "<f4", "<f4", "u1", "u1", "u1"],
+                        "offsets": [0, 4, 8, 12, 16, 17, 18], "itemsize": 20})
+
+
+def parse_livox(data, points=True):
+    """A serialized livox_ros_driver2/CustomMsg (little-endian CDR) without the message
+    package: (stamp s, frame_id, timebase ns, point_num, lidar_id, points or None). As
+    rclpy's deserializer, point for point (checked on the real recording), and quick
+    enough for a flight's tens of millions of points. The stamp in seconds is a float:
+    for exact comparisons use stamp_ns = sec * 1e9 + nanosec, from parse_livox_stamp_ns."""
+    b = memoryview(data)[4:]
+    sec = int(np.frombuffer(b, "<i4", 1, 0)[0])
+    nsec = int(np.frombuffer(b, "<u4", 1, 4)[0])
+    n = int(np.frombuffer(b, "<u4", 1, 8)[0])
+    frame = bytes(b[12:12 + n - 1]).decode()
+    pos = (12 + n + 7) // 8 * 8
+    timebase = int(np.frombuffer(b, "<u8", 1, pos)[0])
+    point_num = int(np.frombuffer(b, "<u4", 1, pos + 8)[0])
+    lidar_id = int(b[pos + 12])
+    pts = None
+    if points:
+        npts = int(np.frombuffer(b, "<u4", 1, pos + 16)[0])
+        # The last point isn't padded to 20 bytes.
+        pts = np.frombuffer(bytes(b[pos + 20:pos + 20 + 20 * npts - 1]) + b"\0", LIVOX_POINT, npts) if npts else \
+            np.zeros(0, LIVOX_POINT)
+    return sec + nsec * 1e-9, frame, timebase, point_num, lidar_id, pts
+
+
+def parse_livox_stamp_ns(data):
+    b = memoryview(data)[4:]
+    return int(np.frombuffer(b, "<i4", 1, 0)[0]) * 1_000_000_000 + int(np.frombuffer(b, "<u4", 1, 4)[0])
+
+
+def read_livox(bag, topic="/livox/lidar", points_every=1):
+    """Every frame's (receive time, stamp, frame_id, timebase, point_num, lidar_id, stamp in
+    integer ns), and
+    the points of every points_every-th frame, as {index: points}."""
+    import rosbag2_py
+    r = rosbag2_py.SequentialReader()
+    r.open(rosbag2_py.StorageOptions(uri=str(bag), storage_id="mcap"), rosbag2_py.ConverterOptions("", ""))
+    if topic not in {t.name for t in r.get_all_topics_and_types()}:
+        return [], {}
+    r.set_filter(rosbag2_py.StorageFilter(topics=[topic]))
+    frames, pts = [], {}
+    while r.has_next():
+        _, data, t_ns = r.read_next()
+        i = len(frames)
+        st, fr, tb, pn, lid, p = parse_livox(data, points=i % points_every == 0)
+        frames.append((t_ns * 1e-9, st, fr, tb, pn, lid, parse_livox_stamp_ns(data)))
+        if p is not None:
+            pts[i] = p
+    return frames, pts
+
+
+def livox_directions(p):
+    """Azimuth and elevation (degrees) of the points with a return, and the mask."""
+    x, y, z = (p[k].astype(float) for k in "xyz")
+    r = np.sqrt(x * x + y * y + z * z)
+    hit = r > 0
+    az = np.degrees(np.arctan2(y, x))
+    el = np.degrees(np.arcsin(np.clip(z / np.where(hit, r, 1.0), -1, 1)))
+    return az, el, hit, r
+
+
+def livox_stats(frames, pts, arrival_minus_stamp=None):
+    """What a /livox/lidar stream looks like, for the real recording and for a simulated
+    run alike (TEST-037). arrival_minus_stamp: per frame, in ms (the real recording's
+    receive times are the host's; a run's go through RunClock first)."""
+    st = np.array([f[1] for f in frames])
+    tb = np.array([f[3] for f in frames], dtype=np.int64)
+    pn = np.array([f[4] for f in frames])
+    stamp_ns = np.array([f[6] for f in frames], dtype=np.int64)
+    out = dict(frames=len(frames), frame_ids=sorted({f[2] for f in frames}), lidar_ids=sorted({f[5] for f in frames}),
+               rate_hz=(len(st) - 1) / (st.max() - st.min()), spacing_ms=[float(x) for x in np.percentile(np.diff(st) * 1e3, [0, 50, 100])],
+               points_per_frame=[int(pn.min()), float(np.median(pn)), int(pn.max())],
+               stamp_is_timebase=float(np.mean(stamp_ns == tb)))
+    if arrival_minus_stamp is not None:
+        a = np.asarray(arrival_minus_stamp)
+        out["arrival_minus_stamp_ms"] = [float(x) for x in np.percentile(a, [0, 50, 100])]
+    P = [pts[k] for k in sorted(pts)]
+    allp = np.concatenate(P)
+    az, el, hit, r = livox_directions(allp)
+    out["line_shares"] = [float(np.mean(allp["line"] == k)) for k in range(4)]
+    out["no_return_share"] = float(np.mean(~hit))
+    out["no_return_reflectivity_0"] = bool(np.all(allp["reflectivity"][~hit] == 0))
+    out["nearest_return_m"] = float(r[hit].min()) if hit.any() else None
+    out["offset_time_max_ms"] = float(max(p["offset_time"].max() for p in P) / 1e6)
+    d = np.concatenate([np.diff(p["offset_time"].astype(np.int64)) for p in P])
+    out["point_spacing_us"] = float(np.median(d[(d > 0) & (d < 10000)]) / 1e3)
+    # The pattern's fingerprint: the four lines' elevation spread within a group of four,
+    # and the azimuth step from one group to the next (line 0). Only groups with all four
+    # returns count, so only frames returning at least half their points are used (as the
+    # real unit in a room): where only part of the field hits ground (cruise, a steep
+    # slope), the groups left are a biased few (TEST-037: 2.16 against 2.49 deg).
+    spread, step, used = [], [], 0
+    dense = [p for p in P if np.mean(livox_directions(p)[2]) >= 0.5]
+    for p in (dense or P):
+        o = np.argsort(p["offset_time"], kind="stable")
+        q = p[o]
+        n = len(q) // 4 * 4
+        if n < 8:
+            continue
+        a_, e_, h_, _ = livox_directions(q[:n])
+        a4, e4, h4, l4 = a_.reshape(-1, 4), e_.reshape(-1, 4), h_.reshape(-1, 4), q["line"][:n].reshape(-1, 4)
+        good = h4.all(axis=1) & np.all(l4 == [0, 1, 2, 3], axis=1)
+        spread.append(np.diff(e4[good], axis=1).ravel())
+        s0 = np.diff(a4[:, 0])
+        s0 = (s0 + 180) % 360 - 180
+        step.append(s0[h4[1:, 0] & h4[:-1, 0]])
+        used += 1
+    spread, step = np.concatenate(spread), np.concatenate(step)
+    out["pattern_frames"] = used if dense else 0
+    out["line_spread_iqr_deg"] = float(np.percentile(spread, 75) - np.percentile(spread, 25))
+    out["azimuth_step_deg"] = float(np.median(step))
+    return out
+
+
+def livox_reference(bag, out):
+    """Make the reference from a recording of the real unit (static, any room)."""
+    frames, pts = read_livox(bag, points_every=10)
+    if not frames:
+        print(f"no /livox/lidar in {bag}")
+        return 2
+    s = livox_stats(frames, pts, [(f[0] - f[1]) * 1e3 for f in frames])
+    s["source"] = f"{Path(bag).name}: our Mid-360S, livox_ros_driver2 1.2.8, static in a room, every 10th frame's points"
+    import json
+    Path(out).write_text(json.dumps(s, indent=1) + "\n")
+    print(json.dumps(s, indent=1))
+    return 0
+
+
+def check_static_livox(sdf, cfg):
+    ok = True
+    L = LIVOX
+    c = cfg.get(L["name"])
+    if c is None or c.get("kind") != "livox" or L["name"] not in cfg["sensors"]:
+        return ck(False, f"{L['name']}: a livox sensor in config/sim/sensors.yaml")
+    ok &= ck(c["topic"] == L["topic"] and c["frame_id"] == L["frame"], f"{L['name']}: publishes the real topic and frame",
+             f"{c['topic']} ({c['frame_id']})")
+    sen = payload_sensor(sdf, L["gz"])
+    if sen is None:
+        return ck(False, f"{L['name']}: a gpu_lidar on {L['gz']} in gdn_payload")
+    typ, pose, body = sen
+    h = re.search(r"<horizontal><samples>(\d+)</samples>.*?<min_angle>([-0-9.]+)</min_angle><max_angle>([-0-9.]+)<", body, re.S)
+    v = re.search(r"<vertical><samples>(\d+)</samples>.*?<min_angle>([-0-9.]+)</min_angle><max_angle>([-0-9.]+)<", body, re.S)
+    grid_ok = (h and v and int(h.group(1)) == c["grid_h_samples"] and int(v.group(1)) == c["grid_v_samples"]
+               and abs(math.degrees(float(h.group(2))) - c["grid_h_min_deg"]) < 1e-4
+               and abs(math.degrees(float(h.group(3))) - c["grid_h_max_deg"]) < 1e-4
+               and abs(math.degrees(float(v.group(2))) - c["grid_v_min_deg"]) < 1e-4
+               and abs(math.degrees(float(v.group(3))) - c["grid_v_max_deg"]) < 1e-4)
+    ok &= ck(typ == "gpu_lidar" and "<noise>" not in body and grid_ok,
+             f"{L['name']}: an error-free gpu_lidar with the config's grid of rays",
+             f"{typ}, {h.group(1) if h else '?'} x {v.group(1) if v else '?'} rays")
+    imu = payload_sensor(sdf, "gdn/imu/mid360s")
+    ok &= ck(imu is not None and np.allclose(imu[1], pose), f"{L['name']}: at the Mid-360S's IMU (one unit, one frame)",
+             f"pose {pose.tolist()}")
+    fetch = (ROOT / "tools/fetch_livox_pattern.sh").read_text()
+    pinned = L["pattern_sha256"] in fetch and c["pattern"] == "data/livox/mid360.csv"
+    f = ROOT / c["pattern"]
+    if f.exists():
+        import hashlib
+        have = hashlib.sha256(f.read_bytes()).hexdigest()
+        ok &= ck(pinned and have == L["pattern_sha256"], f"{L['name']}: Livox's measured Mid-360 pattern, pinned",
+                 f"{c['pattern']} sha256 {have[:12]}")
+    else:
+        ok &= ck(pinned, f"{L['name']}: Livox's measured Mid-360 pattern, pinned (not fetched here)",
+                 "tools/fetch_livox_pattern.sh")
+    ok &= ck(L["reference"].exists(), f"{L['name']}: the real unit's reference numbers", str(L["reference"].relative_to(ROOT)))
+    return ok
+
+
+def truth_at_many(truth, t):
+    """truth_at for an array of times: positions linear, attitudes normalised linear."""
+    k = np.clip(np.searchsorted(truth[:, 0], t), 1, len(truth) - 1)
+    a, b = truth[k - 1], truth[k]
+    f = np.clip((t - a[:, 0]) / np.maximum(b[:, 0] - a[:, 0], 1e-9), 0.0, 1.0)[:, None]
+    pos = a[:, 1:4] + f * (b[:, 1:4] - a[:, 1:4])
+    qb = np.where((np.sum(a[:, 4:8] * b[:, 4:8], axis=1) >= 0)[:, None], b[:, 4:8], -b[:, 4:8])
+    q = a[:, 4:8] + f * (qb - a[:, 4:8])
+    return pos, q / np.linalg.norm(q, axis=1, keepdims=True)
+
+
+def quat_rotate(q, v):
+    """Rotate vectors v (N x 3) by unit quaternions q (N x 4, w x y z)."""
+    w, u = q[:, :1], q[:, 1:]
+    t = 2.0 * np.cross(u, v)
+    return v + w * t + np.cross(u, t)
+
+
+def livox_ground_residual(p, t_gz, clock, mount, world, shift=0.0):
+    """Height of each returned point above the world's terrain, the point placed in the
+    world from the true pose at its own time (Gazebo t_gz, plus shift) and the lidar's
+    mount: (residual m, range m)."""
+    from make_sim_world import sample_map
+    alt, hdr, z0 = world
+    _, _, hit, r = livox_directions(p)
+    v = np.stack([p["x"], p["y"], p["z"]], axis=1).astype(float)[hit]
+    pos, q = truth_at_many(clock.truth, t_gz[hit] + shift)
+    Rm = rpy_matrix(*mount[1])
+    w = pos + quat_rotate(q, mount[0] + v @ Rm.T)
+    return w[:, 2] - (sample_map(alt, hdr, w[:, 0], w[:, 1]) - z0), r[hit]
+
+
+def check_livox(c, bag, clock, t_rest, world):
+    import json
+    ok = True
+    L = LIVOX
+    name = L["name"]
+    frames, pts = read_livox(bag, L["topic"], points_every=5)
+    if not ck(len(frames) > 50, f"{name}: on {L['topic']}", f"{len(frames)} frames"):
+        return False
+    ref = json.loads(L["reference"].read_text())
+    arr = np.array([f[0] for f in frames])
+    st = np.array([f[1] for f in frames])
+    lat = (clock.sim_of_wall(arr) - clock.sample(st)) * 1e3            # Gazebo time
+    s = livox_stats(frames, pts, lat)
+    ok &= ck(s["frame_ids"] == [L["frame"]] and s["lidar_ids"] == ref["lidar_ids"],
+             f"{name}: frame and lidar_id as the real unit's", f"{s['frame_ids']}, {s['lidar_ids']}")
+    ok &= ck(abs(s["rate_hz"] - 10.0) < 0.1 and s["spacing_ms"][0] > 95 and s["spacing_ms"][2] < 105,
+             f"{name}: 10 Hz frames (real {ref['rate_hz']:.2f} Hz, {ref['spacing_ms'][0]:.1f} to {ref['spacing_ms'][2]:.1f} ms)",
+             f"{s['rate_hz']:.3f} Hz, {s['spacing_ms'][0]:.1f} to {s['spacing_ms'][2]:.1f} ms")
+    lo, hi = ref["points_per_frame"][0], ref["points_per_frame"][2]
+    ok &= ck(lo <= s["points_per_frame"][0] and s["points_per_frame"][2] <= hi,
+             f"{name}: points a frame within the real unit's {lo} to {hi}",
+             f"{s['points_per_frame'][0]} to {s['points_per_frame'][2]}, median {s['points_per_frame'][1]:.0f}")
+    ok &= ck(s["stamp_is_timebase"] == 1.0 and abs(s["point_spacing_us"] - ref["point_spacing_us"]) < 0.01
+             and abs(s["offset_time_max_ms"] - ref["offset_time_max_ms"]) < 2.0,
+             f"{name}: stamp = timebase (the first point), points {ref['point_spacing_us']:.3f} us apart, "
+             f"offset_time to about {ref['offset_time_max_ms']:.0f} ms, as the real unit",
+             f"{100 * s['stamp_is_timebase']:.0f}%, {s['point_spacing_us']:.3f} us, {s['offset_time_max_ms']:.1f} ms")
+    ok &= ck(max(abs(a - b) for a, b in zip(s["line_shares"], ref["line_shares"])) < 0.005,
+             f"{name}: four lines, a quarter each", " ".join(f"{100 * x:.2f}%" for x in s["line_shares"]))
+    ok &= ck(s["no_return_reflectivity_0"] and (s["nearest_return_m"] or 0) >= c["min_range"] - 0.05,
+             f"{name}: no return as the real driver publishes it (0, 0, 0, reflectivity 0); none nearer than "
+             f"{c['min_range']} m (real {ref['nearest_return_m']:.3f})",
+             f"{100 * s['no_return_share']:.1f}% no return (real, in a room: {100 * ref['no_return_share']:.1f}%), "
+             f"nearest {s['nearest_return_m']:.3f} m")
+    ok &= ck(s["pattern_frames"] >= 10 and abs(s["azimuth_step_deg"] - ref["azimuth_step_deg"]) < 0.1
+             and abs(s["line_spread_iqr_deg"] - ref["line_spread_iqr_deg"]) < 0.3,
+             f"{name}: the real unit's scan pattern (azimuth step a group {ref['azimuth_step_deg']:.2f} deg, lines "
+             f"spread {ref['line_spread_iqr_deg']:.2f} deg; frames returning half their points or more)",
+             f"{s['azimuth_step_deg']:.2f} deg, {s['line_spread_iqr_deg']:.2f} deg over {s['pattern_frames']} frames")
+    want = 1e3 * c["frame_hz"] ** -1 + c["latency_ms"]
+    # Within 4 ms, not the 2 ms of small messages: a 400 kB frame's way into the bag took
+    # 1.8 to 7.7 ms over the TEST-037 flights, with the host's power state (performance,
+    # balanced, battery); sim_sensors itself sends every frame 5 ms after its end.
+    ok &= ck(abs(s["arrival_minus_stamp_ms"][1] - ref["arrival_minus_stamp_ms"][1]) < 4.0,
+             f"{name}: arrival minus stamp in the bag as the real unit's (median "
+             f"{ref['arrival_minus_stamp_ms'][1]:.1f} ms: the frame, the driver, the way to the recorder), within "
+             "4 ms, on Gazebo's clock",
+             f"median {s['arrival_minus_stamp_ms'][1]:.1f} ms (the frame and the driver: {want:.0f}), "
+             f"{s['arrival_minus_stamp_ms'][0]:.1f} to {s['arrival_minus_stamp_ms'][2]:.1f}")
+    lost = lost_share(st, 0.1)
+    ok &= ck(abs(lost - c["drop_prob"]) <= 0.01, f"{name}: frames lost {100 * c['drop_prob']:.1f}% (real: none)",
+             f"{100 * lost:.2f}%")
+    # Every return on the world's terrain, from the true pose at the point's own time.
+    sdf = re.sub(r"<!--.*?-->", "", (ROOT / "sim/models/gdn_payload/model.sdf").read_text(), flags=re.S)
+    mp = payload_sensor(sdf, L["gz"])[1]
+    mount = (mp[:3], mp[3:])
+    # Returns within 1 m are the airframe (the x500's arms reach 0.6 m from the sensor).
+    res, mov = {-0.05: [], 0.0: [], 0.05: []}, []
+    for i, p in pts.items():
+        if arr[i] <= t_rest[1]:
+            continue
+        t_gz = clock.sample(st[i]) + p["offset_time"].astype(float) * 1e-9
+        moving = truth_at(clock.truth, t_gz[len(t_gz) // 2])[8] > 1.0
+        dz, r = livox_ground_residual(p, t_gz, clock, mount, world)
+        res[0.0].append(dz[r > 1.0])
+        if moving and (r > 1.0).sum() >= 100:
+            mov.append(dz[r > 1.0])
+            for sh in (-0.05, 0.05):
+                d2, r2 = livox_ground_residual(p, t_gz, clock, mount, world, sh)
+                res[sh].append(d2[r2 > 1.0])
+    dz0 = np.concatenate(res[0.0]) if res[0.0] else np.zeros(0)
+    if len(dz0) < 1000:
+        return ck(False, f"{name}: returns from the ground in flight", f"{len(dz0)}")
+    med, p95 = float(np.median(np.abs(dz0))), float(np.percentile(np.abs(dz0), 95))
+    ok &= ck(med < 0.10 and p95 < 0.5, f"{name}: every return on the terrain (|height above it| median under 0.1 m, "
+             "95% under 0.5 m)", f"median {med:.3f} m, 95% {p95:.3f} m over {len(dz0)} returns in flight")
+    if len(mov) >= 5:
+        f0 = float(np.median(np.abs(np.concatenate(mov))))
+        fm, fp = (float(np.median(np.abs(np.concatenate(res[k])))) for k in (-0.05, 0.05))
+        ok &= ck(f0 < 0.8 * min(fm, fp), f"{name}: each point fits the pose at its own offset_time best (moving, "
+                 "against 50 ms before or after, by 20% or more)",
+                 f"median |height| {f0:.3f} m at its time, {fm:.3f} m 50 ms before, {fp:.3f} m after, "
+                 f"over {len(mov)} moving frames")
+    else:
+        ok &= ck(False, f"{name}: frames with ground returns while moving", f"{len(mov)}")
+    return ok
+
+
 def payload_mount(sensor_topic):
     """Position of a payload sensor in the payload frame, which is what the truth
     (gdn/truth_odom, published by the payload) gives the pose of."""
@@ -758,6 +1070,7 @@ def check_run(d):
         else:
             ok &= check_tfmini(real, c, m, truth, t_rest, payload_mount("gdn/tfmini"), world, clock)
     ok &= check_stereo(cfg[STEREO["name"]], types, msgs, t_rest, world, d / "image_bag", clock)
+    ok &= check_livox(cfg[LIVOX["name"]], d / "sitl_bag", clock, t_rest, world)
     return 0 if ok else 1
 
 
@@ -810,6 +1123,34 @@ def selfcheck():
                  f"{s_ok:.3f}, {s_swap:.3f}, {s_wide:.3f}")
     except ImportError:
         ok &= ck(False, "selfcheck: OpenCV (python3-opencv) for the stereo check")
+    # R2.4c: the CustomMsg reader on a hand-built message (CDR: 4-byte encapsulation, then
+    # each field aligned to its size, the last point unpadded).
+    import struct
+    pts = [(0, 1.0, 2.0, 3.0, 40, 0, 0), (4947, 0.0, 0.0, 0.0, 0, 0, 1), (9894, -1.5, 0.25, 7.0, 40, 0, 2)]
+    frame = b"livox_frame\0"
+    body = struct.pack("<iII", 1795000000, 123456789, len(frame)) + frame
+    body += b"\0" * ((-len(body)) % 8)
+    body += struct.pack("<QIB3xI", 1795000000123456789, len(pts), 192, len(pts))
+    body += b"".join(struct.pack("<I3fBBB", *q) + (b"\0" if k < len(pts) - 1 else b"") for k, q in enumerate(pts))
+    st, fr, tb, pn, lid, pp = parse_livox(b"\x00\x01\x00\x00" + body)
+    ok &= ck(fr == "livox_frame" and tb == 1795000000123456789 and pn == 3 and lid == 192
+             and parse_livox_stamp_ns(b"\x00\x01\x00\x00" + body) == 1795000000123456789
+             and pp["offset_time"].tolist() == [0, 4947, 9894] and pp["line"].tolist() == [0, 1, 2]
+             and np.allclose(pp["x"], [1.0, 0.0, -1.5]) and pp["reflectivity"].tolist() == [40, 0, 40],
+             "selfcheck: the CustomMsg reader (fields, alignment, the unpadded last point)")
+    # A point on flat ground, from a known pose and the lidar's upside-down mount: 10 m below
+    # a level sensor, the point straight down in its own (flipped) frame is straight up.
+    hdr1 = {"dlat": -1e-4, "dlon": 1e-4, "m_per_deg_lat": 1e4, "m_per_deg_lon": 1e4}
+    world1 = (np.full((400, 400), 500.0), hdr1, 490.0)                    # ground at z = 10
+    class Clk:
+        truth = np.array([[0.0, 5, 3, 20.05, 1, 0, 0, 0, 0, 0], [1.0, 5, 3, 20.05, 1, 0, 0, 0, 0, 0]])
+    p1 = np.zeros(2, LIVOX_POINT)
+    p1["z"] = [10.0, 9.0]                                                 # up in the sensor frame
+    dz, rr = livox_ground_residual(p1, np.array([0.5, 0.5]), Clk, (np.array([0, 0, -0.05]), np.array([math.pi, 0, 0])),
+                                   world1)
+    ok &= ck(np.allclose(dz, [0.0, 1.0], atol=1e-6) and np.allclose(rr, [10.0, 9.0]),
+             "selfcheck: a lidar return placed in the world through the upside-down mount",
+             f"heights above ground {np.round(dz, 4).tolist()} m (want 0 and 1)")
     return ok
 
 
@@ -817,7 +1158,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--run", help="a tools/sim_run.sh log directory")
     ap.add_argument("--selfcheck", action="store_true")
+    ap.add_argument("--livox-reference", nargs=2, metavar=("BAG", "OUT_JSON"),
+                    help="R2.4c: the reference numbers from a recording of the real Mid-360S")
     a = ap.parse_args()
+    if a.livox_reference:
+        return livox_reference(*a.livox_reference)
     if a.selfcheck:
         return 0 if selfcheck() else 1
     if a.run:

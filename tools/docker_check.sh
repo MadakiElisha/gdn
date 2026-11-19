@@ -70,6 +70,7 @@ check "PX4 SITL is built" test -x "$PX4_DIR/build/px4_sitl_default/bin/px4"
 want "Micro XRCE-DDS Agent ($XRCE_TAG)" "$XRCE_COMMIT" "$(cat /opt/gdn/xrce_commit 2>/dev/null)"
 check "MicroXRCEAgent is installed" command -v MicroXRCEAgent
 check "ros_gz_bridge is installed" ros2 pkg prefix ros_gz_bridge
+check "livox_ros_driver2 messages are installed (R2.4c)" ros2 interface show livox_ros_driver2/msg/CustomMsg
 check "Gazebo Python bindings import" python3 -c "import gz.sim8, gz.math7, gz.transport13"
 check "the workspace is the host's (same path)" test -f "$ROOT/env.sh"
 check "files written in the workspace belong to the host user" \

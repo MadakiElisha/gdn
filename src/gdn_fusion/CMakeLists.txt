@@ -76,6 +76,20 @@ target_include_directories(gdn_selftest PRIVATE include)
 # Simulated sensors: the payload's Gazebo sensors as the real drivers publish them (R2.4a)
 add_executable(sim_sensors src/sim_sensors_node.cpp)
 ament_target_dependencies(sim_sensors rclcpp sensor_msgs)
+# R2.4c: the simulated Mid-360S publishes livox_ros_driver2/CustomMsg. The messages come
+# from outside this workspace (the dev image's /opt/livox_msgs, CI's build of
+# docker/livox_msgs, or the real driver's workspace), so they're optional here: without
+# them sim_sensors builds with no lidar and refuses a config that asks for one. Not in
+# package.xml, which rosdep would try to install.
+find_package(livox_ros_driver2 QUIET)
+if(livox_ros_driver2_FOUND)
+  ament_target_dependencies(sim_sensors livox_ros_driver2)
+  target_compile_definitions(sim_sensors PRIVATE GDN_HAVE_LIVOX=1)
+  message(STATUS "sim_sensors: Mid-360S lidar on (livox_ros_driver2 messages found)")
+else()
+  message(WARNING "sim_sensors: no livox_ros_driver2 messages: built without the Mid-360S lidar "
+                  "(source /opt/livox_msgs/setup.bash, or build docker/livox_msgs)")
+endif()
 target_link_libraries(sim_sensors Eigen3::Eigen)
 target_include_directories(sim_sensors PRIVATE include)
 

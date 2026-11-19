@@ -3,6 +3,7 @@
 # workspace is mounted, then the command (default: an interactive shell).
 # shellcheck disable=SC1091
 source /opt/ros/jazzy/setup.bash
+[ -f /opt/livox_msgs/setup.bash ] && source /opt/livox_msgs/setup.bash   # R2.4c: livox_ros_driver2 messages
 if [ -n "${GDN_ROOT:-}" ] && [ -f "$GDN_ROOT/env.sh" ]; then
   cd "$GDN_ROOT" || exit 1
   source "$GDN_ROOT/env.sh" 2>/dev/null

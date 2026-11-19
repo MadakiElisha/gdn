@@ -1445,6 +1445,100 @@ int main() {
               "sim: TEST-036 tone map: linear times gain, sRGB-encoded to 8 bits, clipped");
     }
 
+    // TEST-037 (R2.4c): the Mid-360S lidar's pattern, grid, point clock, range at a point's
+    // time and returns (gdn/sim_sensors.hpp).
+    {
+        constexpr double kDeg = M_PI / 180.0;
+        // The pattern file: Livox's columns (index, azimuth, zenith), mirrored azimuth.
+        const std::string pat = (std::filesystem::temp_directory_path() / "gdn_selftest_mid360.csv").string();
+        {
+            std::ofstream f(pat);
+            f << "Time/s,Azimuth/deg,Zenith/deg\n1,268.99,37.838\n2,269,40.825\n3,269,43.581\n4,269,46.152\n";
+        }
+        simsens::LivoxPattern lp;
+        std::string err;
+        const bool loaded = simsens::LoadLivoxPattern(pat, true, &lp, &err);
+        {
+            std::ofstream f(pat, std::ios::app);
+            f << "5,1.0,40.0\n";  // five rows: not whole groups of four lines
+        }
+        simsens::LivoxPattern bad;
+        std::string err5;
+        const bool refused = !simsens::LoadLivoxPattern(pat, true, &bad, &err5);
+        std::filesystem::remove(pat);
+        CHECK(loaded && lp.az.size() == 4 && std::abs(lp.az[0] - 91.01 * kDeg) < 1e-6 &&
+                  std::abs(lp.el[0] - 52.162 * kDeg) < 1e-6 && refused,
+              "sim: TEST-037 Livox pattern read: azimuth mirrored, elevation = 90 - zenith, whole groups of 4 lines");
+        // The grid: every ray is its own nearest; azimuth wraps; outside the field is none.
+        simsens::LidarGrid g;
+        bool own = true;
+        for (int j = 0; j < g.nv; j += 7)
+            for (int i = 0; i < g.nh; i += 13) own &= g.Nearest(g.Az(i), g.El(j)) == j * g.nh + i;
+        const bool wraps = g.Nearest(179.9 * kDeg, 0.0) % g.nh == 0 && g.Nearest(-179.9 * kDeg, 0.0) % g.nh == 0;
+        const bool outside = g.Nearest(0.0, -8.0 * kDeg) < 0 && g.Nearest(0.0, 53.0 * kDeg) < 0;
+        CHECK(own && wraps && outside && std::abs(g.Az(1) - g.Az(0) - 0.5 * kDeg) < 1e-12,
+              "sim: TEST-037 lidar grid: nearest ray, azimuth wraps, none outside -7.2 to 52.2 deg");
+        // Between rays: the four around a direction, bilinear on a smooth surface (a plane's
+        // range is linear enough over 0.5 deg), the nearest ray's at an edge or a miss.
+        int idx[4];
+        double w[4];
+        const double dv = g.El(1) - g.El(0);
+        const bool around = g.Around(g.Az(10) + 0.25 * kDeg, g.El(20) + 0.2 * dv, idx, w) && idx[0] == 20 * g.nh + 10 &&
+                            idx[3] == 21 * g.nh + 11 && std::abs(w[0] + w[1] + w[2] + w[3] - 1.0) < 1e-12 &&
+                            std::abs(w[1] - 0.5 * 0.8) < 1e-9;
+        int iw[4];
+        double ww[4];
+        const bool wrap_ok = g.Around(179.75 * kDeg, 0.0, iw, ww) && iw[0] % g.nh == g.nh - 1 && iw[1] % g.nh == 0;
+        const double smooth[4] = {10.0, 10.2, 10.1, 10.3}, edge[4] = {10.0, 30.0, 10.0, 30.0},
+                     miss[4] = {10.0, std::numeric_limits<double>::infinity(), 10.0, 10.0};
+        const double wq[4] = {0.4, 0.1, 0.4, 0.1};
+        CHECK(around && wrap_ok && std::abs(simsens::GridRange(smooth, wq) - 10.09) < 1e-9 &&
+                  simsens::GridRange(edge, wq) == 10.0 && simsens::GridRange(miss, wq) == 10.0,
+              "sim: TEST-037 lidar between rays: bilinear on a smooth surface, the nearest ray at an edge or a miss");
+        // The point clock: 96 points 4.947 us apart per packet, 208 packets per 100 ms.
+        simsens::LivoxTiming lt;
+        const int64_t per_frame = lt.FirstPointAtOrAfter(0.0, 0.1);
+        const double spacing = lt.PointTime(0.0, 1) - lt.PointTime(0.0, 0);
+        const double packet = lt.PointTime(0.0, 96) - lt.PointTime(0.0, 0);
+        std::printf("      lidar clock: %lld points a frame, %.3f us apart, packets %.2f us\n",
+                    static_cast<long long>(per_frame), spacing * 1e6, packet * 1e6);
+        CHECK(per_frame == 19968 && std::abs(spacing - 4.947e-6) < 1e-12 && std::abs(packet - 0.1 / 208) < 1e-12 &&
+                  lt.FirstPointAtOrAfter(0.0, 0.1 + 1e-7) == 19968 + 96,
+              "sim: TEST-037 lidar point clock: 19968 points (208 packets of 96) per 100 ms frame");
+        // A ray's range at a point's time, between two renders.
+        const double inf = std::numeric_limits<double>::infinity();
+        CHECK(std::abs(simsens::InterpRange(0.0125, 0.0, 10.0, 0.05, 12.0) - 10.5) < 1e-12 &&
+                  simsens::InterpRange(0.01, 0.0, inf, 0.05, 12.0) == inf &&
+                  simsens::InterpRange(0.04, 0.0, inf, 0.05, 12.0) == 12.0 &&
+                  std::abs(simsens::InterpRange(0.075, 0.0, 10.0, 0.05, 12.0) - 13.0) < 1e-12 &&
+                  std::abs(simsens::InterpRange(0.5, 0.0, 10.0, 0.05, 12.0) - 14.0) < 1e-12,
+              "sim: TEST-037 lidar range between renders: linear between hits, on for one period past the "
+              "latest, the nearer render's at a miss");
+        // Returns: none beyond 40 m or under 0.1 m; range noise 2 cm; along the ray.
+        simsens::LivoxSpec ls;
+        std::mt19937_64 lr(9);
+        bool none = !simsens::LivoxReturn(ls, 0.0, 0.0, 40.5, lr).hit &&
+                    !simsens::LivoxReturn(ls, 0.0, 0.0, 0.05, lr).hit &&
+                    !simsens::LivoxReturn(ls, 0.0, 0.0, inf, lr).hit;
+        for (int k = 0; k < 2000; ++k) {  // at the limit, the noise never takes a return under it
+            const simsens::LivoxPointOut q = simsens::LivoxReturn(ls, 0.0, 0.0, 0.1, lr);
+            none &= !q.hit || std::sqrt(double{q.x} * q.x + double{q.y} * q.y + double{q.z} * q.z) >= 0.1 - 1e-6;
+        }
+        double s1 = 0.0, s2 = 0.0, off = 0.0;
+        const int nr = 20000;
+        for (int k = 0; k < nr; ++k) {
+            const simsens::LivoxPointOut q = simsens::LivoxReturn(ls, 30.0 * kDeg, 20.0 * kDeg, 10.0, lr);
+            const double r = std::sqrt(double{q.x} * q.x + double{q.y} * q.y + double{q.z} * q.z);
+            s1 += r - 10.0;
+            s2 += (r - 10.0) * (r - 10.0);
+            off += std::abs(std::asin(q.z / r) - 20.0 * kDeg);
+        }
+        const double rs = std::sqrt(s2 / nr - (s1 / nr) * (s1 / nr));
+        std::printf("      lidar return: range sigma %.4f m, mean elevation error %.3f deg\n", rs, off / nr / kDeg);
+        CHECK(none && std::abs(rs - 0.02) < 0.001 && std::abs(s1 / nr) < 0.001 && off / nr / kDeg < 0.15,
+              "sim: TEST-037 lidar return: none beyond 40 m or under 0.1 m, 2 cm range noise, along the ray");
+    }
+
     try {
         TestRunLog();
     } catch (const std::exception& e) {

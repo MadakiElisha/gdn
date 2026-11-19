@@ -42,6 +42,18 @@ if [ "${GDN_GPU:-}" = "nvidia" ]; then
   fi
 fi
 
+# livox_ros_driver2's messages (R2.4c: the simulated Mid-360S's /livox/lidar): the dev
+# image's messages-only build, or the real driver's workspace on a PC that has one, or
+# GDN_LIVOX_WS. Before the workspace, so gdn_fusion builds sim_sensors' lidar against it.
+for _gdn_livox in "${GDN_LIVOX_WS:-}" /opt/livox_msgs "$HOME/ws_livox/install" "$HOME/livox_ws/install"; do
+  if [ -n "$_gdn_livox" ] && [ -f "$_gdn_livox/setup.bash" ]; then
+    # shellcheck disable=SC1090,SC1091
+    source "$_gdn_livox/setup.bash"
+    break
+  fi
+done
+unset _gdn_livox
+
 # Keep this project's ROS graph separate from other work on the same LAN.
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-42}"
 

@@ -1,0 +1,8 @@
+PASS  sim: TEST-037 Livox pattern read: azimuth mirrored, elevation = 90 - zenith, whole groups of 4 lines
+PASS  sim: TEST-037 lidar grid: nearest ray, azimuth wraps, none outside -7.2 to 52.2 deg
+PASS  sim: TEST-037 lidar between rays: bilinear on a smooth surface, the nearest ray at an edge or a miss
+      lidar clock: 19968 points a frame, 4.947 us apart, packets 480.77 us
+PASS  sim: TEST-037 lidar point clock: 19968 points (208 packets of 96) per 100 ms frame
+PASS  sim: TEST-037 lidar range between renders: linear between hits, on for one period past the latest, the nearer render's at a miss
+      lidar return: range sigma 0.0201 m, mean elevation error 0.120 deg
+PASS  sim: TEST-037 lidar return: none beyond 40 m or under 0.1 m, 2 cm range noise, along the ray

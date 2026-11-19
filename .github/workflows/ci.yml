@@ -16,6 +16,8 @@ jobs:
   build-test:
     runs-on: ubuntu-24.04
     container: ros:jazzy-ros-base
+    env:
+      GDN_LIVOX_WS: ${{ github.workspace }}/install_livox   # env.sh sources it (R2.4c)
     timeout-minutes: 60    # R1.9 added about 12 minutes (clang-tidy, sanitizers)
     defaults:
       run:
@@ -66,9 +68,15 @@ jobs:
             install/px4_msgs
           key: px4msgs-${{ runner.os }}-${{ hashFiles('.gitmodules') }}-${{ hashFiles('src/px4_msgs/msg/*.msg') }}
 
+      # R2.4c: livox_ros_driver2's messages (docker/livox_msgs, as in the dev image), so
+      # sim_sensors builds, and is tidied, with the Mid-360S lidar. Outside src/ on purpose.
+      - name: Livox messages (R2.4c)
+        run: docker/livox_msgs/build.sh "$GITHUB_WORKSPACE/install_livox"
+
       - name: colcon build
         run: |
           source /opt/ros/jazzy/setup.bash
+          source install_livox/setup.bash
           colcon build --base-paths src --cmake-args -DCMAKE_BUILD_TYPE=Release \
             -DGDN_WERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             --event-handlers console_cohesion+
@@ -121,11 +129,13 @@ jobs:
           python3 tools/check_vehicles.py
           python3 tools/check_vehicles.py --selfcheck
 
-      # R2.4a/b: the payload's simulated sensors and their config match the real drivers'
-      # topics and frames (and the OAK-D Lite's cameras its geometry), and the run check's
-      # statistics, ray cast and stereo matcher work on made-up data. The timing, range,
-      # exposure and noise code itself is in the selftest (TEST-035, TEST-036).
-      - name: Simulated sensors check and self-check (R2.4a, R2.4b)
+      # R2.4a/b/c: the payload's simulated sensors and their config match the real drivers'
+      # topics and frames (the OAK-D Lite's cameras its geometry, the Mid-360S's lidar its
+      # grid, pinned scan pattern and the real unit's reference numbers), and the run
+      # check's statistics, ray cast, stereo test and CustomMsg reader work on made-up data.
+      # The timing, range, exposure, noise and lidar code itself is in the selftest
+      # (TEST-035, TEST-036, TEST-037).
+      - name: Simulated sensors check and self-check (R2.4a, R2.4b, R2.4c)
         run: |
           python3 tools/check_sim_sensors.py
           python3 tools/check_sim_sensors.py --selfcheck

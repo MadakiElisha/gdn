@@ -1,0 +1,11 @@
+PASS  selfcheck: 0.53 ms stamp jitter is a 15% spacing spread: 15.2%
+PASS  selfcheck: the OAK-D skip pattern is 239 Hz and a 29% spread: 240 Hz, 29%
+PASS  selfcheck: sigma of uneven white noise
+PASS  selfcheck: 2% lost is found: 1.81%
+PASS  selfcheck: skipped ticks aren't losses
+PASS  selfcheck: TFmini-S sigma by range
+PASS  selfcheck: the truth's disparity on flat ground: 4.054, 5.678 px (exact 4.054, 5.678)
+PASS  selfcheck: the stereo warp test finds scale 1, -1 for a swapped pair, 1.1 for a 10% short baseline: 1.000, -1.000, 1.100
+PASS  selfcheck: the CustomMsg reader (fields, alignment, the unpadded last point)
+PASS  selfcheck: a lidar return placed in the world through the upside-down mount: heights above ground [0.0, 1.0] m (want 0 and 1)
+exit 0

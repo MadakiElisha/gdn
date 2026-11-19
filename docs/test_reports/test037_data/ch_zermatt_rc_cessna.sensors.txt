@@ -1,0 +1,64 @@
+run: rc_cessna over ch_zermatt
+at rest on the pad for 8 s
+PASS  sim_sensors logged its clock (stamps are Gazebo time plus an offset): offset 1795086907.352689 s
+clock reference: the raw H30WP, 76082 samples
+real-time factor 0.998 (Gazebo seconds per wall second, from the truth)
+PASS  h30wp: on /imu/data as sensor_msgs/msg/Imu: 60867 messages, sensor_msgs/msg/Imu
+PASS  h30wp: frame: imu_link
+PASS  h30wp: rate 194 to 206 Hz: 200.0 Hz
+PASS  h30wp: at rest it reads gravity, in m/s^2: |a| 9.842 m/s^2 (1.0036 g) over 1693 samples
+PASS  h30wp: accel white noise as its R1.6 model (within 25%): sigma 7.59e-03 7.13e-03 8.82e-03 m/s^2, model 7.60e-03 7.19e-03 8.61e-03
+PASS  h30wp: gyro white noise as its R1.6 model (within 25%): sigma 1.29e-03 1.29e-03 9.88e-04 rad/s, model 1.34e-03 1.32e-03 1.03e-03
+PASS  h30wp: arrival minus stamp 0.0 ms on Gazebo's clock (arrival stamps, latency 3.0 ms, Gazebo samples every 4 ms): median 0.39 ms, 1st percentile -0.03, max 8.06
+PASS  h30wp: messages lost 0.0% (within 1 point): 0.01%
+PASS  mid360s_imu: on /livox/imu as sensor_msgs/msg/Imu: 60868 messages, sensor_msgs/msg/Imu
+PASS  mid360s_imu: frame: livox_frame
+PASS  mid360s_imu: rate 194 to 206 Hz: 200.0 Hz
+PASS  mid360s_imu: spacing spread 10 to 20% (measured): 15.0%
+PASS  mid360s_imu: at rest it reads gravity, in g: |a| 9.829 m/s^2 (1.0023 g) over 1693 samples
+PASS  mid360s_imu: accel white noise as its R1.6 model (within 25%): sigma 8.48e-03 7.85e-03 9.80e-03 m/s^2, model 8.58e-03 8.27e-03 1.00e-02
+PASS  mid360s_imu: gyro white noise as its R1.6 model (within 25%): sigma 1.24e-03 9.85e-04 2.08e-03 rad/s, model 1.26e-03 1.01e-03 2.04e-03
+PASS  mid360s_imu: arrival minus stamp 2.0 ms on Gazebo's clock (sensor stamps, latency 1.0 ms, Gazebo samples every 4 ms): median 2.72 ms, 1st percentile 0.31, max 10.98
+PASS  mid360s_imu: messages lost 0.0% (within 1 point): 0.04%
+PASS  oakd_imu: on /oak/imu/data as sensor_msgs/msg/Imu: 72833 messages, sensor_msgs/msg/Imu
+PASS  oakd_imu: frame: oak_imu_frame
+PASS  oakd_imu: rate 230 to 255 Hz: 239.3 Hz
+PASS  oakd_imu: spacing spread 20 to 38% (measured): 29.0%
+PASS  oakd_imu: at rest it reads gravity, in m/s^2: |a| 9.763 m/s^2 (0.9956 g) over 2036 samples
+PASS  oakd_imu: accel white noise as its R1.6 model (within 25%): sigma 2.04e-02 1.86e-02 2.02e-02 m/s^2, model 2.04e-02 1.82e-02 2.02e-02
+PASS  oakd_imu: gyro white noise as its R1.6 model (within 25%): sigma 1.65e-03 1.59e-03 1.63e-03 rad/s, model 1.62e-03 1.62e-03 1.64e-03
+PASS  oakd_imu: arrival minus stamp 4.0 ms on Gazebo's clock (sensor stamps, latency 4.0 ms, Gazebo samples every 4 ms): median 4.65 ms, 1st percentile 2.33, max 13.57
+PASS  oakd_imu: messages lost 0.0% (within 1 point): 0.00%
+PASS  tfmini: on /tfmini/range as sensor_msgs/msg/Range: 30379 messages, sensor_msgs/msg/Range
+PASS  tfmini: frame: tfmini_link
+PASS  tfmini: Range fields (infrared, 0.1 to 12 m, 2 deg): type 1, 0.10000000149011612 to 12.0 m, 2.00 deg
+PASS  tfmini: rate 97 to 103 Hz: 99.8 Hz
+PASS  tfmini: at rest, the true height and the model's noise: mean 0.131 m against 0.142 m, sigma 0.023 m (model 0.030)
+PASS  tfmini: +inf beyond 12 m: 24556 of 24556 readings
+PASS  tfmini: in flight within 12 m, error RMS under twice the model: RMS 0.067 m (limit 0.076) over 1323 readings
+PASS  tfmini: arrival minus stamp 0.0 ms on Gazebo's clock (arrival stamps, latency 5.0 ms): median 0.36 ms, 1st percentile -0.06, max 6.71
+PASS  tfmini: messages lost 0.2% (within 1 point): 0.20%
+PASS  oakd_stereo: left camera_info on /oak/left/camera_info: 9113 messages, sensor_msgs/msg/CameraInfo
+PASS  oakd_stereo: left frame and size: oak_left_camera_optical_frame, 640 x 480
+PASS  oakd_stereo: left camera_info is the 73 deg pinhole, no distortion: fx 432.46 (want 432.46), cx 319.5, cy 239.5, Tx 0.000
+PASS  oakd_stereo: right camera_info on /oak/right/camera_info: 9113 messages, sensor_msgs/msg/CameraInfo
+PASS  oakd_stereo: right frame and size: oak_right_camera_optical_frame, 640 x 480
+PASS  oakd_stereo: right camera_info is the 73 deg pinhole, no distortion, Tx = -fx * 7.5 cm: fx 432.46 (want 432.46), cx 319.5, cy 239.5, Tx -32.434
+PASS  oakd_stereo: every left image has a right one with the same stamp (a synced pair): 9113 pairs of 9113 left, 9113 right
+PASS  oakd_stereo: rate 29 to 31 Hz: 29.94 Hz
+PASS  oakd_stereo: arrival minus stamp 25.0 ms on Gazebo's clock (sensor stamps, latency 25.0 ms): median 25.63 ms, 1st percentile 18.61, max 57.59
+PASS  oakd_stereo: messages lost 0.2% (within 1 point): 0.19%
+note  oakd_stereo: images not recorded (GDN_BAG_IMAGES=1 records them): exposure, noise and depth not checked
+PASS  mid360s_lidar: on /livox/lidar: 3044 frames
+PASS  mid360s_lidar: frame and lidar_id as the real unit's: ['livox_frame'], [192]
+PASS  mid360s_lidar: 10 Hz frames (real 10.00 Hz, 98.6 to 101.5 ms): 10.000 Hz, 99.5 to 100.5 ms
+PASS  mid360s_lidar: points a frame within the real unit's 19872 to 20160: 19872 to 20064, median 19968
+PASS  mid360s_lidar: stamp = timebase (the first point), points 4.947 us apart, offset_time to about 101 ms, as the real unit: 100%, 4.947 us, 100.0 ms
+PASS  mid360s_lidar: four lines, a quarter each: 25.00% 25.00% 25.00% 25.00%
+PASS  mid360s_lidar: no return as the real driver publishes it (0, 0, 0, reflectivity 0); none nearer than 0.1 m (real 0.129): 76.9% no return (real, in a room: 24.1%), nearest 0.100 m
+PASS  mid360s_lidar: the real unit's scan pattern (azimuth step a group 1.30 deg, lines spread 2.49 deg; frames returning half their points or more): 1.31 deg, 2.39 deg over 122 frames
+PASS  mid360s_lidar: arrival minus stamp in the bag as the real unit's (median 109.1 ms: the frame, the driver, the way to the recorder), within 4 ms, on Gazebo's clock: median 108.4 ms (the frame and the driver: 105), 102.4 to 117.6
+PASS  mid360s_lidar: frames lost 0.0% (real: none): 0.00%
+PASS  mid360s_lidar: every return on the terrain (|height above it| median under 0.1 m, 95% under 0.5 m): median 0.031 m, 95% 0.164 m over 713137 returns in flight
+PASS  mid360s_lidar: each point fits the pose at its own offset_time best (moving, against 50 ms before or after, by 20% or more): median |height| 0.034 m at its time, 0.111 m 50 ms before, 0.095 m after, over 77 moving frames
+sensors exit 0
