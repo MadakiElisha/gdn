@@ -6,7 +6,7 @@ Panels:
 Visualization Manager:
   Displays:
     - Class: rviz_default_plugins/Grid
-      Name: Grid (1 m, the sensor's own frame)
+      Name: Grid (1 m, level through the sensor)
       Cell Size: 1
       Plane Cell Count: 40
       Color: 120; 120; 130
@@ -32,12 +32,12 @@ Visualization Manager:
       Decay Time: 0
       Value: true
   Global Options:
-    Fixed Frame: livox_frame
+    Fixed Frame: livox_view
     Background Color: 30; 34; 40
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Target Frame: livox_frame
+      Target Frame: livox_view
       Distance: 35
       Focal Point: {X: 0, Y: 0, Z: 0}
       Pitch: 0.5
