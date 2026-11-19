@@ -215,15 +215,23 @@ echo "sim_run: starting PX4 (airframe $VEHICLE_AUTOSTART, attaching to $MODEL_IN
 ( cd "$PX4_DIR" && LD_LIBRARY_PATH="$GZ_LD" PX4_SYS_AUTOSTART="$VEHICLE_AUTOSTART" PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
     PX4_GZ_WORLD="$WORLD" ./build/px4_sitl_default/bin/px4 -d > "$LOG/px4.log" 2>&1 ) & PIDS+=($!)
 
+# Each try listens 5 s: on GitHub's CPU runner a fresh "ros2 topic echo" needed more than
+# 2 s to start and find PX4. A second, confirming 2 s listen after the loop missed it
+# there, and stopped a run whose PX4 was up (R2.4c); the loop's own success counts now.
+T0=$SECONDS
+PX4_UP=
 echo -n "sim_run: waiting for PX4 over DDS "
-for _ in $(seq 1 90); do
-  timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 && break
+for _ in $(seq 1 40); do
+  if timeout 5 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1; then
+    PX4_UP=1; break
+  fi
   gz_dead && exit 1
   echo -n "."
 done
 echo
-timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
-  || { gz_discovery; die "no /fmu/out/vehicle_local_position after 3 minutes; see $LOG/px4.log and $LOG/agent.log"; }
+[ -n "$PX4_UP" ] && echo "sim_run: PX4 up over DDS after $((SECONDS - T0)) s"
+[ -n "$PX4_UP" ] \
+  || { gz_discovery; die "no /fmu/out/vehicle_local_position after $((SECONDS - T0)) s; see $LOG/px4.log and $LOG/agent.log"; }
 # PX4 settings for this setup and vehicle (each one explained in tools/sim_vehicles.py):
 # IMU_INTEG_RATE 100, NAV_DLL_ACT 0 and EKF2_GPS_CTRL 7 always, plus the fixed-wing's
 # catapult launch. PX4 resets its parameters when the airframe changes.
