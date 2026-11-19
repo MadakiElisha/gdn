@@ -16,6 +16,10 @@
 #   GDN_BAG_IMAGES=1 tools/sim_run.sh     # R2.4b: record the OAK-D Lite's images too, in
 #                                         # $LOG/image_bag (about 18 MB/s; by default only
 #                                         # their camera_info, in sitl_bag)
+#   GDN_SIM_CPU=1 tools/sim_run.sh        # no GPU: leave out the OAK-D Lite's cameras and
+#                                         # the Mid-360S lidar, which Gazebo can't render
+#                                         # fast enough on the processor (the CPU
+#                                         # tools/docker_check.sh; IMUs, TFmini and radar stay)
 #
 # One-time setup: tools/setup_sim.sh. Logs: $GDN_LOG_DIR (default /tmp/gdn_sim).
 # Ctrl+C stops everything.
@@ -114,6 +118,26 @@ set +u
 source "$PX4_DIR/build/px4_sitl_default/rootfs/gz_env.sh"
 set -u
 export GZ_SIM_RESOURCE_PATH="$GZ_SIM_RESOURCE_PATH:$ROOT/sim/models:$WDIR"
+# GDN_SIM_CPU=1: a copy of the payload without its cameras and lidar, found first. Rendered
+# on the processor they slowed Gazebo to a tenth of real time, and the CPU docker check's
+# x500 never finished its climb (R2.4c).
+SIM_SENSOR_ARGS=()
+if [ -n "${GDN_SIM_CPU:-}" ]; then
+  rm -rf "$LOG/models"; mkdir -p "$LOG/models"
+  cp -r "$ROOT/sim/models/gdn_payload" "$LOG/models/"
+  python3 - "$LOG/models/gdn_payload/model.sdf" <<'PY' || die "couldn't strip the payload's rendered sensors"
+import re, sys
+p = sys.argv[1]
+s, n = re.subn(r'\n\s*<sensor name="(gdn_oak_left|gdn_oak_right|gdn_mid360s_lidar)".*?</sensor>', "",
+               open(p).read(), flags=re.S)
+if n != 3:
+    sys.exit(f"expected the 2 cameras and the lidar in {p}, found {n}")
+open(p, "w").write(s)
+PY
+  export GZ_SIM_RESOURCE_PATH="$LOG/models:$GZ_SIM_RESOURCE_PATH"
+  SIM_SENSOR_ARGS=(-p "sensors:=[h30wp, mid360s_imu, oakd_imu, tfmini]")
+  echo "sim_run: GDN_SIM_CPU=1, no cameras or lidar (IMUs, TFmini and radar only)"
+fi
 
 # Gazebo's messaging uses multicast discovery; with no network route (offline laptop,
 # some VPNs) it fails with "Network is unreachable". Everything here is on one machine.
@@ -236,7 +260,7 @@ for s in left right; do
 YAML
 done
 ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:="$LOG/bridge.yaml" > "$LOG/bridge.log" 2>&1 & PIDS+=($!)
-ros2 run gdn_fusion sim_sensors --ros-args --params-file "$ROOT/config/sim/sensors.yaml" \
+ros2 run gdn_fusion sim_sensors --ros-args --params-file "$ROOT/config/sim/sensors.yaml" "${SIM_SENSOR_ARGS[@]}" \
   > "$LOG/sensors.log" 2>&1 & PIDS+=($!)
 python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" -p gz_model:="$MODEL_INSTANCE" ${GDN_SIM_ADAPTER_ARGS:-} \
   > "$LOG/adapter.log" 2>&1 & PIDS+=($!)

@@ -102,7 +102,10 @@ if [ -z "$QUICK" ]; then
   SL="$LOGD/sitl"
   rm -rf "$SL"
   n_runs_before=$(find "$ROOT/log/gdn_runs" -maxdepth 1 -name 'gdn_*' 2>/dev/null | wc -l)
-  HEADLESS=1 GDN_LOG_DIR="$SL" GDN_FLY_ARGS="--legs 1 --leg-len 300" \
+  # Without the GPU, the cameras and lidar would render on the processor and slow Gazebo
+  # to a tenth of real time (R2.4c); this flight checks the loop, so they stay out.
+  CPU_SIM=1; [ -n "$GPU" ] && CPU_SIM=
+  HEADLESS=1 GDN_LOG_DIR="$SL" GDN_FLY_ARGS="--legs 1 --leg-len 300" GDN_SIM_CPU="$CPU_SIM" \
     timeout 900 "$ROOT/tools/sim_run.sh" > "$LOGD/sim_run.log" 2>&1
   check "SITL: PX4 reached over DDS" grep -q "flying" "$LOGD/sim_run.log"
   check "SITL: GDN aligned and set its altitude datum" grep -q "altitude datum" "$SL/gdn.log"

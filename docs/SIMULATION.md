@@ -99,6 +99,13 @@ tools/docker_dev.sh shell --gpu --gui      # a shell, with Gazebo and RViz windo
   `docker_dev.sh` asks for a rebuild instead of running an old image.
 - **CI** builds the image and runs `tools/docker_check.sh` (CPU) on PRs that change the
   Docker files (`.github/workflows/docker.yml`).
+- **The CPU check flies without the cameras and lidar** (`GDN_SIM_CPU=1`, set by
+  `docker_check.sh` without `--gpu`).
+  - **Why:** rendered on the processor, they slowed Gazebo to about a tenth of real
+    time, and the x500 never finished its climb (R2.4c).
+  - **What stays:** the IMUs, TFmini-S and radar altimeter, which is all the loop
+    needs.
+  - **On a PC without a GPU,** `GDN_SIM_CPU=1 tools/sim_run.sh` does the same.
 - **A slow connection:** the build retries interrupted downloads (git, apt, pip). On a
   very slow link it can still take hours; it resumes from the last finished step if
   run again.
