@@ -3,12 +3,15 @@
 republish each frame as sensor_msgs/PointCloud2 on /livox/points (x, y, z, intensity =
 reflectivity, line, offset_time), same frame and stamp, the no-return points left out.
 
-    python3 tools/livox_view.py            # then in RViz: Add > By topic > /livox/points
-                                           # Fixed Frame: livox_frame (no TF to the world)
+    python3 tools/livox_view.py &
+    rviz2 -d sim/livox_view.rviz           # the frame and the display already set
+                                           # (by hand: Fixed Frame livox_frame, there's no
+                                           # TF to the world; Add > By topic > /livox/points)
 
-Works on the simulated Mid-360S (R2.4c) and on the real driver alike. It reads the
-message bytes directly (check_sim_sensors.parse_livox), so it needs no Livox package
-and keeps up with 200,000 points a second.
+Works on the simulated Mid-360S (R2.4c) and on the real driver alike. It needs
+livox_ros_driver2's messages to subscribe (the dev image has them), and reads each frame
+from its bytes (check_sim_sensors.parse_livox), which keeps up with 200,000 points a
+second.
 """
 import sys
 from pathlib import Path

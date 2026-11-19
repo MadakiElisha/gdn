@@ -1,0 +1,44 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid (1 m, the sensor's own frame)
+      Cell Size: 1
+      Plane Cell Count: 40
+      Color: 120; 120; 130
+      Value: true
+    - Class: rviz_default_plugins/Axes
+      Name: Mid-360S (livox_frame)
+      Reference Frame: livox_frame
+      Length: 1
+      Radius: 0.05
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Mid-360S returns (/livox/points, from tools/livox_view.py)
+      Topic:
+        Value: /livox/points
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Style: Flat Squares
+      Size (m): 0.05
+      Color Transformer: AxisColor
+      Axis: Z
+      Decay Time: 0
+      Value: true
+  Global Options:
+    Fixed Frame: livox_frame
+    Background Color: 30; 34; 40
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Target Frame: livox_frame
+      Distance: 35
+      Focal Point: {X: 0, Y: 0, Z: 0}
+      Pitch: 0.5
+      Yaw: 0.8
