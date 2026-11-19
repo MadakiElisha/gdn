@@ -160,7 +160,6 @@ else
   gz sim -v 4 -s -r "$RUN_WORLD" > "$LOG/gz.log" 2>&1 & GZ_PID=$!
 fi
 PIDS+=($GZ_PID)
-sleep 5
 gz_dead() {
   kill -0 "$GZ_PID" 2>/dev/null && return 1
   echo; echo "sim_run: the Gazebo server stopped. Last lines of $LOG/gz.log:"
@@ -170,7 +169,30 @@ gz_dead() {
   fi
   return 0
 }
-gz_dead && exit 1
+# Wait for the world to answer before starting PX4, which gives up after about 30 s
+# ("Timed out waiting for Gazebo world"). A fixed 5 s was enough on a desktop, but
+# GitHub's CPU runner needed longer, and PX4 never came up (R2.4c).
+# gz_discovery: what Gazebo's discovery shows, the way PX4's startup asks it, for a
+# failed start (in the CI artifact).
+gz_discovery() {
+  { date; echo "GZ_IP=${GZ_IP:-} GZ_PARTITION=${GZ_PARTITION:-} world=$WORLD"
+    echo "--- gz topic -l (PX4 takes the first /world/*/clock)"; timeout 30 gz topic -l 2>&1
+    echo "--- gz service -i /world/$WORLD/scene/info"; timeout 30 gz service -i --service "/world/$WORLD/scene/info" 2>&1
+    echo "--- processes"; ps -eo pid,pcpu,etime,args --sort=-pcpu | head -25; } > "$LOG/gz_discovery.txt" 2>&1
+  echo "sim_run: Gazebo's discovery written to $LOG/gz_discovery.txt"
+}
+T0=$SECONDS
+echo -n "sim_run: waiting for Gazebo's world "
+for i in $(seq 1 240); do
+  gz service -i --service "/world/$WORLD/scene/info" 2>&1 | grep -q "Service providers" && break
+  gz_dead && exit 1
+  [ "$i" -eq 240 ] && { echo; gz_discovery; die "Gazebo's world didn't come up in 4 minutes; see $LOG/gz.log"; }
+  echo -n "."; sleep 1
+done
+echo " up after $((SECONDS - T0)) s"
+# PX4 attaches to the first world Gazebo lists, so another one running would take its place.
+FIRST_WORLD="$(gz topic -l 2>/dev/null | grep -m 1 -e "^/world/.*/clock" | sed 's#/world/##; s#/clock##')"
+[ "$FIRST_WORLD" = "$WORLD" ] || echo "sim_run: warning, Gazebo lists world '${FIRST_WORLD}' first, not '$WORLD': PX4 would attach to it"
 if [ -z "$HEADLESS" ]; then
   # Gazebo's own start camera is inside our terrain; tools/gz_gui_config.py fixes it.
   python3 tools/gz_gui_config.py "$WDIR" "$LOG/gui.config"
@@ -191,7 +213,7 @@ for _ in $(seq 1 90); do
 done
 echo
 timeout 2 ros2 topic echo --once /fmu/out/vehicle_local_position px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
-  || die "no /fmu/out/vehicle_local_position after 3 minutes; see $LOG/px4.log and $LOG/agent.log"
+  || { gz_discovery; die "no /fmu/out/vehicle_local_position after 3 minutes; see $LOG/px4.log and $LOG/agent.log"; }
 # PX4 settings for this setup and vehicle (each one explained in tools/sim_vehicles.py):
 # IMU_INTEG_RATE 100, NAV_DLL_ACT 0 and EKF2_GPS_CTRL 7 always, plus the fixed-wing's
 # catapult launch. PX4 resets its parameters when the airframe changes.
