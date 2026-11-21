@@ -42,6 +42,9 @@ MODEL_INSTANCE="$VEHICLE_INSTANCE"
 LOG="${GDN_LOG_DIR:-/tmp/gdn_sim}"
 HEADLESS="${HEADLESS:-}"
 mkdir -p "$LOG"
+# Absolute: PX4 starts from its own directory, and a relative GDN_LOG_DIR (log/run1) made
+# its "$LOG/px4.log" fail there, so PX4 never started.
+LOG="$(cd "$LOG" && pwd)"
 
 die() { echo "sim_run: $*" >&2; exit 1; }
 [ -x "$PX4_DIR/build/px4_sitl_default/bin/px4" ] || die "PX4 SITL not built in $PX4_DIR (run tools/setup_sim.sh)"
