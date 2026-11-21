@@ -16,6 +16,8 @@
 #   GDN_BAG_IMAGES=1 tools/sim_run.sh     # R2.4b: record the OAK-D Lite's images too, in
 #                                         # $LOG/image_bag (about 18 MB/s; by default only
 #                                         # their camera_info, in sitl_bag)
+#   GDN_PROFILE=config/vehicles/x.yaml tools/sim_run.sh   # R2.5a: another vehicle profile
+#                                         # (default config/vehicles/$GDN_VEHICLE.yaml)
 #   GDN_SIM_CPU=1 tools/sim_run.sh        # no GPU: leave out the OAK-D Lite's cameras and
 #                                         # the Mid-360S lidar, which Gazebo can't render
 #                                         # fast enough on the processor (the CPU
@@ -72,8 +74,12 @@ winfo() { sed -n "s/^$1=//p" "$WDIR/world_info.txt"; }
 # (a fixed-wing facing down the runway, or its catapult heading).
 RUN_WORLD="$LOG/$WORLD.sdf"
 python3 tools/sim_vehicles.py world "$VEHICLE" "$WDIR" "$RUN_WORLD" "$LAUNCH" || die "no world for $VEHICLE"
-printf "vehicle=%s\nworld=%s\nworld_dir=%s\nsite=%s\nlaunch=%s\n" "$VEHICLE" "$WORLD" "$WDIR" "$SITE" "$LAUNCH" \
-  > "$LOG/run_info.txt"
+# R2.5a: GDN runs with the vehicle's profile (config/vehicles/<vehicle>.yaml): its filter
+# settings, aiding and sensors. GDN_PROFILE picks another.
+PROFILE="${GDN_PROFILE:-config/vehicles/$VEHICLE.yaml}"
+[ -f "$ROOT/$PROFILE" ] || [ -f "$PROFILE" ] || die "no vehicle profile $PROFILE (config/vehicles/, R2.5a)"
+printf "vehicle=%s\nworld=%s\nworld_dir=%s\nsite=%s\nlaunch=%s\nprofile=%s\n" "$VEHICLE" "$WORLD" "$WDIR" "$SITE" \
+  "$LAUNCH" "$PROFILE" > "$LOG/run_info.txt"
 # GDN's own map: on a site, GLO-30, in the world's frame (origin at the pad); otherwise
 # the world's map itself.
 NAV_MAP="$(winfo onboard_map)"; NAV_MAP="${NAV_MAP:-$MAP}"
@@ -326,7 +332,7 @@ if [ -n "$SITE" ] && [ -z "${GDN_MAG_REF:-}" ]; then
   else echo "sim_run: warning, no field from the adapter; using the Zermatt reference"; fi
 fi
 read -r MAG_N MAG_E MAG_D <<< "$MAG_REF"
-ros2 run gdn_fusion eskf_node --ros-args -p map_path:="$NAV_MAP" "${NAV_ORIGIN[@]}" \
+ros2 run gdn_fusion eskf_node --ros-args -p vehicle_profile:="$PROFILE" -p map_path:="$NAV_MAP" "${NAV_ORIGIN[@]}" \
   -p mag_ref_north:="$MAG_N" -p mag_ref_east:="$MAG_E" -p mag_ref_down:="$MAG_D" ${GDN_NODE_ARGS:-} \
   > "$LOG/gdn.log" 2>&1 & PIDS+=($!)
 python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & PIDS+=($!)

@@ -17,6 +17,7 @@
 #include <gdn_msgs/msg/nav_state.hpp>
 #include <gdn_msgs/msg/nav_update.hpp>
 #include <gdn_msgs/msg/run_info.hpp>
+#include <gdn_msgs/msg/vehicle_profile_info.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_storage/storage_options.hpp>
@@ -36,6 +37,7 @@ inline constexpr const char* kTopicRunInfo = "/gdn/log/run_info";
 inline constexpr const char* kTopicState = "/gdn/log/state";
 inline constexpr const char* kTopicUpdate = "/gdn/log/update";
 inline constexpr const char* kTopicEvent = "/gdn/log/event";
+inline constexpr const char* kTopicProfile = "/gdn/log/vehicle_profile";  // R2.5a, after RunInfo
 
 // The message constants and the core's enums must agree.
 static_assert(gdn_msgs::msg::NavUpdate::SENSOR_TRN == static_cast<std::uint8_t>(Eskf::Sensor::kTrn));

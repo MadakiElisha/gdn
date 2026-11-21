@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/NavState.msg"
   "msg/NavUpdate.msg"
   "msg/NavEvent.msg"
+  "msg/VehicleProfileInfo.msg"
   DEPENDENCIES builtin_interfaces
 )
 

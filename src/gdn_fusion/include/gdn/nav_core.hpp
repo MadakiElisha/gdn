@@ -22,6 +22,7 @@
 #include "gdn/filter_config.hpp"
 #include "gdn/ground_monitor.hpp"
 #include "gdn/map_db.hpp"
+#include "gdn/vehicle_profile.hpp"
 
 namespace gdn {
 
@@ -65,8 +66,9 @@ public:
     using Sensor = Eskf::Sensor;
     using Reason = Eskf::Reason;
 
-    NavCore(const FilterConfig& fc, const MapDb& map, TrnModel model, NavSink* sink = nullptr)
-        : fc_(fc), map_(map), model_(model), sink_(sink), eskf_(fc.eskf), ground_(fc.ground) {}
+    // aid: which aiding to use (R2.5a, the vehicle profile's); all on by default, as before.
+    NavCore(const FilterConfig& fc, const MapDb& map, TrnModel model, NavSink* sink = nullptr, const Aiding& aid = {})
+        : fc_(fc), map_(map), model_(model), aid_(aid), sink_(sink), eskf_(fc.eskf), ground_(fc.ground) {}
 
     // IMU sample: PX4 timestamp (us), specific force (m/s^2), rate (rad/s), and the time
     // the sample's mean covers (sensor_combined gyro_integral_dt, us). Returns true when
@@ -143,8 +145,12 @@ public:
         // airborne latch. No GNSS input (gdn/ground_monitor.hpp, TEST-018).
         const bool was_airborne = ground_.airborne();
         if (ground_.Update(a_m, w_m, dt)) {
-            eskf_.ApplyZupt();
-            Record(eskf_.last_update());
+            if (aid_.zupt) {
+                eskf_.ApplyZupt();
+                Record(eskf_.last_update());
+            } else {
+                Skip(Sensor::kZupt, Reason::kNotUsed);  // the profile's aiding.zupt: false
+            }
         }
         if (ground_.airborne() && !was_airborne) {
             char b[120];
@@ -166,17 +172,18 @@ public:
             char b[80];
             std::snprintf(b, sizeof b, "heading from magnetometer at t=%.1f", t_cur_);
             Emit(EventLevel::kInfo, b, true);
+        } else if (!aid_.mag || fc_.mag_fusion == "align") {
+            // Initial heading only: the profile's aiding.mag false, or mag_fusion "align".
+            Skip(s, Reason::kNotUsed);
         } else if (fc_.mag_fusion == "auto") {
             eskf_.ApplyMagAuto(z);
             Record(eskf_.last_update());
         } else if (fc_.mag_fusion == "heading") {
             eskf_.ApplyMagHeading(z);
             Record(eskf_.last_update());
-        } else if (fc_.mag_fusion == "full") {
+        } else {  // "full" (ValidateFilterConfig allows only these four)
             eskf_.ApplyMag(z);
             Record(eskf_.last_update());
-        } else {
-            Skip(s, Reason::kNotUsed);  // "align": initial heading only
         }
         Done(false);
     }
@@ -196,7 +203,7 @@ public:
     // alignment fixes the altitude datum: AMSL height of p_z = 0 = map height under the
     // estimate + AGL + current p_z. The baro bias is calibrated at the same moment.
     void Agl(double agl) {
-        if (model_ != TrnModel::kAgl) {
+        if (model_ != TrnModel::kAgl || !aid_.agl) {
             Skip(Sensor::kAgl, Reason::kNotUsed);
         } else if (!eskf_.aligned() || !eskf_.yaw_aligned()) {
             Skip(Sensor::kAgl, !eskf_.aligned() ? Reason::kNotAligned : Reason::kNoHeading);
@@ -223,6 +230,11 @@ public:
 
     // Baro altitude, NED z (m): z_true + bias + noise.
     void Baro(double z) {
+        if (!aid_.baro) {  // the profile's aiding.baro: false: not even the bias's start value
+            Skip(Sensor::kBaro, Reason::kNotUsed);
+            Done(false);
+            return;
+        }
         last_baro_ = z;
         have_baro_ = true;
         // R1.2, "ideal" mode: the local frame's origin is the start point, so the vehicle
@@ -249,6 +261,7 @@ public:
     const GroundMonitor& ground() const { return ground_; }
     const FilterConfig& config() const { return fc_; }
     TrnModel model() const { return model_; }
+    const Aiding& aiding() const { return aid_; }
     std::uint64_t inputs() const { return seq_; }  // inputs processed so far
     double t() const { return t_cur_; }            // last IMU time, s
     bool have_baro() const { return have_baro_; }
@@ -298,6 +311,7 @@ private:
     FilterConfig fc_;
     const MapDb& map_;
     TrnModel model_;
+    Aiding aid_;
     NavSink* sink_;
     Eskf eskf_;
     GroundMonitor ground_;
