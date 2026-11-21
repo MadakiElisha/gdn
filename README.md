@@ -139,6 +139,15 @@ the same file, so they always run the same configuration, and each result names 
 a fingerprint of the values. Any setting can be overridden for a test run
 (`--ros-args -p r_agl:=50` on the node, `--set=r_agl=50` on the MC).
 
+Each airframe has a vehicle profile, `config/vehicles/<airframe>.yaml` (R2.5a):
+- **Filter:** which filter config it runs (plus any overrides).
+- **Aiding:** which aiding GDN uses.
+- **Sensors:** every sensor with its topic, frame, noise model and mount (extrinsics).
+
+The node loads one with `--ros-args -p vehicle_profile:=config/vehicles/x500.yaml`, logs
+its fingerprint, and writes it into the run log for replay. `tools/check_profiles.py`
+checks the profiles against the simulated airframes.
+
 ### Terrain database
 
 Maps are a simple binary grid: a 40-byte header, then row-major `float32` heights. The
@@ -306,6 +315,7 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | Setup and data | `setup_ubuntu.sh` (machine setup), `make_data.sh` (derived data and checksum checks), `fetch_data.sh` / `pack_data.sh` (download or publish the flight001 recording) |
 | Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `quality.sh` (warnings, cppcheck, clang-tidy, sanitizers, formatting; R1.9), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
 | Sensor simulators | `trn_sensor_sim.py` (terrain height under the vehicle), `baro_sim.py`, `mag_sim.py`; all fed by PX4 truth from the bag |
+| Vehicle profiles (R2.5a) | `vehicle_profile.py` (read and print one), `check_profiles.py` (every simulated airframe against its profile: mounts, topics, frames, noise files) |
 | Run logs (R1.11) | `plot_run_log.py` (draw a run log: error, innovations, every update decision; export CSVs), `log_check.sh` (record a bench run and replay it, as CI does) |
 | Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_sim_run.py` (one page per SITL run: GDN's track against the truth over the terrain, every error with GDN's 3 sigma, flight phases, every update decision), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
 | Terrain maps | `generate_terrain.py` then `export_map_db.py` then `make_sigma4_map.py` (synthetic map); `fetch_terrain.py` and `make_zermatt_map.py` (SRTM); `export_map_bin.py`, `terrain_map.py` (older helpers) |
