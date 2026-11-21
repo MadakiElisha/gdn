@@ -139,6 +139,18 @@ keeps its parameters between runs. After a cut, PX4's position is no reference a
 the scorer and RViz use Gazebo's truth, and `plot_run_log.py` only draws the error while
 PX4's position was valid.
 
+**Drawing a run.** `python3 tools/plot_sim_run.py LOG` (the run's `GDN_LOG_DIR`, in the
+dev image) draws the whole flight on one page, `LOG/gdn_vs_truth.png`:
+- GDN's track against Gazebo's truth over the world's terrain, with the planned route;
+- the horizontal, north, east, vertical, heading and velocity error, each with GDN's own
+  3 sigma, shaded by flight phase from PX4 (ground, hover, transition, cruise);
+- every terrain altimeter reading (applied, gated, or skipped and why), every update
+  decision per sensor, and a summary table.
+
+It takes GDN's uncertainty and decisions from its run log (`log/gdn_runs`, found by time).
+`GDN_LOG_DIR` may be relative (`log/run1`); the container's `/tmp` is gone when its shell
+closes, so keep runs you want in the workspace.
+
 Two windows open:
 - **Gazebo:** the x500 on its pad in the Alps. The camera can be moved with the mouse.
   Right-click the drone and choose "Follow" to track it.

@@ -307,7 +307,7 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `quality.sh` (warnings, cppcheck, clang-tidy, sanitizers, formatting; R1.9), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
 | Sensor simulators | `trn_sensor_sim.py` (terrain height under the vehicle), `baro_sim.py`, `mag_sim.py`; all fed by PX4 truth from the bag |
 | Run logs (R1.11) | `plot_run_log.py` (draw a run log: error, innovations, every update decision; export CSVs), `log_check.sh` (record a bench run and replay it, as CI does) |
-| Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
+| Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_sim_run.py` (one page per SITL run: GDN's track against the truth over the terrain, every error with GDN's 3 sigma, flight phases, every update decision), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
 | Terrain maps | `generate_terrain.py` then `export_map_db.py` then `make_sigma4_map.py` (synthetic map); `fetch_terrain.py` and `make_zermatt_map.py` (SRTM); `export_map_bin.py`, `terrain_map.py` (older helpers) |
 | Synthetic flights | `gen_zermatt_flight.py` (IMU and truth CSVs over Zermatt), `make_zermatt_bag.py` (the same as a PX4-style bag) |
 | Closed-loop SITL | `docker_dev.sh` (the pinned dev image: build, shell, `--gpu`, `--gui`; R2.1), `docker_check.sh` (checks the image and flies the loop in it), `setup_sim.sh` (PX4 v1.16, Gazebo, bridge, agent, on the host), `make_sim_world.py` (world from the map), `check_sim_world.py` (physics drop test), `sim_run.sh` (whole loop), `sim_adapter.py` (Gazebo sensors to GDN inputs), `sim_fly.py` (offboard route, GPS cut), `check_gps_cut.py` (did a Stage B run really cut PX4's GPS?), `make_site.py` / `check_site.py` / `view_site.sh` / `plot_sites.py` (R2.2 real-terrain sites: build, check, look at, overview) |
@@ -363,6 +363,7 @@ Source `env.sh` first in every terminal.
 | Replay a run log, checked bit for bit (R1.11) | `ros2 run gdn_fusion gdn_replay log/gdn_runs/gdn_...` (every node run writes one) |
 | Replay a run with other settings | `gdn_replay LOG --set=r_agl=200 --out=/tmp/whatif` |
 | Diagnose a run log | `python3 tools/plot_run_log.py LOG [LOG2] --out run.png` |
+| Draw a SITL run, GDN against the truth | `python3 tools/plot_sim_run.py GDN_LOG_DIR` (writes `gdn_vs_truth.png` there) |
 | Run-log check, as CI runs it | `tools/log_check.sh` |
 | Check sensor rates from PX4 | `ros2 run gdn_sensors sensor_monitor` |
 
