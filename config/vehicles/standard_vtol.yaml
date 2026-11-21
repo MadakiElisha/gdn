@@ -1,0 +1,142 @@
+# Vehicle profile (roadmap R2.5a): the PX4 standard VTOL (quadplane), as simulated (R2.3).
+#
+# What GDN runs with on this airframe: the filter settings (a file plus overrides),
+# which aiding it uses, and every sensor with its driver topic, frame, noise model and
+# mount. Read by the node (-p vehicle_profile:=config/vehicles/standard_vtol.yaml; tools/sim_run.sh
+# passes it) and checked against the simulation by tools/check_profiles.py.
+# Format and every key: tools/vehicle_profile.py.
+#
+# Mounts (the extrinsics): the pose of each sensor's frame_id in the airframe's base_link,
+# ROS convention (x forward, y left, z up; roll, pitch, yaw in degrees about the fixed
+# x, y, z axes, as in SDF and URDF). base_link is the autopilot's frame: PX4's IMU,
+# barometer and magnetometer sit at its origin. The payload's are where Gazebo has them
+# (sim/models/gdn_payload, mounted 0.03 m under base_link by sim/models/standard_vtol_gdn):
+# placeholders until R6.4 measures the real ones.
+schema: 1
+name: standard_vtol
+description: PX4 standard VTOL (quadplane) with the GDN payload (simulated, R2.3)
+kind: vtol
+px4_airframe: 4004_gz_standard_vtol
+sim_model: standard_vtol_gdn
+
+# Filter settings: the shared file; no overrides yet (R2.5b brings per-regime rules,
+# tuning needs SITL and MC evidence first).
+filter_config: config/filter/default.yaml
+
+# Aiding GDN uses here (each from the sensor whose gdn_input names it).
+aiding.agl: true
+aiding.baro: true
+aiding.mag: true
+aiding.zupt: true
+
+# --- the autopilot's sensors (they define base_link) ---
+sensor.fc_imu.kind: imu
+sensor.fc_imu.topic: /fmu/out/sensor_combined
+sensor.fc_imu.frame_id: base_link
+sensor.fc_imu.mount_xyz_m: 0 0 0
+sensor.fc_imu.mount_rpy_deg: 0 0 0
+sensor.fc_imu.mount_source: placeholder
+sensor.fc_imu.gdn_input: imu
+sensor.fc_imu.noise: config/imu/placeholder_px4_default.yaml
+sensor.fc_imu.sim: autopilot:imu_sensor
+sensor.fc_imu.note: PX4's IMU (sensor_combined, body FRD); GDN's navigation IMU until it reads the H30WP
+
+sensor.fc_baro.kind: baro
+sensor.fc_baro.topic: /gdn/baro_meas
+sensor.fc_baro.frame_id: base_link
+sensor.fc_baro.mount_xyz_m: 0 0 0
+sensor.fc_baro.mount_rpy_deg: 0 0 0
+sensor.fc_baro.mount_source: placeholder
+sensor.fc_baro.gdn_input: baro
+sensor.fc_baro.sim: autopilot:air_pressure_sensor
+sensor.fc_baro.note: height from pressure (tools/sim_adapter.py in SITL)
+
+sensor.fc_mag.kind: mag
+sensor.fc_mag.topic: /gdn/mag_meas
+sensor.fc_mag.frame_id: base_link
+sensor.fc_mag.mount_xyz_m: 0 0 0
+sensor.fc_mag.mount_rpy_deg: 0 0 0
+sensor.fc_mag.mount_source: placeholder
+sensor.fc_mag.gdn_input: mag
+sensor.fc_mag.sim: autopilot:magnetometer_sensor
+
+# --- the GDN payload ---
+sensor.agl_radar.kind: radar_altimeter
+sensor.agl_radar.topic: /gdn/agl_meas
+sensor.agl_radar.frame_id: agl_radar_link
+sensor.agl_radar.mount_xyz_m: 0 0 -0.03
+sensor.agl_radar.mount_rpy_deg: 0 90 0
+sensor.agl_radar.mount_source: placeholder
+sensor.agl_radar.gdn_input: agl
+sensor.agl_radar.sim: gdn_agl_radar
+sensor.agl_radar.note: pointing straight down; simulated radar-altimeter class, the real long-range altimeter isn't chosen yet (R8.4)
+
+sensor.h30wp.kind: imu
+sensor.h30wp.topic: /imu/data
+sensor.h30wp.frame_id: imu_link
+sensor.h30wp.mount_xyz_m: 0 0 -0.01
+sensor.h30wp.mount_rpy_deg: 0 0 0
+sensor.h30wp.mount_source: placeholder
+sensor.h30wp.gdn_input: none
+sensor.h30wp.noise: config/imu/h30wp.yaml
+sensor.h30wp.sim: gdn_imu_h30wp
+sensor.h30wp.note: the navigation IMU once GDN reads it (TEST-024)
+
+sensor.mid360s_imu.kind: imu
+sensor.mid360s_imu.topic: /livox/imu
+sensor.mid360s_imu.frame_id: livox_frame
+sensor.mid360s_imu.mount_xyz_m: 0 0 -0.08
+sensor.mid360s_imu.mount_rpy_deg: 180 0 0
+sensor.mid360s_imu.mount_source: placeholder
+sensor.mid360s_imu.gdn_input: none
+sensor.mid360s_imu.noise: config/imu/mid360s.yaml
+sensor.mid360s_imu.sim: gdn_imu_mid360s
+
+sensor.mid360s_lidar.kind: lidar
+sensor.mid360s_lidar.topic: /livox/lidar
+sensor.mid360s_lidar.frame_id: livox_frame
+sensor.mid360s_lidar.mount_xyz_m: 0 0 -0.08
+sensor.mid360s_lidar.mount_rpy_deg: 180 0 0
+sensor.mid360s_lidar.mount_source: placeholder
+sensor.mid360s_lidar.gdn_input: none
+sensor.mid360s_lidar.sim: gdn_mid360s_lidar
+sensor.mid360s_lidar.note: upside down, so it sees the ground (R2.4c); LIO is Phase 3
+
+sensor.oakd_imu.kind: imu
+sensor.oakd_imu.topic: /oak/imu/data
+sensor.oakd_imu.frame_id: oak_imu_frame
+sensor.oakd_imu.mount_xyz_m: 0.08 0 -0.05
+sensor.oakd_imu.mount_rpy_deg: 0 30 0
+sensor.oakd_imu.mount_source: placeholder
+sensor.oakd_imu.gdn_input: none
+sensor.oakd_imu.noise: config/imu/oakd_lite.yaml
+sensor.oakd_imu.sim: gdn_imu_oakd
+
+sensor.oak_left.kind: camera
+sensor.oak_left.topic: /oak/left/image_raw
+sensor.oak_left.frame_id: oak_left_camera_optical_frame
+sensor.oak_left.mount_xyz_m: 0.08 0.0375 -0.05
+sensor.oak_left.mount_rpy_deg: -120 0 -90
+sensor.oak_left.mount_source: placeholder
+sensor.oak_left.gdn_input: none
+sensor.oak_left.sim: gdn_oak_left
+sensor.oak_left.note: optical frame (x right, y down, z along the view), looking forward and 30 deg down; VIO is Phase 3
+
+sensor.oak_right.kind: camera
+sensor.oak_right.topic: /oak/right/image_raw
+sensor.oak_right.frame_id: oak_right_camera_optical_frame
+sensor.oak_right.mount_xyz_m: 0.08 -0.0375 -0.05
+sensor.oak_right.mount_rpy_deg: -120 0 -90
+sensor.oak_right.mount_source: placeholder
+sensor.oak_right.gdn_input: none
+sensor.oak_right.sim: gdn_oak_right
+
+sensor.tfmini.kind: range
+sensor.tfmini.topic: /tfmini/range
+sensor.tfmini.frame_id: tfmini_link
+sensor.tfmini.mount_xyz_m: -0.05 0 -0.05
+sensor.tfmini.mount_rpy_deg: 0 90 0
+sensor.tfmini.mount_source: placeholder
+sensor.tfmini.gdn_input: none
+sensor.tfmini.sim: gdn_tfmini
+sensor.tfmini.note: pointing straight down, 0.1 to 12 m

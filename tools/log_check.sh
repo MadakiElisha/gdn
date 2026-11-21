@@ -4,7 +4,8 @@
 #   2. gdn_replay replays the log and must find every state, update and event identical;
 #   3. it must also be able to fail: a copy of the log with one state value changed by
 #      1 ulp must be reported DIFFERENT, and the wrong map refused;
-#   4. a what-if replay (--set) writes a new log, which itself replays identically.
+#   4. a what-if replay (--set) writes a new log, which itself replays identically;
+#   5. a run with a vehicle profile (R2.5a, some aiding off) replays identically with it.
 # Usage: tools/log_check.sh            (needs a colcon build and data/flight_zermatt)
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
@@ -79,6 +80,24 @@ grep -E "what if|^replayed" "$OUT/whatif.txt"
 if [ $r1 -eq 0 ] && [ $r2 -eq 0 ] && grep -q "^IDENTICAL" "$OUT/whatif_replay.txt"; then
   pass "a what-if replay writes a log that itself replays identically"
 else fail "what-if replay (exit $r1, then $r2)"; fi
+
+# 5. R2.5a: a run with a vehicle profile (the x500's, with baro and ZUPT switched off): the
+#    node says so, the profile is in its log, and the log replays bit for bit with it.
+sed -e 's/^aiding.baro: true/aiding.baro: false/' -e 's/^aiding.zupt: true/aiding.zupt: false/' \
+  config/vehicles/x500.yaml > "$OUT/profile_test.yaml"
+GDN_BAG=data/flight_zermatt GDN_MAP="$ROOT/data/maps/zermatt.bin" GDN_LOG_DIR="$OUT/bench_profile" GDN_BAG_RATE=2 \
+  GDN_NODE_ARGS="-p log_dir:=$OUT/runs_profile -p vehicle_profile:=$OUT/profile_test.yaml" tools/bench.sh \
+  > "$OUT/bench_profile.txt" 2>&1
+PLOG=$(grep -ho "run log: [^ ]*" "$OUT/bench_profile/node.log" | head -1 | cut -d' ' -f3)
+grep -h "vehicle profile:" "$OUT/bench_profile/node.log" | head -1
+if grep -q "aiding agl on, baro off, mag on, zupt off" "$OUT/bench_profile/node.log" && [ -n "$PLOG" ]; then
+  pass "the node ran with the profile's aiding (baro and ZUPT off)"
+else fail "the node didn't report the profile's aiding (see $OUT/bench_profile/node.log)"; fi
+"$REPLAY" "$PLOG" > "$OUT/replay_profile.txt" 2>&1; r=$?
+grep -E "vehicle profile:|^replayed|^IDENTICAL|^DIFFERENT" "$OUT/replay_profile.txt"
+if [ $r -eq 0 ] && grep -q "^IDENTICAL" "$OUT/replay_profile.txt" && grep -q "vehicle profile: x500" "$OUT/replay_profile.txt"
+then pass "a run with a vehicle profile replays bit for bit, with its aiding"
+else fail "the run with a vehicle profile didn't replay identically (exit $r)"; fi
 
 [ $rc -eq 0 ] && echo "LOG CHECK PASSED" || echo "LOG CHECK FAILED"
 exit $rc

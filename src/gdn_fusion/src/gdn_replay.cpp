@@ -178,6 +178,32 @@ int main(int argc, char** argv) {
         std::printf("ERROR: %s\n", err.c_str());
         return 2;
     }
+    // R2.5a: the vehicle profile, the log's second message when the node had one. Its
+    // aiding is applied as logged. A log without one ran with all aiding on.
+    decltype(first) pending;
+    gdn::VehicleProfile profile;
+    gdn_msgs::msg::VehicleProfileInfo profile_info;
+    bool have_profile = false;
+    if (reader.has_next()) {
+        pending = reader.read_next();
+        if (pending->topic_name == gdn::kTopicProfile) {
+            profile_info = Decode<gdn_msgs::msg::VehicleProfileInfo>(*pending);
+            pending.reset();
+            if (!gdn::ParseVehicleProfile(profile_info.text, "the log's vehicle profile", &profile, &err)) {
+                std::printf("ERROR: %s\n", err.c_str());
+                return 2;
+            }
+            if (profile.fingerprint != profile_info.fingerprint) {
+                std::printf("ERROR: the logged vehicle profile's fingerprint is %s, the log says %s\n",
+                            profile.fingerprint.c_str(), profile_info.fingerprint.c_str());
+                return 2;
+            }
+            have_profile = true;
+        }
+    }
+    std::printf("  vehicle profile: %s\n", have_profile
+                                               ? gdn::DescribeVehicleProfile(profile, profile_info.path).c_str()
+                                               : "none (all aiding on)");
     if (what_if)
         std::printf("  what if: %s\n",
                     gdn::DescribeFilterConfig(fc, config_arg.empty() ? "the log's" : config_arg, &logged).c_str());
@@ -212,18 +238,21 @@ int main(int argc, char** argv) {
         oi.config_overrides = gdn::FilterOverrides(logged, fc);
         oi.config_text = gdn::DumpFilterConfig(fc, "gdn_replay of " + log_path);
         writer.Write(oi, gdn::kTopicRunInfo, first->recv_timestamp);
+        if (have_profile) writer.Write(profile_info, gdn::kTopicProfile, first->recv_timestamp);
         out_sink = std::make_unique<gdn::RunLogSink>(&writer, [&clock_ns] { return clock_ns; });
     }
     ReplaySink sink(out_sink.get());
-    gdn::NavCore core(fc, map, info.trn_model == "ideal" ? gdn::TrnModel::kIdeal : gdn::TrnModel::kAgl, &sink);
+    gdn::NavCore core(fc, map, info.trn_model == "ideal" ? gdn::TrnModel::kIdeal : gdn::TrnModel::kAgl, &sink,
+                      have_profile ? profile.aiding : gdn::Aiding{});
 
     std::uint64_t n_in = 0, n_state = 0, n_upd = 0, n_ev = 0;
     std::string diff;  // the first difference
     auto note = [&diff](const std::string& d) {
         if (diff.empty()) diff = d;
     };
-    while (reader.has_next()) {
-        const auto m = reader.read_next();
+    while (pending || reader.has_next()) {
+        const auto m = pending ? pending : reader.read_next();
+        pending.reset();
         const std::string& topic = m->topic_name;
         clock_ns = m->recv_timestamp;
         if (topic == "/fmu/out/sensor_combined") {

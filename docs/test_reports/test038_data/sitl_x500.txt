@@ -1,0 +1,15 @@
+# x500 over ch_emmental, tools/sim_run.sh with GDN_PROFILE default (config/vehicles/x500.yaml)
+profile=config/vehicles/x500.yaml
+[gdn_eskf_node]: vehicle profile: x500 (multirotor, config/vehicles/x500.yaml), fingerprint 142cf67abbe8; aiding agl on, baro on, mag on, zupt on; 11 sensors, 11 with placeholder mounts
+[gdn_eskf_node]: filter: default (config/filter/default.yaml), fingerprint ca990af6880d; overrides mag_ref_north=0.9, mag_ref_east=21.9, mag_ref_down=-42.5
+[gdn_sim_fly]: at cruise height (57 m above pad), starting the route
+[gdn_sim_fly]: route done, landing
+[gdn_sim_fly]: landed and disarmed, done
+RMS 60-300s: 389.9 m | MAX 60-300s: 652.8 m
+RMS 0-300s (5 min): 349.1 m | P95: 625.2 m | MAX: 652.8 m | n=577
+RMS 0-600s (10 min): 1360.9 m | P95: 3467.5 m | MAX: 4262.3 m | n=844
+RMS whole run: 1360.9 m | P95: 3467.5 m | MAX: 4262.3 m | n=844
+# gdn_replay /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261121_130222
+  vehicle profile: x500 (multirotor, config/vehicles/x500.yaml), fingerprint 142cf67abbe8; aiding agl on, baro on, mag on, zupt on; 11 sensors, 11 with placeholder mounts
+replayed 105504 inputs: final t=1795266591.2 s, position (4409.4, 208.6, 14.2) m, sigma 504.1 m
+IDENTICAL: 105504 states, 68144 update records and 4 events match the log bit for bit

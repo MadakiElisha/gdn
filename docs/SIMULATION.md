@@ -139,6 +139,18 @@ keeps its parameters between runs. After a cut, PX4's position is no reference a
 the scorer and RViz use Gazebo's truth, and `plot_run_log.py` only draws the error while
 PX4's position was valid.
 
+**Vehicle profiles (R2.5a).** GDN runs with the flown vehicle's profile,
+`config/vehicles/<vehicle>.yaml` (`GDN_PROFILE` picks another):
+- **What it holds:** the filter settings (a file plus overrides), which aiding GDN uses
+  (AGL, baro, magnetometer, zero-velocity), and every sensor with its driver topic,
+  frame, noise model and mount.
+- **Mounts:** the pose of the sensor's frame in the airframe's `base_link` (x forward,
+  y left, z up, degrees), placeholders until R6.4.
+- **Where it shows:** the node logs the profile's fingerprint (`gdn.log`: "vehicle
+  profile: ..."), and its run log carries the profile so `gdn_replay` repeats it.
+- **The check:** `tools/check_profiles.py` checks every profile against the simulation:
+  the payload's mounts, the topics, frames and noise files, and PX4's airframe and model.
+
 **Drawing a run.** `python3 tools/plot_sim_run.py LOG` (the run's `GDN_LOG_DIR`, in the
 dev image) draws the whole flight on one page, `LOG/gdn_vs_truth.png`:
 - GDN's track against Gazebo's truth over the world's terrain, with the planned route;
@@ -424,8 +436,9 @@ python3 tools/check_sim_sensors.py --run /tmp/gdn_sim   # judge a run against th
     behind `now()` by the time lost. Use the stamps, not the receive time, as a real
     driver's stamps would be used. `check_sim_sensors.py` judges timing in Gazebo
     seconds, turning the bag's receive times into Gazebo time through the truth's.
-- **Mounts are placeholders** until the vehicle profiles (R2.5) hold the real
-  extrinsics:
+- **Mounts are placeholders.** The vehicle profiles (R2.5a, `config/vehicles/`) hold
+  them, and `tools/check_profiles.py` checks the payload against them; R6.4 measures the
+  real ones:
   - the H30WP level at the payload origin;
   - the Mid-360S upside down (so the lidar's -7 to 52° field of view looks at the
     ground);
@@ -608,8 +621,10 @@ flight path (`radar AGL minus map-predicted AGL`).
   the lidar); LIO and VIO are Phases 3 and 4.
 - **The Mid-360S sees little from cruise height:** its 40 m limit on dark ground means
   that above about 40 m most of its points come back empty, as on the real unit.
-- **GDN itself is still tuned for the multirotor.** On the planes it runs in shadow
-  mode like on the x500, with the same settings; per-airframe profiles are R2.5.
+- **GDN itself is still tuned for the multirotor.** Each airframe has its own profile
+  (R2.5a), but all three name the same filter settings and aiding for now: R2.5b adds
+  the flight regime's rules, and tuning per airframe waits for SITL and Monte Carlo
+  evidence.
 - **GDN's altimeter input assumes flat ground under a tilted vehicle** (OI-016): metres
   off over slopes, on every vehicle.
 - **The runway is a graded strip,** not a surveyed airfield: up to 12.6 m of ground moved

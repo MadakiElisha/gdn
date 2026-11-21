@@ -1,0 +1,6 @@
+PASS  the payload's sensors read from sim/models/gdn_payload: gdn_agl_radar, gdn_imu_h30wp, gdn_imu_mid360s, gdn_imu_oakd, gdn_oak_left, gdn_oak_right, gdn_mid360s_lidar, gdn_tfmini
+FAIL  x500: has a profile: config/vehicles/x500.yaml
+FAIL  standard_vtol: has a profile: config/vehicles/standard_vtol.yaml
+FAIL  rc_cessna: has a profile: config/vehicles/rc_cessna.yaml
+note  PX4 not installed here: the autopilot sensors aren't compared with PX4's models
+PROFILES CHECK FAILED

@@ -101,7 +101,8 @@ jobs:
       # R1.11: the run log. The bench flies the Zermatt bag through eskf_node (at 2x), which
       # writes its run log; gdn_replay must reproduce every logged state, update and event
       # bit for bit, find a 1-ulp change in a copy of the log, and refuse the wrong map
-      # (tools/log_check.sh, TEST-029). About 2 minutes.
+      # (tools/log_check.sh, TEST-029), and replay a run with a vehicle profile (R2.5a). About
+      # 4 minutes.
       - name: Run log, record and replay (R1.11)
         run: |
           source /opt/ros/jazzy/setup.bash
@@ -139,6 +140,14 @@ jobs:
         run: |
           python3 tools/check_sim_sensors.py
           python3 tools/check_sim_sensors.py --selfcheck
+
+      # R2.5a: every simulated vehicle has a profile (config/vehicles/), its sensors' mounts
+      # are where Gazebo has them, its topics, frames and noise files are the simulated
+      # drivers'; and the reader and pose arithmetic work on made-up profiles (TEST-038).
+      - name: Vehicle profiles check and self-check (R2.5a)
+        run: |
+          python3 tools/check_profiles.py
+          python3 tools/check_profiles.py --selfcheck
 
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |

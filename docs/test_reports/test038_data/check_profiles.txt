@@ -1,0 +1,116 @@
+PASS  the payload's sensors read from sim/models/gdn_payload: gdn_agl_radar, gdn_imu_h30wp, gdn_imu_mid360s, gdn_imu_oakd, gdn_oak_left, gdn_oak_right, gdn_mid360s_lidar, gdn_tfmini
+PASS  x500: has a profile: config/vehicles/x500.yaml
+PASS  x500: profile reads cleanly: fingerprint 142cf67abbe8
+PASS  x500: profile name is the file's: x500
+PASS  x500: kind, PX4 airframe and Gazebo model as sim_vehicles.py: multirotor, 4001_gz_x500, x500_gdn
+PASS  x500: aiding set for agl, baro, mag, zupt: agl on, baro on, mag on, zupt on
+PASS  x500: x500_gdn mounts the payload on base_link
+PASS  x500: payload sensor gdn_agl_radar is in the profile once: agl_radar
+PASS  x500: agl_radar mount matches Gazebo (gdn_agl_radar): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.0600 m, rpy +0.00 +90.00 +0.00 deg
+PASS  x500: payload sensor gdn_imu_h30wp is in the profile once: h30wp
+PASS  x500: h30wp mount matches Gazebo (gdn_imu_h30wp): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.0400 m, rpy +0.00 -0.00 +0.00 deg
+PASS  x500: payload sensor gdn_imu_mid360s is in the profile once: mid360s_imu
+PASS  x500: mid360s_imu mount matches Gazebo (gdn_imu_mid360s): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.1100 m, rpy -180.00 -0.00 +0.00 deg
+PASS  x500: payload sensor gdn_imu_oakd is in the profile once: oakd_imu
+PASS  x500: oakd_imu mount matches Gazebo (gdn_imu_oakd): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 +0.0000 -0.0800 m, rpy +0.00 +30.00 +0.00 deg
+PASS  x500: payload sensor gdn_oak_left is in the profile once: oak_left
+PASS  x500: oak_left mount matches Gazebo (gdn_oak_left): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 +0.0375 -0.0800 m, rpy -120.00 +0.00 -90.00 deg
+PASS  x500: payload sensor gdn_oak_right is in the profile once: oak_right
+PASS  x500: oak_right mount matches Gazebo (gdn_oak_right): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 -0.0375 -0.0800 m, rpy -120.00 +0.00 -90.00 deg
+PASS  x500: payload sensor gdn_mid360s_lidar is in the profile once: mid360s_lidar
+PASS  x500: mid360s_lidar mount matches Gazebo (gdn_mid360s_lidar): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.1100 m, rpy -180.00 -0.00 +0.00 deg
+PASS  x500: payload sensor gdn_tfmini is in the profile once: tfmini
+PASS  x500: tfmini mount matches Gazebo (gdn_tfmini): 0.00 mm, 0.000 deg off; Gazebo xyz -0.0500 +0.0000 -0.0800 m, rpy +0.00 +90.00 +0.00 deg
+PASS  x500: fc_imu (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  x500: PX4's model has imu_sensor
+PASS  x500: fc_imu where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  x500: fc_baro (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  x500: PX4's model has air_pressure_sensor
+PASS  x500: fc_baro where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  x500: fc_mag (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  x500: PX4's model has magnetometer_sensor
+PASS  x500: fc_mag where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  x500: h30wp on /imu/data as simulated: frame imu_link, noise config/imu/h30wp.yaml: profile: imu_link, config/imu/h30wp.yaml
+PASS  x500: mid360s_imu on /livox/imu as simulated: frame livox_frame, noise config/imu/mid360s.yaml: profile: livox_frame, config/imu/mid360s.yaml
+PASS  x500: oakd_imu on /oak/imu/data as simulated: frame oak_imu_frame, noise config/imu/oakd_lite.yaml: profile: oak_imu_frame, config/imu/oakd_lite.yaml
+PASS  x500: tfmini on /tfmini/range as simulated: frame tfmini_link: profile: tfmini_link
+PASS  x500: oak_left on /oak/left/image_raw as simulated: frame oak_left_camera_optical_frame: profile: oak_left_camera_optical_frame
+PASS  x500: oak_right on /oak/right/image_raw as simulated: frame oak_right_camera_optical_frame: profile: oak_right_camera_optical_frame
+PASS  x500: mid360s_lidar on /livox/lidar as simulated: frame livox_frame: profile: livox_frame
+PASS  standard_vtol: has a profile: config/vehicles/standard_vtol.yaml
+PASS  standard_vtol: profile reads cleanly: fingerprint 83481965d5c7
+PASS  standard_vtol: profile name is the file's: standard_vtol
+PASS  standard_vtol: kind, PX4 airframe and Gazebo model as sim_vehicles.py: vtol, 4004_gz_standard_vtol, standard_vtol_gdn
+PASS  standard_vtol: aiding set for agl, baro, mag, zupt: agl on, baro on, mag on, zupt on
+PASS  standard_vtol: standard_vtol_gdn mounts the payload on base_link
+PASS  standard_vtol: payload sensor gdn_agl_radar is in the profile once: agl_radar
+PASS  standard_vtol: agl_radar mount matches Gazebo (gdn_agl_radar): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.0300 m, rpy +0.00 +90.00 +0.00 deg
+PASS  standard_vtol: payload sensor gdn_imu_h30wp is in the profile once: h30wp
+PASS  standard_vtol: h30wp mount matches Gazebo (gdn_imu_h30wp): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.0100 m, rpy +0.00 -0.00 +0.00 deg
+PASS  standard_vtol: payload sensor gdn_imu_mid360s is in the profile once: mid360s_imu
+PASS  standard_vtol: mid360s_imu mount matches Gazebo (gdn_imu_mid360s): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.0800 m, rpy -180.00 -0.00 +0.00 deg
+PASS  standard_vtol: payload sensor gdn_imu_oakd is in the profile once: oakd_imu
+PASS  standard_vtol: oakd_imu mount matches Gazebo (gdn_imu_oakd): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 +0.0000 -0.0500 m, rpy +0.00 +30.00 +0.00 deg
+PASS  standard_vtol: payload sensor gdn_oak_left is in the profile once: oak_left
+PASS  standard_vtol: oak_left mount matches Gazebo (gdn_oak_left): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 +0.0375 -0.0500 m, rpy -120.00 +0.00 -90.00 deg
+PASS  standard_vtol: payload sensor gdn_oak_right is in the profile once: oak_right
+PASS  standard_vtol: oak_right mount matches Gazebo (gdn_oak_right): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 -0.0375 -0.0500 m, rpy -120.00 +0.00 -90.00 deg
+PASS  standard_vtol: payload sensor gdn_mid360s_lidar is in the profile once: mid360s_lidar
+PASS  standard_vtol: mid360s_lidar mount matches Gazebo (gdn_mid360s_lidar): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.0800 m, rpy -180.00 -0.00 +0.00 deg
+PASS  standard_vtol: payload sensor gdn_tfmini is in the profile once: tfmini
+PASS  standard_vtol: tfmini mount matches Gazebo (gdn_tfmini): 0.00 mm, 0.000 deg off; Gazebo xyz -0.0500 +0.0000 -0.0500 m, rpy +0.00 +90.00 +0.00 deg
+PASS  standard_vtol: fc_imu (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  standard_vtol: PX4's model has imu_sensor
+PASS  standard_vtol: fc_imu where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  standard_vtol: fc_baro (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  standard_vtol: PX4's model has air_pressure_sensor
+PASS  standard_vtol: fc_baro where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  standard_vtol: fc_mag (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  standard_vtol: PX4's model has magnetometer_sensor
+PASS  standard_vtol: fc_mag where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  standard_vtol: h30wp on /imu/data as simulated: frame imu_link, noise config/imu/h30wp.yaml: profile: imu_link, config/imu/h30wp.yaml
+PASS  standard_vtol: mid360s_imu on /livox/imu as simulated: frame livox_frame, noise config/imu/mid360s.yaml: profile: livox_frame, config/imu/mid360s.yaml
+PASS  standard_vtol: oakd_imu on /oak/imu/data as simulated: frame oak_imu_frame, noise config/imu/oakd_lite.yaml: profile: oak_imu_frame, config/imu/oakd_lite.yaml
+PASS  standard_vtol: tfmini on /tfmini/range as simulated: frame tfmini_link: profile: tfmini_link
+PASS  standard_vtol: oak_left on /oak/left/image_raw as simulated: frame oak_left_camera_optical_frame: profile: oak_left_camera_optical_frame
+PASS  standard_vtol: oak_right on /oak/right/image_raw as simulated: frame oak_right_camera_optical_frame: profile: oak_right_camera_optical_frame
+PASS  standard_vtol: mid360s_lidar on /livox/lidar as simulated: frame livox_frame: profile: livox_frame
+PASS  rc_cessna: has a profile: config/vehicles/rc_cessna.yaml
+PASS  rc_cessna: profile reads cleanly: fingerprint aa0d6a59b3bf
+PASS  rc_cessna: profile name is the file's: rc_cessna
+PASS  rc_cessna: kind, PX4 airframe and Gazebo model as sim_vehicles.py: fixedwing, 4003_gz_rc_cessna, rc_cessna_gdn
+PASS  rc_cessna: aiding set for agl, baro, mag, zupt: agl on, baro on, mag on, zupt on
+PASS  rc_cessna: rc_cessna_gdn mounts the payload on base_link
+PASS  rc_cessna: payload sensor gdn_agl_radar is in the profile once: agl_radar
+PASS  rc_cessna: agl_radar mount matches Gazebo (gdn_agl_radar): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.0600 m, rpy +0.00 +90.00 +0.00 deg
+PASS  rc_cessna: payload sensor gdn_imu_h30wp is in the profile once: h30wp
+PASS  rc_cessna: h30wp mount matches Gazebo (gdn_imu_h30wp): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.0400 m, rpy +0.00 -0.00 +0.00 deg
+PASS  rc_cessna: payload sensor gdn_imu_mid360s is in the profile once: mid360s_imu
+PASS  rc_cessna: mid360s_imu mount matches Gazebo (gdn_imu_mid360s): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.1100 m, rpy -180.00 -0.00 +0.00 deg
+PASS  rc_cessna: payload sensor gdn_imu_oakd is in the profile once: oakd_imu
+PASS  rc_cessna: oakd_imu mount matches Gazebo (gdn_imu_oakd): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 +0.0000 -0.0800 m, rpy +0.00 +30.00 +0.00 deg
+PASS  rc_cessna: payload sensor gdn_oak_left is in the profile once: oak_left
+PASS  rc_cessna: oak_left mount matches Gazebo (gdn_oak_left): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 +0.0375 -0.0800 m, rpy -120.00 +0.00 -90.00 deg
+PASS  rc_cessna: payload sensor gdn_oak_right is in the profile once: oak_right
+PASS  rc_cessna: oak_right mount matches Gazebo (gdn_oak_right): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0800 -0.0375 -0.0800 m, rpy -120.00 +0.00 -90.00 deg
+PASS  rc_cessna: payload sensor gdn_mid360s_lidar is in the profile once: mid360s_lidar
+PASS  rc_cessna: mid360s_lidar mount matches Gazebo (gdn_mid360s_lidar): 0.00 mm, 0.000 deg off; Gazebo xyz +0.0000 +0.0000 -0.1100 m, rpy -180.00 -0.00 +0.00 deg
+PASS  rc_cessna: payload sensor gdn_tfmini is in the profile once: tfmini
+PASS  rc_cessna: tfmini mount matches Gazebo (gdn_tfmini): 0.00 mm, 0.000 deg off; Gazebo xyz -0.0500 +0.0000 -0.0800 m, rpy +0.00 +90.00 +0.00 deg
+PASS  rc_cessna: fc_imu (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  rc_cessna: PX4's model has imu_sensor
+PASS  rc_cessna: fc_imu where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  rc_cessna: fc_baro (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  rc_cessna: PX4's model has air_pressure_sensor
+PASS  rc_cessna: fc_baro where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  rc_cessna: fc_mag (the autopilot's) defines base_link: 0.00 mm, 0.000 deg from its origin
+PASS  rc_cessna: PX4's model has magnetometer_sensor
+PASS  rc_cessna: fc_mag where PX4's model has it: 0.00 mm, 0.000 deg off
+PASS  rc_cessna: h30wp on /imu/data as simulated: frame imu_link, noise config/imu/h30wp.yaml: profile: imu_link, config/imu/h30wp.yaml
+PASS  rc_cessna: mid360s_imu on /livox/imu as simulated: frame livox_frame, noise config/imu/mid360s.yaml: profile: livox_frame, config/imu/mid360s.yaml
+PASS  rc_cessna: oakd_imu on /oak/imu/data as simulated: frame oak_imu_frame, noise config/imu/oakd_lite.yaml: profile: oak_imu_frame, config/imu/oakd_lite.yaml
+PASS  rc_cessna: tfmini on /tfmini/range as simulated: frame tfmini_link: profile: tfmini_link
+PASS  rc_cessna: oak_left on /oak/left/image_raw as simulated: frame oak_left_camera_optical_frame: profile: oak_left_camera_optical_frame
+PASS  rc_cessna: oak_right on /oak/right/image_raw as simulated: frame oak_right_camera_optical_frame: profile: oak_right_camera_optical_frame
+PASS  rc_cessna: mid360s_lidar on /livox/lidar as simulated: frame livox_frame: profile: livox_frame
+PROFILES CHECK PASSED

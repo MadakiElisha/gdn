@@ -8,7 +8,9 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <initializer_list>
 #include <random>
+#include <sstream>
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
@@ -19,6 +21,7 @@
 #include "gdn/imu_model.hpp"
 #include "gdn/paths.hpp"
 #include "gdn/sim_sensors.hpp"
+#include "gdn/vehicle_profile.hpp"
 
 using namespace gdn;
 static int g_fail = 0;
@@ -387,6 +390,187 @@ static void TestRunLog() {
     CHECK(has("static alignment") && has("heading from magnetometer") && has("altitude datum") && has("airborne") &&
               has("IMU hole") && has("dropped"),
           "nav: TEST-029 start-up steps, IMU holes and dropped samples are logged as events");
+}
+
+// TEST-038 (R2.5a): vehicle profiles. The same made-up profile as tools/check_profiles.py
+// --selfcheck, so the C++ and Python readers must give the same fingerprint.
+static const char* const kProfileGood = R"(schema: 1
+name: test
+kind: multirotor
+px4_airframe: 4001_gz_x500
+sim_model: x500_gdn
+filter_config: config/filter/default.yaml
+filter.r_agl: 40
+aiding.agl: true
+aiding.baro: true
+aiding.mag: true
+aiding.zupt: false
+sensor.fc_imu.kind: imu
+sensor.fc_imu.topic: /fmu/out/sensor_combined
+sensor.fc_imu.frame_id: base_link
+sensor.fc_imu.mount_xyz_m: 0 0 0
+sensor.fc_imu.mount_rpy_deg: 0 0 0
+sensor.fc_imu.mount_source: placeholder
+sensor.fc_imu.gdn_input: imu
+sensor.radar.kind: radar_altimeter
+sensor.radar.topic: /gdn/agl_meas
+sensor.radar.frame_id: agl_link
+sensor.radar.mount_xyz_m: 0 0 -0.06
+sensor.radar.mount_rpy_deg: 0 90 0
+sensor.radar.mount_source: placeholder
+sensor.radar.gdn_input: agl
+sensor.baro.kind: baro
+sensor.baro.topic: /gdn/baro_meas
+sensor.baro.frame_id: base_link
+sensor.baro.mount_xyz_m: 0 0 0
+sensor.baro.mount_rpy_deg: 0 0 0
+sensor.baro.mount_source: placeholder
+sensor.baro.gdn_input: baro
+sensor.mag.kind: mag
+sensor.mag.topic: /gdn/mag_meas
+sensor.mag.frame_id: base_link
+sensor.mag.mount_xyz_m: 0 0 0
+sensor.mag.mount_rpy_deg: 0 0 0
+sensor.mag.mount_source: placeholder
+sensor.mag.gdn_input: mag
+)";
+
+static std::string ReplaceOnce(std::string s, const std::string& a, const std::string& b) {
+    const auto i = s.find(a);
+    if (i != std::string::npos) s.replace(i, a.size(), b);
+    return s;
+}
+
+static void TestVehicleProfiles() {
+    const FilterConfig& def = DefaultConfig();
+    std::string err;
+    // Every profile in config/vehicles/ loads, and its filter config and overrides apply.
+    int nfiles = 0, nbad = 0;
+    std::vector<std::string> names;
+    std::error_code ec;
+    for (const auto& ent : std::filesystem::directory_iterator(DataPath("config/vehicles"), ec)) {
+        if (ent.path().extension() != ".yaml") continue;
+        ++nfiles;
+        VehicleProfile vp;
+        FilterConfig fc;
+        const bool ok = LoadVehicleProfile(ent.path().string(), &vp, &err) &&
+                        LoadFilterConfig(DataPath(vp.filter_config), &fc, &err) && ApplyProfileFilter(vp, &fc, &err) &&
+                        vp.name == ent.path().stem().string();
+        if (!ok) {
+            std::printf("      %s: %s\n", ent.path().filename().c_str(), err.c_str());
+            ++nbad;
+        } else {
+            names.push_back(vp.name);
+        }
+    }
+    std::sort(names.begin(), names.end());
+    CHECK(nfiles >= 3 && nbad == 0 && std::binary_search(names.begin(), names.end(), "x500") &&
+              std::binary_search(names.begin(), names.end(), "standard_vtol") &&
+              std::binary_search(names.begin(), names.end(), "rc_cessna"),
+          "profile: TEST-038 every file in config/vehicles/ loads (x500, standard_vtol, rc_cessna), with its filter");
+
+    const std::string good = kProfileGood;
+    VehicleProfile p;
+    const bool read = ParseVehicleProfile(good, "t", &p, &err);
+    CHECK(read && p.filter_overrides.size() == 1 && p.aiding.agl && p.aiding.baro && p.aiding.mag && !p.aiding.zupt &&
+              p.sensors.size() == 4 && std::abs(p.sensors[1].xyz[2] + 0.06) < 1e-12 &&
+              std::abs(p.sensors[1].rpy_deg[1] - 90.0) < 1e-12,
+          "profile: TEST-038 a good profile reads (an override, zupt off, 4 sensors, mounts)");
+    const auto refused = [](const std::string& text, const char* expect) {
+        VehicleProfile q;
+        std::string e;
+        const bool ok = ParseVehicleProfile(text, "t", &q, &e);
+        if (ok || e.find(expect) == std::string::npos) std::printf("      expected '%s', got: %s\n", expect, e.c_str());
+        return !ok && e.find(expect) != std::string::npos;
+    };
+    CHECK(refused(good + "aiding.zupt: true\n", "given twice") && refused(good + "colour: red\n", "unknown key") &&
+              refused(ReplaceOnce(good, "kind: multirotor", "kind: blimp"), "kind must be") &&
+              refused(ReplaceOnce(good, "aiding.mag: true\n", ""), "missing aiding.mag") &&
+              refused(ReplaceOnce(good, "mount_xyz_m: 0 0 -0.06", "mount_xyz_m: 0 -0.06"), "three numbers") &&
+              refused(ReplaceOnce(good, "sensor.mag.gdn_input: mag", "sensor.mag.gdn_input: baro"),
+                      "more than one sensor") &&
+              refused(ReplaceOnce(good, "sensor.radar.gdn_input: agl", "sensor.radar.gdn_input: none"),
+                      "aiding.agl is true") &&
+              refused(ReplaceOnce(good, "sensor.baro.mount_source: placeholder\n", ""), "missing mount_source"),
+          "profile: TEST-038 refused: a key twice, unknown key, unknown kind, missing aiding, bad mount, two sensors "
+          "on one input, aiding without its sensor, a missing sensor field");
+    VehicleProfile shuffled, changed;
+    std::string reversed = "# a comment\n";
+    {
+        std::vector<std::string> lines;
+        std::istringstream is(good);
+        for (std::string l; std::getline(is, l);) lines.push_back(l);
+        for (auto it = lines.rbegin(); it != lines.rend(); ++it) reversed += ReplaceOnce(*it, ": ", ":   ") + "\n";
+    }
+    const bool fp = ParseVehicleProfile(reversed, "t", &shuffled, &err) &&
+                    ParseVehicleProfile(ReplaceOnce(good, "filter.r_agl: 40", "filter.r_agl: 41"), "t", &changed, &err);
+    std::printf("      fingerprint %s (tools/check_profiles.py --selfcheck: d50f83eda51b)\n", p.fingerprint.c_str());
+    CHECK(
+        fp && p.fingerprint == "d50f83eda51b" && shuffled.fingerprint == p.fingerprint &&
+            changed.fingerprint != p.fingerprint,
+        "profile: TEST-038 fingerprint as tools/vehicle_profile.py's; comments, order, spacing don't count, values do");
+
+    // The filter overrides apply on top of the file; an unknown key is refused.
+    FilterConfig fc = def;
+    const bool applied = ApplyProfileFilter(p, &fc, &err);
+    VehicleProfile badkey;
+    FilterConfig fc2 = def;
+    const bool refused_key =
+        ParseVehicleProfile(ReplaceOnce(good, "filter.r_agl", "filter.r_algae"), "t", &badkey, &err) &&
+        !ApplyProfileFilter(badkey, &fc2, &err) && err.find("unknown key") != std::string::npos;
+    CHECK(applied && fc.eskf.r_agl == 40.0 && FilterOverrides(def, fc) == "r_agl=40" &&
+              FilterFingerprint(fc) != FilterFingerprint(def) && refused_key,
+          "profile: TEST-038 filter overrides apply on top of the file (and change its fingerprint); unknown refused");
+
+    // Aiding in NavCore: the same synthetic run with each aiding on, and with all off.
+    const std::string mp = "/tmp/gdn_selftest_profile_map.bin";
+    WritePlaneMap(mp, 0.2, 500.0);
+    MapDb map;
+    map.Load(mp);
+    using S = Eskf::Sensor;
+    using R = Eskf::Reason;
+    const auto count = [](const RecordingSink& k, std::initializer_list<S> ss, R r) {
+        int n = 0;
+        for (const auto& [seq, u] : k.updates)
+            for (S s : ss) n += u.sensor == s && u.reason == r;
+        return n;
+    };
+    RecordingSink on, off, only_baro_off;
+    NavCore c_on(def, map, TrnModel::kAgl, &on);
+    NavCore c_off(def, map, TrnModel::kAgl, &off, Aiding{false, false, false, false});
+    NavCore c_nb(def, map, TrnModel::kAgl, &only_baro_off, Aiding{true, false, true, true});
+    FeedSyntheticRun(&c_on, false);
+    FeedSyntheticRun(&c_off, false);
+    FeedSyntheticRun(&c_nb, false);
+    const std::initializer_list<S> mag = {S::kMag3, S::kMagHeading};
+    const int on_zupt = count(on, {S::kZupt}, R::kApplied), on_baro = count(on, {S::kBaro}, R::kApplied),
+              on_mag = count(on, mag, R::kApplied), on_agl = count(on, {S::kAgl}, R::kApplied);
+    const int off_applied = count(off, {S::kZupt, S::kBaro, S::kAgl, S::kMag3, S::kMagHeading}, R::kApplied);
+    const int off_unused_zupt = count(off, {S::kZupt}, R::kNotUsed),
+              off_unused_baro = count(off, {S::kBaro}, R::kNotUsed), off_unused_mag = count(off, mag, R::kNotUsed),
+              off_unused_agl = count(off, {S::kAgl}, R::kNotUsed);
+    bool heading = false;
+    for (const std::string& e : off.events)
+        heading = heading || e.find("heading from magnetometer") != std::string::npos;
+    std::printf(
+        "      all on: applied zupt %d, baro %d, mag %d, agl %d; all off: applied %d, not used zupt %d, baro %d, "
+        "mag %d, agl %d\n",
+        on_zupt, on_baro, on_mag, on_agl, off_applied, off_unused_zupt, off_unused_baro, off_unused_mag,
+        off_unused_agl);
+    CHECK(on_zupt > 0 && on_baro > 0 && on_mag > 0 && on_agl > 0 && off_applied == 0 && off_unused_zupt > 0 &&
+              off_unused_baro > 0 && off_unused_mag > 0 && off_unused_agl > 0 && heading,
+          "profile: TEST-038 aiding off is 'not used' in the log (zupt, baro, mag, agl); the magnetometer still gives "
+          "the heading");
+    CHECK(count(only_baro_off, {S::kBaro}, R::kApplied) == 0 && count(only_baro_off, {S::kAgl}, R::kApplied) > 0 &&
+              count(only_baro_off, {S::kZupt}, R::kApplied) == on_zupt,
+          "profile: TEST-038 one aiding off leaves the others: baro off, AGL and ZUPT still applied");
+    // A run with every aiding on is the run before profiles: the default Aiding.
+    RecordingSink dflt;
+    NavCore c_d(def, map, TrnModel::kAgl, &dflt, Aiding{});
+    FeedSyntheticRun(&c_d, false);
+    bool same = dflt.states.size() == on.states.size();
+    for (size_t i = 0; same && i < on.states.size(); ++i) same = dflt.states[i] == on.states[i];
+    CHECK(same, "profile: TEST-038 all aiding on gives the run without a profile, state for state");
 }
 
 int main() {
@@ -1543,6 +1727,12 @@ int main() {
         TestRunLog();
     } catch (const std::exception& e) {
         std::printf("FAIL  nav: TEST-029 threw: %s\n", e.what());
+        g_fail++;
+    }
+    try {
+        TestVehicleProfiles();
+    } catch (const std::exception& e) {
+        std::printf("FAIL  profile: TEST-038 threw: %s\n", e.what());
         g_fail++;
     }
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);

@@ -1,0 +1,11 @@
+PASS  profile: TEST-038 every file in config/vehicles/ loads (x500, standard_vtol, rc_cessna), with its filter
+PASS  profile: TEST-038 a good profile reads (an override, zupt off, 4 sensors, mounts)
+PASS  profile: TEST-038 refused: a key twice, unknown key, unknown kind, missing aiding, bad mount, two sensors on one input, aiding without its sensor, a missing sensor field
+      fingerprint d50f83eda51b (tools/check_profiles.py --selfcheck: d50f83eda51b)
+PASS  profile: TEST-038 fingerprint as tools/vehicle_profile.py's; comments, order, spacing don't count, values do
+PASS  profile: TEST-038 filter overrides apply on top of the file (and change its fingerprint); unknown refused
+      all on: applied zupt 28, baro 179, mag 179, agl 178; all off: applied 0, not used zupt 28, baro 230, mag 179, agl 230
+PASS  profile: TEST-038 aiding off is 'not used' in the log (zupt, baro, mag, agl); the magnetometer still gives the heading
+PASS  profile: TEST-038 one aiding off leaves the others: baro off, AGL and ZUPT still applied
+PASS  profile: TEST-038 all aiding on gives the run without a profile, state for state
+ALL TESTS PASSED

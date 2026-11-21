@@ -1,0 +1,15 @@
+# rc_cessna over ch_emmental, tools/sim_run.sh with GDN_PROFILE default (config/vehicles/rc_cessna.yaml)
+profile=config/vehicles/rc_cessna.yaml
+[gdn_eskf_node]: vehicle profile: rc_cessna (fixedwing, config/vehicles/rc_cessna.yaml), fingerprint aa0d6a59b3bf; aiding agl on, baro on, mag on, zupt on; 11 sensors, 11 with placeholder mounts
+[gdn_eskf_node]: filter: default (config/filter/default.yaml), fingerprint ca990af6880d; overrides mag_ref_north=0.9, mag_ref_east=21.9, mag_ref_down=-42.5
+[gdn_sim_fly]: climbed out (45 m above pad): offboard, starting the route
+[gdn_sim_fly]: route done, landing on the runway (PX4 mission: approach, glide, touchdown)
+[gdn_sim_fly]: landed and disarmed, done
+RMS 60-300s: 331.5 m | MAX 60-300s: 820.2 m
+RMS 0-300s (5 min): 297.2 m | P95: 657.7 m | MAX: 820.2 m | n=577
+RMS 0-600s (10 min): 331.2 m | P95: 761.4 m | MAX: 916.1 m | n=596
+RMS whole run: 331.2 m | P95: 761.4 m | MAX: 916.1 m | n=596
+# gdn_replay /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261121_131630
+  vehicle profile: rc_cessna (fixedwing, config/vehicles/rc_cessna.yaml), fingerprint aa0d6a59b3bf; aiding agl on, baro on, mag on, zupt on; 11 sensors, 11 with placeholder mounts
+replayed 74930 inputs: final t=1795267310.9 s, position (-1004.5, -440.7, 15.3) m, sigma 86.6 m
+IDENTICAL: 74930 states, 48380 update records and 9 events match the log bit for bit

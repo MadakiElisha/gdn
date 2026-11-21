@@ -21,6 +21,7 @@
 #include "gdn/filter_config.hpp"
 #include "gdn/nav_core.hpp"
 #include "gdn/paths.hpp"
+#include "gdn/vehicle_profile.hpp"
 #include "gdn_version.hpp"
 #include "run_log.hpp"
 
@@ -33,9 +34,28 @@ public:
         // Each key is also a parameter defaulting to the file's value, so -p KEY:=VALUE
         // overrides it (e.g. sim_run.sh passes the Gazebo world's mag_ref_*). The log names the
         // file, a fingerprint of the values run and the overrides.
-        const std::string config_arg = declare_parameter("filter_config", std::string(gdn::kDefaultFilterConfig));
-        gdn::FilterConfig file_cfg;
+        // R2.5a: the vehicle profile (config/vehicles/<airframe>.yaml) names the filter config
+        // and may override values in it; it also says which aiding to use. Without one,
+        // everything is on, as before profiles.
         std::string err;
+        const std::string profile_arg = declare_parameter("vehicle_profile", std::string(""));
+        if (!profile_arg.empty()) {
+            if (!gdn::LoadVehicleProfile(gdn::DataPath(profile_arg), &profile_, &err)) {
+                RCLCPP_FATAL(get_logger(), "vehicle profile: %s", err.c_str());
+                throw std::runtime_error("vehicle profile load failed");
+            }
+            have_profile_ = true;
+        }
+        std::string config_arg = declare_parameter("filter_config", std::string(gdn::kDefaultFilterConfig));
+        if (have_profile_) {
+            if (config_arg != gdn::kDefaultFilterConfig && config_arg != profile_.filter_config) {
+                RCLCPP_FATAL(get_logger(), "filter_config %s, but the vehicle profile %s names %s: give one",
+                             config_arg.c_str(), profile_arg.c_str(), profile_.filter_config.c_str());
+                throw std::runtime_error("filter config and vehicle profile disagree");
+            }
+            config_arg = profile_.filter_config;
+        }
+        gdn::FilterConfig file_cfg;
         if (!gdn::LoadFilterConfig(gdn::DataPath(config_arg), &file_cfg, &err)) {
             RCLCPP_FATAL(get_logger(),
                          "filter config: %s\n  -> run `source env.sh` from the repo root, or pass "
@@ -44,6 +64,11 @@ public:
             throw std::runtime_error("filter config load failed");
         }
         fc_ = file_cfg;
+        if (have_profile_ && !gdn::ApplyProfileFilter(profile_, &fc_, &err)) {
+            RCLCPP_FATAL(get_logger(), "%s", err.c_str());
+            throw std::runtime_error("bad vehicle profile");
+        }
+        // Each value's parameter defaults to the file's value plus the profile's override.
         for (const gdn::ConfigField& f : gdn::ConfigFields(&fc_)) {
             rcl_interfaces::msg::ParameterDescriptor d;
             d.dynamic_typing = true;  // so -p r_agl:=50 (an integer) can set a double
@@ -72,6 +97,13 @@ public:
             RCLCPP_FATAL(get_logger(), "filter config after parameter overrides: %s", err.c_str());
             throw std::runtime_error("bad filter config");
         }
+        if (have_profile_)
+            RCLCPP_INFO(get_logger(), "vehicle profile: %s",
+                        gdn::DescribeVehicleProfile(profile_, profile_arg).c_str());
+        else
+            RCLCPP_INFO(get_logger(),
+                        "vehicle profile: none (-p vehicle_profile:=config/vehicles/<airframe>.yaml); "
+                        "all aiding on");
         RCLCPP_INFO(get_logger(), "filter: %s", gdn::DescribeFilterConfig(fc_, config_arg, &file_cfg).c_str());
         // "agl": real altimeter model, /gdn/agl_meas + baro (R1.1, default).
         // "ideal": legacy oracle, /gdn/trn_meas is terrain height directly.
@@ -126,6 +158,14 @@ public:
             info.trn_model = trn_model;
             info.state_size = gdn::kStateSize;
             log_.Write(info, gdn::kTopicRunInfo, Clock());
+            if (have_profile_) {  // R2.5a: right after RunInfo, for gdn_replay
+                gdn_msgs::msg::VehicleProfileInfo pi;
+                pi.name = profile_.name;
+                pi.path = profile_arg;
+                pi.fingerprint = profile_.fingerprint;
+                pi.text = profile_.text;
+                log_.Write(pi, gdn::kTopicProfile, Clock());
+            }
             RCLCPP_INFO(get_logger(), "run log: %s (version %s)", dir.c_str(), GDN_VERSION);
         } else {
             RCLCPP_WARN(get_logger(), "run log off (log_enable:=false): this run can't be replayed");
@@ -148,8 +188,9 @@ public:
                         u.reason == gdn::Eskf::Reason::kApplied ? "applied" : "gated", core_->eskf().altitude_amsl(),
                         core_->eskf().baro_bias());
         };
-        core_ = std::make_unique<gdn::NavCore>(
-            fc_, map_, trn_model == "ideal" ? gdn::TrnModel::kIdeal : gdn::TrnModel::kAgl, sink_.get());
+        core_ = std::make_unique<gdn::NavCore>(fc_, map_,
+                                               trn_model == "ideal" ? gdn::TrnModel::kIdeal : gdn::TrnModel::kAgl,
+                                               sink_.get(), have_profile_ ? profile_.aiding : gdn::Aiding{});
 
         rclcpp::SensorDataQoS qos;
         imu_sub_ = create_subscription<px4_msgs::msg::SensorCombined>(
@@ -295,6 +336,8 @@ private:
     gdn::RunLogWriter log_;  // declared before core_ and sink_: closed last
     std::unique_ptr<gdn::RunLogSink> sink_;
     std::unique_ptr<gdn::NavCore> core_;
+    gdn::VehicleProfile profile_;
+    bool have_profile_ = false;
     double z_truth_ = 0.0;
     int mag_cb_ = 0;
     int n_trn_print_ = 0, n_agl_print_ = 0;
