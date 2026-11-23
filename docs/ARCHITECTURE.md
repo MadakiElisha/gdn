@@ -81,6 +81,7 @@ Every node run writes one MCAP file (`log/gdn_runs/gdn_<UTC time>/`, parameters
 | `/gdn/log/state` | `gdn_msgs/NavState` | the state after every input: position, velocity, attitude, biases, covariance diagonal, flags |
 | `/gdn/log/update` | `gdn_msgs/NavUpdate` | every measurement and ZUPT: sensor, decision (applied, gated, or skipped and why), innovation, its predicted variance, NIS, whether a gain limit acted |
 | `/gdn/log/vehicle_profile` | `gdn_msgs/VehicleProfileInfo` | second message, when the node had a vehicle profile (R2.5a): its name, path, fingerprint and text |
+| `/gdn/log/start_error` | `gdn_msgs/StartError` | after `RunInfo` (and the profile), when the node was given a start error (R2.6a): north and east offset, and the sigma it was told |
 | `/gdn/log/event` | `gdn_msgs/NavEvent` | start-up steps (static alignment, heading, altitude datum, airborne latch), regime changes and ZUPT re-arming (R2.5b), IMU holes, dropped samples |
 
 Messages are written in the order the node processed them (log times strictly

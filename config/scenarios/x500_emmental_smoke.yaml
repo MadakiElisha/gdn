@@ -1,0 +1,15 @@
+# The x500 over Emmental, two short legs, nothing taken away: the baseline every other
+# scenario changes one thing of (R2.6a). About 7 minutes.
+schema: 1
+name: x500_emmental_smoke
+description: x500, Emmental, 2 legs of 800 m at 40 m over the terrain; GNSS on, no start error, no wind
+vehicle: x500
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+  clearance_m: 40
+gnss:
+  loss: none
+limits:
+  timeout_s: 1500

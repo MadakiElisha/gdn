@@ -18,6 +18,9 @@
 #                                         # their camera_info, in sitl_bag)
 #   GDN_PROFILE=config/vehicles/x.yaml tools/sim_run.sh   # R2.5a: another vehicle profile
 #                                         # (default config/vehicles/$GDN_VEHICLE.yaml)
+#   GDN_WIND="6 270" tools/sim_run.sh     # R2.6a: a steady wind, m/s and from where (deg)
+#   GDN_START_ERROR="106 106" tools/sim_run.sh   # R2.6a: GDN starts 106 m north, 106 m east off
+#   tools/run_scenario.py config/scenarios/x500_emmental_smoke.yaml   # R2.6a: a whole scenario
 #   GDN_SIM_CPU=1 tools/sim_run.sh        # no GPU: leave out the OAK-D Lite's cameras and
 #                                         # the Mid-360S lidar, which Gazebo can't render
 #                                         # fast enough on the processor (the CPU
@@ -169,6 +172,15 @@ RENDER="${GDN_GZ_RENDER:-ogre2}"
 sed "s#<render_engine>[a-z0-9]*</render_engine>#<render_engine>$RENDER</render_engine>#" \
   "$GZ_SIM_SERVER_CONFIG_PATH" > "$LOG/server.config"
 export GZ_SIM_SERVER_CONFIG_PATH="$LOG/server.config"
+# R2.6a: GDN_WIND="speed_mps from_deg", a steady wind (tools/sim_wind.py): in this run's world
+# and, for a multirotor, Gazebo's wind effects on a copy of its model found first.
+if [ -n "${GDN_WIND:-}" ]; then
+  read -r WIND_SPEED WIND_FROM <<< "$GDN_WIND"
+  [ -n "${GDN_SIM_CPU:-}" ] || { rm -rf "$LOG/models"; mkdir -p "$LOG/models"; }
+  python3 tools/sim_wind.py --world "$RUN_WORLD" --server-config "$LOG/server.config" --models-out "$LOG/models" \
+    --vehicle "$VEHICLE" --speed "$WIND_SPEED" --from "$WIND_FROM" || die "couldn't set the wind (tools/sim_wind.py)"
+  case ":$GZ_SIM_RESOURCE_PATH:" in *":$LOG/models:"*) ;; *) export GZ_SIM_RESOURCE_PATH="$LOG/models:$GZ_SIM_RESOURCE_PATH" ;; esac
+fi
 
 # Server and GUI run as separate processes, so a GUI crash doesn't stop the simulation.
 echo "sim_run: starting Gazebo ($WORLD, $VEHICLE, render engine $RENDER)"
@@ -332,7 +344,13 @@ if [ -n "$SITE" ] && [ -z "${GDN_MAG_REF:-}" ]; then
   else echo "sim_run: warning, no field from the adapter; using the Zermatt reference"; fi
 fi
 read -r MAG_N MAG_E MAG_D <<< "$MAG_REF"
-ros2 run gdn_fusion eskf_node --ros-args -p vehicle_profile:="$PROFILE" -p map_path:="$NAV_MAP" "${NAV_ORIGIN[@]}" \
+# R2.6a: GDN_START_ERROR="north_m east_m", a start error for GDN (once heading is aligned).
+START_ERR=()
+if [ -n "${GDN_START_ERROR:-}" ]; then
+  read -r SE_N SE_E <<< "$GDN_START_ERROR"
+  START_ERR=(-p start_error_north_m:="$SE_N" -p start_error_east_m:="$SE_E")
+fi
+ros2 run gdn_fusion eskf_node --ros-args -p vehicle_profile:="$PROFILE" -p map_path:="$NAV_MAP" "${NAV_ORIGIN[@]}" "${START_ERR[@]}" \
   -p mag_ref_north:="$MAG_N" -p mag_ref_east:="$MAG_E" -p mag_ref_down:="$MAG_D" ${GDN_NODE_ARGS:-} \
   > "$LOG/gdn.log" 2>&1 & PIDS+=($!)
 python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & PIDS+=($!)

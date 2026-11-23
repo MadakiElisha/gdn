@@ -125,6 +125,12 @@ public:
         const double o_lat = declare_parameter("origin_lat", std::numeric_limits<double>::quiet_NaN());
         const double o_lon = declare_parameter("origin_lon", std::numeric_limits<double>::quiet_NaN());
         if (std::isfinite(o_lat) && std::isfinite(o_lon)) map_.SetOrigin(o_lat, o_lon);
+        // R2.6a: a scenario's start error (tools/run_scenario.py via sim_run.sh's
+        // GDN_START_ERROR): GDN's first estimate is this far off, once heading is aligned.
+        start_n_ = declare_parameter("start_error_north_m", 0.0);
+        start_e_ = declare_parameter("start_error_east_m", 0.0);
+        if (!std::isfinite(start_n_) || !std::isfinite(start_e_))
+            throw std::runtime_error("start_error_north_m and start_error_east_m must be finite");
         RCLCPP_INFO(get_logger(), "DEM loaded %dx%d from %s (origin %.6f, %.6f), r_trn=%.0f", map_.rows(), map_.cols(),
                     map_path.c_str(), map_.lat_c(), map_.lon_c(), fc_.eskf.r_trn);
 
@@ -168,6 +174,13 @@ public:
                 pi.text = profile_.text;
                 log_.Write(pi, gdn::kTopicProfile, Clock());
             }
+            if (start_n_ != 0.0 || start_e_ != 0.0) {  // R2.6a, for gdn_replay
+                gdn_msgs::msg::StartError se;
+                se.north_m = start_n_;
+                se.east_m = start_e_;
+                se.sigma_m = gdn::NavCore::StartErrorSigma(start_n_, start_e_);
+                log_.Write(se, gdn::kTopicStartError, Clock());
+            }
             RCLCPP_INFO(get_logger(), "run log: %s (version %s)", dir.c_str(), GDN_VERSION);
         } else {
             RCLCPP_WARN(get_logger(), "run log off (log_enable:=false): this run can't be replayed");
@@ -193,6 +206,10 @@ public:
         core_ = std::make_unique<gdn::NavCore>(fc_, map_,
                                                trn_model == "ideal" ? gdn::TrnModel::kIdeal : gdn::TrnModel::kAgl,
                                                sink_.get(), have_profile_ ? profile_.aiding : gdn::Aiding{});
+        core_->SetStartError(start_n_, start_e_);
+        if (start_n_ != 0.0 || start_e_ != 0.0)
+            RCLCPP_WARN(get_logger(), "start error asked: %.1f m north, %.1f m east, applied once heading is aligned",
+                        start_n_, start_e_);
 
         rclcpp::SensorDataQoS qos;
         imu_sub_ = create_subscription<px4_msgs::msg::SensorCombined>(
@@ -358,6 +375,7 @@ private:
     std::unique_ptr<gdn::NavCore> core_;
     gdn::VehicleProfile profile_;
     bool have_profile_ = false;
+    double start_n_ = 0.0, start_e_ = 0.0;  // R2.6a
     double z_truth_ = 0.0;
     int mag_cb_ = 0;
     int n_trn_print_ = 0, n_agl_print_ = 0;

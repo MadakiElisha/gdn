@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <initializer_list>
 #include <random>
 #include <sstream>
@@ -750,6 +751,51 @@ static void TestFlightRegime() {
     const int z_before_without = n_upd(without, S::kZupt, R::kApplied, 0.0, t_up);
     CHECK(c_without.regime() == Regime::kUnknown && z_before_without > 0 && z_after_without == 0 && t_end > t_land,
           "regime: TEST-039 without PX4 input the regime stays unknown: ZUPT before take-off, never again");
+}
+
+// TEST-040 (R2.6a): a scenario's start error. Parked until static alignment, then one
+// magnetometer reading aligns the heading: the position moves by the start error and the
+// filter is told sigma = max(distance, 10 m), as mc_campaign --start-error.
+static void TestStartError() {
+    using V3 = Eigen::Vector3d;
+    const FilterConfig& def = DefaultConfig();
+    const std::string mp = "/tmp/gdn_selftest_start_map.bin";
+    WritePlaneMap(mp, 0.2, 500.0);
+    MapDb map;
+    map.Load(mp);
+    const V3 m_ref(def.eskf.mag_ref_north, def.eskf.mag_ref_east, def.eskf.mag_ref_down);
+    const auto run = [&](double n, double e, RecordingSink* sink) {
+        auto c = std::make_unique<NavCore>(def, map, TrnModel::kAgl, sink);
+        c->SetStartError(n, e);
+        std::uint64_t t_us = 1000000;
+        for (int i = 0; i < 800; ++i) {
+            t_us += 10000;
+            c->Imu(t_us, V3(0.0, 0.0, -Eskf::kG), V3::Zero(), 10000);
+        }
+        c->Mag(m_ref);
+        return c;
+    };
+    RecordingSink with, without, small;
+    const auto cw = run(100.0, 50.0, &with);
+    const auto co = run(0.0, 0.0, &without);
+    const auto cs = run(3.0, 4.0, &small);
+    const double sig = std::hypot(100.0, 50.0);
+    bool event = false;
+    for (const std::string& ev : with.events)
+        event = event || ev.rfind("start error: 100.00 m north, 50.00 m east", 0) == 0;
+    bool none_event = true;
+    for (const std::string& ev : without.events) none_event = none_event && ev.rfind("start error", 0) != 0;
+    std::printf(
+        "      start error: position (%.3f, %.3f) m, sigma %.2f m (asked 100, 50; %.2f); 5 m asked: sigma %.2f m\n",
+        cw->eskf().pos().x(), cw->eskf().pos().y(), std::sqrt(cw->eskf().P()(0, 0)), sig,
+        std::sqrt(cs->eskf().P()(0, 0)));
+    CHECK(cw->eskf().yaw_aligned() && std::abs(cw->eskf().pos().x() - 100.0) < 1e-9 &&
+              std::abs(cw->eskf().pos().y() - 50.0) < 1e-9 && std::abs(std::sqrt(cw->eskf().P()(0, 0)) - sig) < 1e-9 &&
+              std::abs(std::sqrt(cw->eskf().P()(1, 1)) - sig) < 1e-9 && event,
+          "scenario: TEST-040 a start error moves GDN's position once heading is aligned, sigma the distance");
+    CHECK(std::abs(co->eskf().pos().x()) < 1e-9 && std::abs(co->eskf().pos().y()) < 1e-9 && none_event &&
+              std::abs(std::sqrt(cs->eskf().P()(0, 0)) - 10.0) < 1e-9,
+          "scenario: TEST-040 none asked: no move and no event; a 5 m error is told sigma 10 m (the floor)");
 }
 
 int main() {
@@ -1918,6 +1964,12 @@ int main() {
         TestFlightRegime();
     } catch (const std::exception& e) {
         std::printf("FAIL  regime: TEST-039 threw: %s\n", e.what());
+        g_fail++;
+    }
+    try {
+        TestStartError();
+    } catch (const std::exception& e) {
+        std::printf("FAIL  scenario: TEST-040 threw: %s\n", e.what());
         g_fail++;
     }
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);

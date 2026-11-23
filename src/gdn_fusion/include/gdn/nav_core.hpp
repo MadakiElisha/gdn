@@ -13,6 +13,7 @@
 // start-up steps, IMU holes and dropped samples. The node's sink writes them to the run
 // log (MCAP); the replay's sink compares them with the log.
 #include <Eigen/Dense>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -178,6 +179,7 @@ public:
             char b[80];
             std::snprintf(b, sizeof b, "heading from magnetometer at t=%.1f", t_cur_);
             Emit(EventLevel::kInfo, b, true);
+            ApplyStartError();
         } else if (!aid_.mag || !Allowed(&RegimeAid::mag) || fc_.mag_fusion == "align") {
             // Initial heading only: the profile's aiding.mag false or its regime rule, or
             // mag_fusion "align".
@@ -282,6 +284,16 @@ public:
         Done(false);
     }
 
+    // R2.6a: a start error (a scenario's; R1.7's in the Monte Carlo): once heading is
+    // aligned, the position estimate moves this far from where GDN starts, and the filter is
+    // told sigma = max(distance, 10 m) per axis, as mc_campaign --start-error. Set before
+    // the first input.
+    void SetStartError(double north_m, double east_m) {
+        start_n_ = north_m;
+        start_e_ = east_m;
+    }
+    static double StartErrorSigma(double north_m, double east_m) { return std::max(std::hypot(north_m, east_m), 10.0); }
+
     const Eskf& eskf() const { return eskf_; }
     const GroundMonitor& ground() const { return ground_; }
     const FilterConfig& config() const { return fc_; }
@@ -320,6 +332,15 @@ private:
     bool Allowed(bool RegimeAid::*which) const {
         const RegimeAid* ra = aid_.rules.For(regime_);
         return ra == nullptr || ra->*which;
+    }
+    void ApplyStartError() {
+        if (start_n_ == 0.0 && start_e_ == 0.0) return;
+        const double sigma = StartErrorSigma(start_n_, start_e_);
+        eskf_.SetHorizontalPosition(eskf_.pos().head<2>() + V3(start_n_, start_e_, 0.0).head<2>(), sigma);
+        char b[200];
+        std::snprintf(b, sizeof b, "start error: %.2f m north, %.2f m east (%.1f m), sigma %.1f m, as asked", start_n_,
+                      start_e_, std::hypot(start_n_, start_e_), sigma);
+        Emit(EventLevel::kInfo, b, true);
     }
     void UpdateRegime() {
         if (!have_status_ || !have_land_) return;
@@ -372,6 +393,7 @@ private:
     double t_cur_ = 0.0;
     int n_drop_ = 0, n_stall_ = 0, n_undercover_ = 0;
     bool have_baro_ = false, z_initialized_ = false;
+    double start_n_ = 0.0, start_e_ = 0.0;  // R2.6a
     // R2.5b: the regime from PX4.
     Regime regime_ = Regime::kUnknown;
     std::uint8_t arming_ = 0, vehicle_type_ = 0;

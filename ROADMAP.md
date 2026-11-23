@@ -180,6 +180,8 @@ each later item lands in a working system:
   - sensor faults (dropout, stuck values, noise bursts)
 
   The runner launches it headless, records everything to MCAP, and tears down cleanly. It's the SITL equivalent of `bench.sh`.
+
+  R2.6a done (TEST-040): `config/scenarios/*.yaml` (format `tools/scenario.py`: vehicle, world, route, GNSS cut, start error, wind, time limit; strict), `tools/run_scenario.py` (wraps `sim_run.sh`: headless, time limit, teardown verified, bag and run log written, run log replayed, then `tools/check_scenario.py` judges it). Start error: node parameters, applied at heading alignment with sigma max(d, 10 m) as the MC, carried in the run log. Wind: `tools/sim_wind.py` (the world's `<wind>` reaches the planes' lift-drag; the x500 gets Gazebo's wind effects as drag). Five scenarios flown fresh, all passed: GNSS lost at 64.1 s (asked 60), the x500 leaned 4.4 deg into a 6 m/s wind (0.46 without), the VTOL crabbed 19.2 deg, GDN started 150.01 m off at 45.0 deg (asked 150 at 45); every run torn down clean and replayed bit for bit. GDN didn't recover from the 150 m start (5.7 km), as the MC predicts until R4.1. Still to do (R2.6b): spoofing drift (MAVLink `GPS_INPUT`), sensor faults on GDN's inputs, lighting.
 - [ ] **R2.7 Metrics and reports.** From each run, compute:
   - CEP50 and CEP95, maximum error, and error against requirement
   - NEES and NIS

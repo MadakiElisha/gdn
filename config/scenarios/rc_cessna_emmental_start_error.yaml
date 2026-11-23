@@ -1,0 +1,18 @@
+# The cessna over Emmental, with GDN told it starts 150 m north-east of where it is
+# (R1.7's start error, in SITL): its first estimate is off, and it has to find itself on
+# the map. About 9 minutes.
+schema: 1
+name: rc_cessna_emmental_start_error
+description: cessna, Emmental, 2 legs of 800 m at 60 m over the terrain; GDN starts 150 m off, bearing 45 deg
+vehicle: rc_cessna
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+gnss:
+  loss: none
+start_error:
+  distance_m: 150
+  bearing_deg: 45
+limits:
+  timeout_s: 1800

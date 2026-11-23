@@ -476,6 +476,54 @@ python3 tools/check_sim_sensors.py --run /tmp/gdn_sim   # judge a run against th
   fingerprint and arrival time, then every return against the world's terrain from the
   true pose at the point's own `offset_time`. Timing is judged on Gazebo's clock.
 
+## Scenarios and the runner (R2.6a)
+
+A scenario is one SITL flight described in a file, `config/scenarios/<name>.yaml`
+(format: `tools/scenario.py`):
+- **What it names:** vehicle and world; the route (legs, leg length, spacing, height
+  over the terrain, speed, launch); GNSS (none, or a cut at a time into the route); a
+  start error for GDN; a steady wind; and a time limit.
+- **Checking:** every key is checked, and an unknown or missing one is an error.
+  `python3 tools/scenario.py --list` lists them, and `--check` reads them all, as CI
+  does.
+
+```bash
+tools/docker_dev.sh run --gpu -- tools/run_scenario.py config/scenarios/x500_emmental_gnss_cut.yaml
+tools/docker_dev.sh run --gpu -- tools/run_scenario.py config/scenarios/*.yaml       # one after another
+```
+
+`tools/run_scenario.py` is the SITL counterpart of `tools/bench.sh`:
+1. **The run:** `tools/sim_run.sh` with the scenario's settings, headless, under its
+   time limit (Ctrl+C, then kill), in `log/scenarios/<name>/<UTC time>/` with a copy of
+   the scenario.
+2. **Teardown:** nothing of the simulation may be left running; anything found is
+   stopped, and the run fails.
+3. **The recording:** the bag and GDN's run log are written, and the run log replays bit
+   for bit.
+4. **The verdict:** `tools/check_scenario.py` judges whether the run did what was asked:
+   - the vehicle and world;
+   - the route's length and height;
+   - GNSS lost when asked, and not before;
+   - GDN's start error at the asked distance and bearing;
+   - the vehicle leaning or crabbing into the wind.
+
+   `result.json` has every step; the exit code says whether all passed.
+
+How each condition is made:
+- **GNSS cut:** `GPS_OFF_AT` (Stage B: PX4's `EKF2_GPS_CTRL` 0). PX4 gives up its
+  position about 4 s later and its fail-safe lands it.
+- **Start error:** `GDN_START_ERROR="north east"` (node parameters
+  `start_error_north_m`, `start_error_east_m`).
+  - **When:** once its heading is aligned, GDN's position moves by that much, and it's
+    told sigma = max(distance, 10 m), as `mc_campaign --start-error` does.
+  - **Replay:** the run log carries it, so a replay repeats it.
+- **Wind:** `GDN_WIND="speed from_deg"` (`tools/sim_wind.py`), in the run's copies only:
+  - **The world:** gets the wind, which the cessna's and the VTOL's wings feel through
+    Gazebo's lift-drag model: the VTOL crabbed 19 deg in 6 m/s (TEST-040).
+  - **The x500:** has no aero model, so Gazebo's wind effects push its body (a linear
+    drag, `mass x 0.1/s x (wind - velocity)`): it leaned 4.4 deg into 6 m/s.
+  - **The VTOL's hover phases** feel no wind this way.
+
 ## Current result (read this before judging the red line)
 
 Checked in a headless run without a GPU (the altimeter came from the map at the
