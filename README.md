@@ -148,6 +148,11 @@ The node loads one with `--ros-args -p vehicle_profile:=config/vehicles/x500.yam
 its fingerprint, and writes it into the run log for replay. `tools/check_profiles.py`
 checks the profiles against the simulated airframes.
 
+The node takes the flight regime from PX4 (R2.5b): ground, hover, transition or cruise,
+from its land detector and status. The profile's rules say which aiding each regime
+allows. Zero-velocity updates run only on the ground and resume after every landing; an
+IMU alone can't tell a steady hover from being parked.
+
 ### Terrain database
 
 Maps are a simple binary grid: a 40-byte header, then row-major `float32` heights. The
@@ -315,7 +320,7 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | Setup and data | `setup_ubuntu.sh` (machine setup), `make_data.sh` (derived data and checksum checks), `fetch_data.sh` / `pack_data.sh` (download or publish the flight001 recording) |
 | Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `quality.sh` (warnings, cppcheck, clang-tidy, sanitizers, formatting; R1.9), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
 | Sensor simulators | `trn_sensor_sim.py` (terrain height under the vehicle), `baro_sim.py`, `mag_sim.py`; all fed by PX4 truth from the bag |
-| Vehicle profiles (R2.5a) | `vehicle_profile.py` (read and print one), `check_profiles.py` (every simulated airframe against its profile: mounts, topics, frames, noise files) |
+| Vehicle profiles and flight regime (R2.5) | `vehicle_profile.py` (read and print one), `check_profiles.py` (every simulated airframe against its profile: mounts, topics, frames, noise files), `check_regime.py` (a SITL flight against PX4's regime: ZUPT only on the ground, re-armed after landing) |
 | Run logs (R1.11) | `plot_run_log.py` (draw a run log: error, innovations, every update decision; export CSVs), `log_check.sh` (record a bench run and replay it, as CI does) |
 | Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_sim_run.py` (one page per SITL run: GDN's track against the truth over the terrain, every error with GDN's 3 sigma, flight phases, every update decision), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
 | Terrain maps | `generate_terrain.py` then `export_map_db.py` then `make_sigma4_map.py` (synthetic map); `fetch_terrain.py` and `make_zermatt_map.py` (SRTM); `export_map_bin.py`, `terrain_map.py` (older helpers) |

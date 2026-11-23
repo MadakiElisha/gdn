@@ -77,10 +77,11 @@ Every node run writes one MCAP file (`log/gdn_runs/gdn_<UTC time>/`, parameters
 | Topic | Type | What |
 |---|---|---|
 | `/gdn/log/run_info` | `gdn_msgs/RunInfo` | first message: the config's values, name and fingerprint, overrides, map path and fingerprint, origin, `trn_model`, the build's `git describe` |
-| the input topics | as received | `sensor_combined`, `mag_meas`, `agl_meas`, `baro_meas`, `trn_meas`, and PX4's local position and attitude (reference only) |
+| the input topics | as received | `sensor_combined`, `mag_meas`, `agl_meas`, `baro_meas`, `trn_meas`, PX4's `vehicle_status` and `vehicle_land_detected` (the flight regime, R2.5b), and PX4's local position and attitude (reference only) |
 | `/gdn/log/state` | `gdn_msgs/NavState` | the state after every input: position, velocity, attitude, biases, covariance diagonal, flags |
 | `/gdn/log/update` | `gdn_msgs/NavUpdate` | every measurement and ZUPT: sensor, decision (applied, gated, or skipped and why), innovation, its predicted variance, NIS, whether a gain limit acted |
-| `/gdn/log/event` | `gdn_msgs/NavEvent` | start-up steps (static alignment, heading, altitude datum, airborne latch), IMU holes, dropped samples |
+| `/gdn/log/vehicle_profile` | `gdn_msgs/VehicleProfileInfo` | second message, when the node had a vehicle profile (R2.5a): its name, path, fingerprint and text |
+| `/gdn/log/event` | `gdn_msgs/NavEvent` | start-up steps (static alignment, heading, altitude datum, airborne latch), regime changes and ZUPT re-arming (R2.5b), IMU holes, dropped samples |
 
 Messages are written in the order the node processed them (log times strictly
 increasing), and each record carries the number of the input that caused it. About 45
@@ -133,9 +134,19 @@ core; the node drops IMU gaps above 0.25 s. Covariance: P ← ΦPΦᵀ + Qc·h, 
    samples. Roll/pitch come from gravity, gyro bias from the rate mean, accel bias from
    the gravity residual. Then `ResetCovariance`.
 2. **ZUPT** (`ApplyZupt`): zero-velocity pinning while `GroundMonitor`
-   (`gdn/ground_monitor.hpp`) sees a still IMU, until 0.5 s of motion sets the airborne
-   latch. IMU only, no GNSS (R1.2, TEST-018). ZUPT doesn't correct heading or the baro
-   and mag biases. Used by the node and by `mc_campaign --startup=node`.
+   (`gdn/ground_monitor.hpp`) sees a still IMU. IMU only, no GNSS (R1.2, TEST-018). ZUPT
+   doesn't correct heading or the baro and mag biases. Used by the node and by
+   `mc_campaign --startup=node`.
+   - **With the flight regime from PX4** (R2.5b, `gdn/flight_regime.hpp`; ground, hover,
+     transition, cruise from `vehicle_land_detected` and `vehicle_status`):
+     - **Where:** ZUPT only on the ground, never in flight, however still the IMU looks
+       (a steady hover).
+     - **Re-armed at every landing,** with the still-reference taken from the filter's
+       attitude then, so it works on a slope.
+     - **Rules:** the vehicle profile's say which aiding each regime allows (by default
+       the altimeter is off on the ground).
+   - **Without a regime** (the bench, the Monte Carlo): 0.5 s of motion sets a one-way
+     airborne latch, as before.
 3. **Yaw alignment**: `AlignYawFromMag` (node) does a one-shot heading from the
    magnetometer. `TransferAlignYaw` (heading from GNSS velocity) is still used by
    `mc_campaign`'s default `--startup=truth`; `--startup=node` uses the mag as the node does.

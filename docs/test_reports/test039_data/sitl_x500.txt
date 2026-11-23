@@ -1,0 +1,41 @@
+# x500 over ch_emmental (tools/sim_run.sh, profile config/vehicles/x500.yaml)
+[gdn_eskf_node]: vehicle profile: x500 (multirotor, config/vehicles/x500.yaml), fingerprint c255086cb9a4; aiding agl on, baro on, mag on, zupt on; regimes: ground off agl; hover all; transition all; cruise all (zupt only on the ground); 11 sensors, 11 with placeholder mounts
+[gdn_eskf_node]: regime: unknown -> ground at t=0.0 (PX4: disarmed, rotary wing, landed)
+[gdn_eskf_node]: regime: ground -> hover at t=1795422556.0 (PX4: armed, rotary wing, airborne)
+[gdn_eskf_node]: airborne latch set at t=1795422557.9 (IMU motion for 0.5 s): ZUPT off
+[gdn_eskf_node]: regime: hover -> ground at t=1795422968.4 (PX4: armed, rotary wing, landed)
+[gdn_eskf_node]: ZUPT re-armed at t=1795422968.4 (landed; rest reference from the current attitude)
+[gdn_sim_fly]: at cruise height (57 m above pad), starting the route
+[gdn_sim_fly]: route done, landing
+[gdn_sim_fly]: landed and disarmed, done
+RMS 60-300s: 376.9 m | MAX 60-300s: 628.7 m
+RMS 0-300s (5 min): 337.4 m | P95: 604.0 m | MAX: 628.7 m | n=577
+RMS 0-600s (10 min): 1193.9 m | P95: 3057.4 m | MAX: 3936.7 m | n=844
+RMS whole run: 1193.9 m | P95: 3057.4 m | MAX: 3936.7 m | n=844
+# tools/check_regime.py --run log/r25b/t039/x500
+PASS  x500: PX4's land detector and status available: 450 land-detector, 898 status messages in its run log
+PASS  x500: GDN went through a multirotor's regimes (ground, hover): ground -> hover -> ground
+PASS  x500: each PX4 regime change followed by GDN within 0.5 s: 3 changes, worst 0.000 s
+PASS  x500: no zero-velocity update applied while PX4 says airborne: 0 of 279 applied ZUPTs in the air
+PASS  x500: PX4 landed after flying: at 422.8 s
+PASS  x500: zero-velocity updates re-armed after landing: 240 applied after landing
+PASS  x500: GDN's speed on the ground after landing under 0.3 m/s: median 0.011 m/s over the last 5 s
+PASS  x500: terrain altimeter not applied on the ground: 0 of 553 applied
+REGIME CHECK PASSED
+# gdn_replay /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_082905
+  vehicle profile: x500 (multirotor, config/vehicles/x500.yaml), fingerprint c255086cb9a4; aiding agl on, baro on, mag on, zupt on; regimes: ground off agl; hover all; transition all; cruise all (zupt only on the ground); 11 sensors, 11 with placeholder mounts
+replayed 106871 inputs: final t=1795422994.6 s, position (1028.5, 274.2, 20.7) m, sigma 54.5 m
+IDENTICAL: 106871 states, 68397 update records and 8 events match the log bit for bit
+# gdn_replay /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_082905 --no-regime --out=log/r25b/t039/x500.noregime (the same inputs, as GDN ran before R2.5b)
+  what if: default (the log's), fingerprint ca990af6880d; no regime from PX4 (--no-regime)
+replayed 105523 inputs: final t=1795422994.6 s, position (3530.3, 305.1, 11.5) m, sigma 463.4 m
+# tools/check_regime.py on the --no-regime replay
+PASS  x500 (replay; PX4's regime from the flight's log): PX4's land detector and status available: 450 land-detector, 898 status messages in its run log
+FAIL  x500 (replay; PX4's regime from the flight's log): GDN went through a multirotor's regimes (ground, hover): no regime events
+FAIL  x500 (replay; PX4's regime from the flight's log): each PX4 regime change followed by GDN within 0.5 s: 3 changes, worst inf s
+FAIL  x500 (replay; PX4's regime from the flight's log): no zero-velocity update applied while PX4 says airborne: 12 of 51 applied ZUPTs in the air
+PASS  x500 (replay; PX4's regime from the flight's log): PX4 landed after flying: at 422.8 s
+FAIL  x500 (replay; PX4's regime from the flight's log): zero-velocity updates re-armed after landing: 0 applied after landing
+FAIL  x500 (replay; PX4's regime from the flight's log): GDN's speed on the ground after landing under 0.3 m/s: median 26.464 m/s over the last 5 s
+PASS  x500 (replay; PX4's regime from the flight's log): terrain altimeter not applied on the ground: 0 of 574 applied
+REGIME CHECK FAILED

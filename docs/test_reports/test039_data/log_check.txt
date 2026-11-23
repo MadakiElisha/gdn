@@ -1,0 +1,22 @@
+PASS  log: the node wrote /tmp/gdn_log_check/runs/gdn_20261123_082520 (7.7M)
+log: /tmp/gdn_log_check/runs/gdn_20261123_082520
+  version b466f9559d-dirty, filter default (fingerprint 9025345f59ba), trn_model agl
+  vehicle profile: none (all aiding on)
+replayed 21855 inputs: final t=176.8 s, position (-609.2, -179.9, -8.1) m, sigma 15.5 m
+IDENTICAL: 21855 states, 4483 update records and 4 events match the log bit for bit
+PASS  log: replay matches the log bit for bit
+changed north position of the state after input 4999 by 1 ulp
+DIFFERENT: state after input 4999 (t=40.820 s): pn logged -69.658002067544189, replayed -69.658002067544203
+PASS  log: a 1-ulp change in the log is found
+ERROR: /home/bf-s2/gdn_workspace/data/maps/terrain_db_sigma4.bin has fingerprint 4d2e8ddae3c668ac, the logged map 007329a9ce0ea956: not the map this run used
+PASS  log: the wrong map is refused
+  what if: default (the log's), fingerprint 57ef1c7f9a0b; overrides r_agl=200
+replayed 21855 inputs: final t=176.8 s, position (-605.5, -181.3, -7.9) m, sigma 19.0 m
+PASS  log: a what-if replay writes a log that itself replays identically
+[INFO] [1795422416.767373584] [gdn_eskf_node]: vehicle profile: x500 (multirotor, /tmp/gdn_log_check/profile_test.yaml), fingerprint 384671bfeb02; aiding agl on, baro off, mag on, zupt off; regimes: ground off agl; hover all; transition all; cruise all (zupt only on the ground); 11 sensors, 11 with placeholder mounts
+PASS  log: the node ran with the profile's aiding (baro and ZUPT off)
+  vehicle profile: x500 (multirotor, /tmp/gdn_log_check/profile_test.yaml), fingerprint 384671bfeb02; aiding agl on, baro off, mag on, zupt off; regimes: ground off agl; hover all; transition all; cruise all (zupt only on the ground); 11 sensors, 11 with placeholder mounts
+replayed 21768 inputs: final t=176.8 s, position (-609.2, -173.0, -7.8) m, sigma 19.7 m
+IDENTICAL: 21768 states, 4461 update records and 4 events match the log bit for bit
+PASS  log: a run with a vehicle profile replays bit for bit, with its aiding
+LOG CHECK PASSED

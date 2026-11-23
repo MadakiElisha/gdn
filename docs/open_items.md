@@ -72,7 +72,7 @@ replayed exactly (`gdn_replay`) with one change at a time:
 - **The runaway at the end of a long flight:** when the estimate is 1 to 2 km off, it
   leaves the map, every altimeter reading is skipped, and it runs away at 20 to 40 m/s on
   the IMU and baro. That's the "hallucination" seen in RViz; landing adds only the last
-  seconds (the one-way latch, R2.5).
+  seconds (the one-way latch; R2.5b re-arms ZUPT at landing, TEST-039).
 - **Settings:** no setting fixes it. `r_agl` 400, heading-only or align-only mag, and
   altimeter off each win on one flight and lose on another, from 25 m to 1.7 km. So one
   SITL flight can't rank a setting. `r_agl` 400 is the only one never clearly worse (806 →

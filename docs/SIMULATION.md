@@ -150,6 +150,14 @@ PX4's position was valid.
   profile: ..."), and its run log carries the profile so `gdn_replay` repeats it.
 - **The check:** `tools/check_profiles.py` checks every profile against the simulation:
   the payload's mounts, the topics, frames and noise files, and PX4's airframe and model.
+- **The flight regime (R2.5b):** GDN takes it from PX4's land detector and status:
+  - **The regimes:** ground (landed or disarmed), hover, transition (a VTOL changing
+    over), cruise (flying as a plane).
+  - **The rules:** the profile's `regime.*` rules say which aiding each one allows. The
+    altimeter is off on the ground, and zero-velocity updates run only on the ground and
+    resume after every landing.
+  - **Where it shows:** `gdn.log` shows each change ("regime: ground -> hover ...").
+  - **The check:** `tools/check_regime.py --run LOG` checks a flight against PX4's regime.
 
 **Drawing a run.** `python3 tools/plot_sim_run.py LOG` (the run's `GDN_LOG_DIR`, in the
 dev image) draws the whole flight on one page, `LOG/gdn_vs_truth.png`:
@@ -612,8 +620,6 @@ flight path (`radar AGL minus map-predicted AGL`).
   GDN is only compared against it. Stage C needs R5.1.
 - **The world is built from the onboard map itself,** so there's no map error yet. R1.3
   and R2.2 build the world from a finer DEM, with real map error.
-- **The node still reads PX4's `vehicle_local_position`** for its ground ZUPT and take-off
-  latch (R1.2).
 - **The default Zermatt world has no photo on its terrain;** the R2.2 sites have the
   2 m orthophoto, which the cameras see as a soft image: 2 m per photo pixel against
   about 0.2 to 0.5 m per camera pixel at 100 to 200 m. Finer photos for VIO are R3.5's.

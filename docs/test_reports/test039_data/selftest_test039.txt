@@ -1,0 +1,10 @@
+PASS  regime: TEST-039 from PX4: landed or disarmed ground, else transition, cruise (fixed wing) or hover
+PASS  regime: TEST-039 profile rules read (schema 2); ZUPT in flight and a missing rule refused; schema 1 defaults
+      regimes: unknown -> ground; ground -> hover; hover -> ground;  ZUPT after landing: 238 with the regime, 0 without; in the air 0; final speed 0.000 with, 0.166 m/s without
+PASS  regime: TEST-039 GDN follows PX4: ground, hover, ground; re-armed on landing; the regime in the state flags
+PASS  regime: TEST-039 ZUPT resumes after landing on a 2 deg slope (none without the regime; none in the air)
+PASS  regime: TEST-039 the altimeter is 'not used' on the ground, applied in the air (the profiles' rule)
+      gentle climb (0.2 m/s^2): ZUPT applied while climbing 0 with the regime, 45 without
+PASS  regime: TEST-039 a climb the IMU reads as still gets no ZUPT with the regime (without it, ZUPT holds it)
+PASS  regime: TEST-039 without PX4 input the regime stays unknown: ZUPT before take-off, never again
+ALL TESTS PASSED

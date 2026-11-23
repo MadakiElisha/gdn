@@ -1,0 +1,46 @@
+# standard_vtol over ch_emmental (tools/sim_run.sh, profile config/vehicles/standard_vtol.yaml)
+[gdn_eskf_node]: vehicle profile: standard_vtol (vtol, config/vehicles/standard_vtol.yaml), fingerprint d3c8dd1d40c1; aiding agl on, baro on, mag on, zupt on; regimes: ground off agl; hover all; transition all; cruise all (zupt only on the ground); 11 sensors, 11 with placeholder mounts
+[gdn_eskf_node]: regime: unknown -> ground at t=0.0 (PX4: disarmed, rotary wing, landed)
+[gdn_eskf_node]: regime: ground -> hover at t=1795423046.8 (PX4: armed, rotary wing, airborne)
+[gdn_eskf_node]: airborne latch set at t=1795423048.1 (IMU motion for 0.5 s): ZUPT off
+[gdn_eskf_node]: regime: hover -> transition at t=1795423067.7 (PX4: armed, rotary wing, in transition, airborne)
+[gdn_eskf_node]: regime: transition -> cruise at t=1795423070.4 (PX4: armed, fixed wing, airborne)
+[gdn_eskf_node]: regime: cruise -> transition at t=1795423216.4 (PX4: armed, rotary wing, in transition, airborne)
+[gdn_eskf_node]: regime: transition -> hover at t=1795423222.4 (PX4: armed, rotary wing, airborne)
+[gdn_eskf_node]: regime: hover -> ground at t=1795423338.1 (PX4: armed, rotary wing, landed)
+[gdn_eskf_node]: ZUPT re-armed at t=1795423338.1 (landed; rest reference from the current attitude)
+[gdn_sim_fly]: at cruise height (57 m above pad), starting the route
+[gdn_sim_fly]: front transition done after 3 s, flying as a plane: offboard, following the route
+[gdn_sim_fly]: back transition done after 6 s, hovering: offboard, to the pad
+[gdn_sim_fly]: landed and disarmed, done
+RMS 60-300s: 254.9 m | MAX 60-300s: 405.5 m
+RMS 0-300s (5 min): 228.3 m | P95: 382.3 m | MAX: 405.5 m | n=577
+RMS 0-600s (10 min): 222.6 m | P95: 381.9 m | MAX: 405.5 m | n=612
+RMS whole run: 222.6 m | P95: 381.9 m | MAX: 405.5 m | n=612
+# tools/check_regime.py --run log/r25b/t039/standard_vtol
+PASS  standard_vtol: PX4's land detector and status available: 331 land-detector, 663 status messages in its run log
+PASS  standard_vtol: GDN went through a vtol's regimes (cruise, ground, hover, transition): ground -> hover -> transition -> cruise -> transition -> hover -> ground
+PASS  standard_vtol: each PX4 regime change followed by GDN within 0.5 s: 7 changes, worst 0.000 s
+PASS  standard_vtol: no zero-velocity update applied while PX4 says airborne: 0 of 251 applied ZUPTs in the air
+PASS  standard_vtol: PX4 landed after flying: at 302.6 s
+PASS  standard_vtol: zero-velocity updates re-armed after landing: 212 applied after landing
+PASS  standard_vtol: GDN's speed on the ground after landing under 0.3 m/s: median 0.007 m/s over the last 5 s
+PASS  standard_vtol: terrain altimeter not applied on the ground: 0 of 519 applied
+REGIME CHECK PASSED
+# gdn_replay /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_083716
+  vehicle profile: standard_vtol (vtol, config/vehicles/standard_vtol.yaml), fingerprint d3c8dd1d40c1; aiding agl on, baro on, mag on, zupt on; regimes: ground off agl; hover all; transition all; cruise all (zupt only on the ground); 11 sensors, 11 with placeholder mounts
+replayed 78022 inputs: final t=1795423364.3 s, position (-74.7, -11.0, -4.7) m, sigma 11.8 m
+IDENTICAL: 78022 states, 49990 update records and 12 events match the log bit for bit
+# gdn_replay /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_083716 --no-regime --out=log/r25b/t039/standard_vtol.noregime (the same inputs, as GDN ran before R2.5b)
+  what if: default (the log's), fingerprint ca990af6880d; no regime from PX4 (--no-regime)
+replayed 77028 inputs: final t=1795423364.3 s, position (-260.7, -126.0, -4.1) m, sigma 71.1 m
+# tools/check_regime.py on the --no-regime replay
+PASS  standard_vtol (replay; PX4's regime from the flight's log): PX4's land detector and status available: 331 land-detector, 663 status messages in its run log
+FAIL  standard_vtol (replay; PX4's regime from the flight's log): GDN went through a vtol's regimes (cruise, ground, hover, transition): no regime events
+FAIL  standard_vtol (replay; PX4's regime from the flight's log): each PX4 regime change followed by GDN within 0.5 s: 7 changes, worst inf s
+FAIL  standard_vtol (replay; PX4's regime from the flight's log): no zero-velocity update applied while PX4 says airborne: 6 of 45 applied ZUPTs in the air
+PASS  standard_vtol (replay; PX4's regime from the flight's log): PX4 landed after flying: at 302.6 s
+FAIL  standard_vtol (replay; PX4's regime from the flight's log): zero-velocity updates re-armed after landing: 0 applied after landing
+FAIL  standard_vtol (replay; PX4's regime from the flight's log): GDN's speed on the ground after landing under 0.3 m/s: median 6.388 m/s over the last 5 s
+PASS  standard_vtol (replay; PX4's regime from the flight's log): terrain altimeter not applied on the ground: 0 of 519 applied
+REGIME CHECK FAILED
