@@ -9,6 +9,11 @@ configuration is ('#' comments, a key given twice is an error, unknown keys are 
   filter_config                       the filter settings file (config/filter/...)
   filter.<key>: value                 optional overrides of that file
   aiding.agl / .baro / .mag / .zupt   true | false: which aiding GDN uses
+  regime.<regime>.agl / .baro / .mag  true | false, for ground, hover, transition and cruise
+  regime.ground.zupt                  (schema 2, R2.5b): what each flight regime from PX4
+                                      allows on top of aiding.*; zero-velocity updates only
+                                      on the ground. Schema 1 profiles (R2.5a) read with
+                                      the default rules.
   sensor.<id>.<field>                 one block per sensor:
       kind        imu | lidar | camera | range | radar_altimeter | baro | mag
       topic       what its driver publishes on
@@ -34,7 +39,13 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = "1"
+SCHEMA = "2"
+SCHEMAS = ("1", "2")
+REGIMES = ("ground", "hover", "transition", "cruise")
+DEFAULT_RULES = {"ground": {"agl": False, "baro": True, "mag": True, "zupt": True},
+                 "hover": {"agl": True, "baro": True, "mag": True},
+                 "transition": {"agl": True, "baro": True, "mag": True},
+                 "cruise": {"agl": True, "baro": True, "mag": True}}
 KINDS = ("multirotor", "vtol", "fixedwing")
 SENSOR_KINDS = ("imu", "lidar", "camera", "range", "radar_altimeter", "baro", "mag")
 GDN_INPUTS = ("imu", "agl", "baro", "mag", "none")
@@ -94,6 +105,7 @@ def parse(text, label="profile", root=ROOT):
     kv = read_kv(text, label)
     line = {k: ln for k, _, ln in kv}
     top, filt, aid, sensors = {}, {}, {}, {}
+    rules, rules_seen = {r: dict(v) for r, v in DEFAULT_RULES.items()}, set()
     for k, v, ln in kv:
         where = f"{label}:{ln}: {k}"
         if k in TOP_REQUIRED or k in TOP_OPTIONAL:
@@ -105,6 +117,18 @@ def parse(text, label="profile", root=ROOT):
             if a not in AIDING:
                 raise ProfileError(f"{where}: unknown aiding (known: {', '.join(AIDING)})")
             aid[a] = parse_bool(v, where)
+        elif k.startswith("regime."):
+            parts = k.split(".")
+            if len(parts) != 3 or parts[1] not in REGIMES:
+                raise ProfileError(f"{where}: unknown regime (known: {', '.join(REGIMES)})")
+            r, a = parts[1], parts[2]
+            if a == "zupt" and r != "ground":
+                raise ProfileError(f"{where}: zero-velocity updates are the ground's alone "
+                                   "(velocity is never zero in flight)")
+            if a not in ("agl", "baro", "mag", "zupt"):
+                raise ProfileError(f"{where}: unknown aiding (known: agl, baro, mag; zupt on the ground)")
+            rules[r][a] = parse_bool(v, where)
+            rules_seen.add(f"{r}.{a}")
         elif k.startswith("sensor."):
             parts = k.split(".")
             if len(parts) != 3 or not parts[1]:
@@ -118,8 +142,15 @@ def parse(text, label="profile", root=ROOT):
     for k in TOP_REQUIRED:
         if k not in top:
             raise ProfileError(f"{label}: missing {k}")
-    if top["schema"] != SCHEMA:
-        raise ProfileError(f"{label}:{line['schema']}: schema {top['schema']}, this reads schema {SCHEMA}")
+    if top["schema"] not in SCHEMAS:
+        raise ProfileError(f"{label}:{line['schema']}: schema {top['schema']}, this reads schemas {', '.join(SCHEMAS)}")
+    if top["schema"] == "1" and rules_seen:
+        raise ProfileError(f"{label}: regime rules need schema 2")
+    if top["schema"] == "2":
+        for r in REGIMES:
+            for a in ("agl", "baro", "mag") + (("zupt",) if r == "ground" else ()):
+                if f"{r}.{a}" not in rules_seen:
+                    raise ProfileError(f"{label}: missing regime.{r}.{a}")
     if top["kind"] not in KINDS:
         raise ProfileError(f"{label}:{line['kind']}: kind must be one of {', '.join(KINDS)}")
     for a in AIDING:
@@ -160,7 +191,7 @@ def parse(text, label="profile", root=ROOT):
         if not n and (inp == "imu" or aid.get(inp)):
             raise ProfileError(f"{label}: no sensor has gdn_input {inp}" +
                                ("" if inp == "imu" else f", but aiding.{inp} is true"))
-    return {"top": top, "filter": filt, "aiding": aid, "sensors": out_s, "label": label,
+    return {"top": top, "filter": filt, "aiding": aid, "rules": rules, "sensors": out_s, "label": label,
             "fingerprint": fingerprint(kv)}
 
 
@@ -230,6 +261,8 @@ def main():
     print(f"{t['name']} ({t['kind']}, PX4 {t['px4_airframe']}, model {t['sim_model']}), fingerprint {p['fingerprint']}")
     print(f"  filter: {t['filter_config']}" + (f", overrides {p['filter']}" if p["filter"] else ""))
     print("  aiding: " + ", ".join(f"{a} {'on' if p['aiding'][a] else 'off'}" for a in AIDING))
+    print("  regimes: " + "; ".join(f"{r} " + (" ".join(f"{a} off" for a, on in p["rules"][r].items() if not on) or "all")
+                                    for r in REGIMES))
     for sid, s in p["sensors"].items():
         print(f"  {sid:15s} {s['kind']:15s} {s['topic']:28s} {s['frame_id']:32s} "
               f"xyz {' '.join(f'{x:+.3f}' for x in s['xyz'])} m, rpy {' '.join(f'{x:+.1f}' for x in s['rpy_deg'])} deg"

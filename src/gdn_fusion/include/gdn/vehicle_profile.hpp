@@ -26,11 +26,15 @@
 #include <utility>
 #include <vector>
 #include "gdn/filter_config.hpp"
+#include "gdn/flight_regime.hpp"
 #include "gdn/kv_file.hpp"
 
 namespace gdn {
 
-inline constexpr int kVehicleProfileSchema = 1;
+// Schema 2 (R2.5b) adds the regime rules (regime.<regime>.<aiding>, all required). Schema 1
+// (R2.5a) still reads, with the default rules, so its run logs replay as they ran: they
+// have no regime input, and without one the rules aren't used.
+inline constexpr int kVehicleProfileSchema = 2;
 
 // Which aiding GDN uses (gdn::NavCore). All on is how GDN ran before profiles.
 //   agl  : height-above-ground updates (terrain). Off: no TRN; the altitude datum (set by
@@ -39,8 +43,13 @@ inline constexpr int kVehicleProfileSchema = 1;
 //   mag  : magnetometer updates in flight. Off: the magnetometer still gives the initial
 //          heading (GDN has no other source of it yet), like mag_fusion "align".
 //   zupt : zero-velocity updates while the IMU says the vehicle is still.
+//
+// R2.5b: on top of these switches, the regime rules (RegimeRules, gdn/flight_regime.hpp):
+// an aiding is used when its switch here is on and the current regime's rule allows it.
+// With no regime (no autopilot input) only the switches count.
 struct Aiding {
     bool agl = true, baro = true, mag = true, zupt = true;
+    RegimeRules rules;
 };
 
 struct VehicleSensor {
@@ -121,17 +130,20 @@ inline bool VehicleProfileFromKeyValues(const std::vector<KeyValue>& kvs, const 
     std::map<std::string, int> line;
     std::map<std::string, std::map<std::string, std::string>> sensors;  // id -> field -> value
     std::vector<std::string> sensor_order;
-    std::set<std::string> aid_seen;
+    std::set<std::string> aid_seen, regime_seen;
+    int schema = 0;
     for (const KeyValue& kv : kvs) {
         const std::string where = label + ":" + std::to_string(kv.line) + ": " + kv.key;
         line[kv.key] = kv.line;
         const std::string& k = kv.key;
         const std::string& v = kv.value;
         if (k == "schema") {
-            if (v != std::to_string(kVehicleProfileSchema)) {
-                *err = Cat(where, ": schema ", v, ", this build reads schema ", std::to_string(kVehicleProfileSchema));
+            if (v != "1" && v != std::to_string(kVehicleProfileSchema)) {
+                *err = Cat(where, ": schema ", v, ", this build reads schemas 1 and ",
+                           std::to_string(kVehicleProfileSchema));
                 return false;
             }
+            schema = std::atoi(v.c_str());
         } else if (k == "name") {
             p.name = v;
         } else if (k == "kind") {
@@ -168,6 +180,41 @@ inline bool VehicleProfileFromKeyValues(const std::vector<KeyValue>& kvs, const 
                 return false;
             }
             aid_seen.insert(a);
+        } else if (k.rfind("regime.", 0) == 0) {
+            // regime.<ground|hover|transition|cruise>.<agl|baro|mag>, and regime.ground.zupt.
+            const auto d1 = k.find('.', 7);
+            const std::string r = d1 == std::string::npos ? "" : k.substr(7, d1 - 7);
+            const std::string a = d1 == std::string::npos ? "" : k.substr(d1 + 1);
+            if (v != "true" && v != "false") {
+                *err = Cat(where, ": must be true or false (is '", v, "')");
+                return false;
+            }
+            const bool on = v == "true";
+            RegimeAid* ra = r == "ground"       ? &p.aiding.rules.ground
+                            : r == "hover"      ? &p.aiding.rules.hover
+                            : r == "transition" ? &p.aiding.rules.transition
+                            : r == "cruise"     ? &p.aiding.rules.cruise
+                                                : nullptr;
+            if (ra == nullptr) {
+                *err = where + ": unknown regime (known: ground, hover, transition, cruise)";
+                return false;
+            }
+            if (a == "agl")
+                ra->agl = on;
+            else if (a == "baro")
+                ra->baro = on;
+            else if (a == "mag")
+                ra->mag = on;
+            else if (a == "zupt" && r == "ground")
+                p.aiding.rules.ground_zupt = on;
+            else if (a == "zupt") {
+                *err = where + ": zero-velocity updates are the ground's alone (velocity is never zero in flight)";
+                return false;
+            } else {
+                *err = where + ": unknown aiding (known: agl, baro, mag; zupt on the ground)";
+                return false;
+            }
+            regime_seen.insert(Cat(r, ".", a));
         } else if (k.rfind("sensor.", 0) == 0) {
             const auto d1 = k.find('.', 7);
             if (d1 == std::string::npos || d1 == 7 || k.find('.', d1 + 1) != std::string::npos) {
@@ -201,6 +248,21 @@ inline bool VehicleProfileFromKeyValues(const std::vector<KeyValue>& kvs, const 
             *err = label + ": missing aiding." + a;
             return false;
         }
+    if (schema == 1 && !regime_seen.empty()) {
+        *err = label + ": regime rules need schema 2";
+        return false;
+    }
+    if (schema >= 2)
+        for (const char* r : {"ground", "hover", "transition", "cruise"})
+            for (const char* a : {"agl", "baro", "mag"})
+                if (!regime_seen.count(std::string(r) + "." + a)) {
+                    *err = Cat(label, ": missing regime.", r, ".", a);
+                    return false;
+                }
+    if (schema >= 2 && !regime_seen.count("ground.zupt")) {
+        *err = label + ": missing regime.ground.zupt";
+        return false;
+    }
     if (sensors.empty()) {
         *err = label + ": no sensors";
         return false;
@@ -315,13 +377,30 @@ inline std::string DescribeAiding(const Aiding& a) {
     return s;
 }
 
+// The regime rules in one line: per regime, the aiding it switches off.
+inline std::string DescribeRegimeRules(const RegimeRules& r) {
+    std::string s;
+    const std::pair<const char*, const RegimeAid*> all[] = {
+        {"ground", &r.ground}, {"hover", &r.hover}, {"transition", &r.transition}, {"cruise", &r.cruise}};
+    for (const auto& [n, ra] : all) {
+        std::string off;
+        if (!ra->agl) off += " agl";
+        if (!ra->baro) off += " baro";
+        if (!ra->mag) off += " mag";
+        if (std::string(n) == "ground" && !r.ground_zupt) off += " zupt";
+        s += profile_detail::Cat(s.empty() ? "" : "; ", n, off.empty() ? " all" : " off" + off);
+    }
+    return s + " (zupt only on the ground)";
+}
+
 // One line for logs: name, kind, fingerprint, aiding, sensors.
 inline std::string DescribeVehicleProfile(const VehicleProfile& p, const std::string& path) {
     int placeholders = 0;
     for (const VehicleSensor& s : p.sensors) placeholders += s.mount_source == "placeholder";
-    return p.name + " (" + p.kind + ", " + path + "), fingerprint " + p.fingerprint + "; aiding " +
-           DescribeAiding(p.aiding) + "; " + std::to_string(p.sensors.size()) + " sensors, " +
-           std::to_string(placeholders) + " with placeholder mounts";
+    return profile_detail::Cat(p.name, " (", p.kind, ", ", path, "), fingerprint ", p.fingerprint, "; aiding ",
+                               DescribeAiding(p.aiding), "; regimes: ", DescribeRegimeRules(p.aiding.rules), "; ",
+                               std::to_string(p.sensors.size()), " sensors, ", std::to_string(placeholders),
+                               " with placeholder mounts");
 }
 
 }  // namespace gdn

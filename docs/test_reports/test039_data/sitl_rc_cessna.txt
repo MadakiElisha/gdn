@@ -1,0 +1,41 @@
+# rc_cessna over ch_emmental (tools/sim_run.sh, profile config/vehicles/rc_cessna.yaml)
+[gdn_eskf_node]: vehicle profile: rc_cessna (fixedwing, config/vehicles/rc_cessna.yaml), fingerprint 7497e6704f66; aiding agl on, baro on, mag on, zupt on; regimes: ground off agl; hover all; transition all; cruise all (zupt only on the ground); 11 sensors, 11 with placeholder mounts
+[gdn_eskf_node]: regime: unknown -> ground at t=0.0 (PX4: disarmed, fixed wing, landed)
+[gdn_eskf_node]: airborne latch set at t=1795423414.2 (IMU motion for 0.5 s): ZUPT off
+[gdn_eskf_node]: regime: ground -> cruise at t=1795423415.4 (PX4: armed, fixed wing, airborne)
+[gdn_eskf_node]: regime: cruise -> ground at t=1795423697.2 (PX4: armed, fixed wing, landed)
+[gdn_eskf_node]: ZUPT re-armed at t=1795423697.2 (landed; rest reference from the current attitude)
+[gdn_sim_fly]: climbed out (45 m above pad): offboard, starting the route
+[gdn_sim_fly]: route done, landing on the runway (PX4 mission: approach, glide, touchdown)
+[gdn_sim_fly]: landed and disarmed, done
+RMS 60-300s: 100.4 m | MAX 60-300s: 226.8 m
+RMS 0-300s (5 min): 90.0 m | P95: 205.6 m | MAX: 226.8 m | n=577
+RMS 0-600s (10 min): 93.6 m | P95: 205.4 m | MAX: 226.8 m | n=595
+RMS whole run: 93.6 m | P95: 205.4 m | MAX: 226.8 m | n=595
+# tools/check_regime.py --run log/r25b/t039/rc_cessna
+PASS  rc_cessna: PX4's land detector and status available: 318 land-detector, 642 status messages in its run log
+PASS  rc_cessna: GDN went through a fixedwing's regimes (cruise, ground): ground -> cruise -> ground
+PASS  rc_cessna: each PX4 regime change followed by GDN within 0.5 s: 3 changes, worst 0.000 s
+PASS  rc_cessna: no zero-velocity update applied while PX4 says airborne: 0 of 271 applied ZUPTs in the air
+PASS  rc_cessna: PX4 landed after flying: at 294.5 s
+PASS  rc_cessna: zero-velocity updates re-armed after landing: 241 applied after landing
+PASS  rc_cessna: GDN's speed on the ground after landing under 0.3 m/s: median 0.016 m/s over the last 5 s
+PASS  rc_cessna: terrain altimeter not applied on the ground: 0 of 499 applied
+REGIME CHECK PASSED
+# gdn_replay /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_084324
+  vehicle profile: rc_cessna (fixedwing, config/vehicles/rc_cessna.yaml), fingerprint 7497e6704f66; aiding agl on, baro on, mag on, zupt on; regimes: ground off agl; hover all; transition all; cruise all (zupt only on the ground); 11 sensors, 11 with placeholder mounts
+replayed 75965 inputs: final t=1795423723.5 s, position (47.6, -63.9, -2.0) m, sigma 25.3 m
+IDENTICAL: 75965 states, 48667 update records and 8 events match the log bit for bit
+# gdn_replay /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_084324 --no-regime --out=log/r25b/t039/rc_cessna.noregime (the same inputs, as GDN ran before R2.5b)
+  what if: default (the log's), fingerprint ca990af6880d; no regime from PX4 (--no-regime)
+replayed 75005 inputs: final t=1795423723.5 s, position (217.8, 11.0, 0.4) m, sigma 81.8 m
+# tools/check_regime.py on the --no-regime replay
+PASS  rc_cessna (replay; PX4's regime from the flight's log): PX4's land detector and status available: 318 land-detector, 642 status messages in its run log
+FAIL  rc_cessna (replay; PX4's regime from the flight's log): GDN went through a fixedwing's regimes (cruise, ground): no regime events
+FAIL  rc_cessna (replay; PX4's regime from the flight's log): each PX4 regime change followed by GDN within 0.5 s: 3 changes, worst inf s
+PASS  rc_cessna (replay; PX4's regime from the flight's log): no zero-velocity update applied while PX4 says airborne: 0 of 30 applied ZUPTs in the air
+PASS  rc_cessna (replay; PX4's regime from the flight's log): PX4 landed after flying: at 294.5 s
+FAIL  rc_cessna (replay; PX4's regime from the flight's log): zero-velocity updates re-armed after landing: 0 applied after landing
+FAIL  rc_cessna (replay; PX4's regime from the flight's log): GDN's speed on the ground after landing under 0.3 m/s: median 5.626 m/s over the last 5 s
+PASS  rc_cessna (replay; PX4's regime from the flight's log): terrain altimeter not applied on the ground: 0 of 499 applied
+REGIME CHECK FAILED

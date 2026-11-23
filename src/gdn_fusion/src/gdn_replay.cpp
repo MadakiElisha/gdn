@@ -15,7 +15,9 @@
 #include <geometry_msgs/msg/vector3.hpp>
 #include <px4_msgs/msg/sensor_combined.hpp>
 #include <px4_msgs/msg/vehicle_attitude.hpp>
+#include <px4_msgs/msg/vehicle_land_detected.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
+#include <px4_msgs/msg/vehicle_status.hpp>
 #include <rclcpp/serialization.hpp>
 #include <rosbag2_cpp/reader.hpp>
 #include <std_msgs/msg/float64.hpp>
@@ -86,9 +88,11 @@ private:
 
 int Usage() {
     std::printf(
-        "usage: gdn_replay LOG [--map=PATH] [--config=FILE] [--set=KEY=VALUE]... [--out=DIR]\n"
-        "  Replays a GDN run log through the navigation core. Without --config/--set it checks\n"
-        "  every state, update and event against the log, bit for bit.\n");
+        "usage: gdn_replay LOG [--map=PATH] [--config=FILE] [--set=KEY=VALUE]... [--no-regime] [--out=DIR]\n"
+        "  Replays a GDN run log through the navigation core. Without --config/--set/--no-regime it\n"
+        "  checks every state, update and event against the log, bit for bit.\n"
+        "  --no-regime: ignore PX4's status and land detector (R2.5b), as GDN ran before: the\n"
+        "  same inputs with the IMU alone deciding on the ground (a what-if).\n");
     return 2;
 }
 
@@ -97,6 +101,7 @@ int Usage() {
 int main(int argc, char** argv) {
     std::string log_path, map_arg, config_arg, out_dir;
     std::vector<std::string> sets;
+    bool no_regime = false;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a.rfind("--map=", 0) == 0)
@@ -107,13 +112,15 @@ int main(int argc, char** argv) {
             sets.push_back(a.substr(6));
         else if (a.rfind("--out=", 0) == 0)
             out_dir = a.substr(6);
+        else if (a == "--no-regime")
+            no_regime = true;
         else if (a.rfind("--", 0) != 0 && log_path.empty())
             log_path = a;
         else
             return Usage();  // an unknown option, or a second LOG
     }
     if (log_path.empty()) return Usage();
-    const bool what_if = !config_arg.empty() || !sets.empty();
+    const bool what_if = !config_arg.empty() || !sets.empty() || no_regime;
 
     rosbag2_cpp::Reader reader;
     try {
@@ -205,8 +212,9 @@ int main(int argc, char** argv) {
                                                ? gdn::DescribeVehicleProfile(profile, profile_info.path).c_str()
                                                : "none (all aiding on)");
     if (what_if)
-        std::printf("  what if: %s\n",
-                    gdn::DescribeFilterConfig(fc, config_arg.empty() ? "the log's" : config_arg, &logged).c_str());
+        std::printf("  what if: %s%s\n",
+                    gdn::DescribeFilterConfig(fc, config_arg.empty() ? "the log's" : config_arg, &logged).c_str(),
+                    no_regime ? "; no regime from PX4 (--no-regime)" : "");
 
     // Map and origin.
     const std::string map_path = map_arg.empty() ? info.map_path : gdn::DataPath(map_arg);
@@ -281,6 +289,18 @@ int main(int argc, char** argv) {
             if (out_sink) writer.Write(Decode<px4_msgs::msg::VehicleLocalPosition>(*m), topic, clock_ns);
         } else if (topic == "/fmu/out/vehicle_attitude") {
             if (out_sink) writer.Write(Decode<px4_msgs::msg::VehicleAttitude>(*m), topic, clock_ns);
+        } else if (topic == "/fmu/out/vehicle_status_v1") {  // R2.5b
+            if (no_regime) continue;                         // and not into --out: it replays as run
+            const auto s = Decode<px4_msgs::msg::VehicleStatus>(*m);
+            if (out_sink) writer.Write(s, topic, clock_ns);
+            core.Px4Status(s.arming_state, s.vehicle_type, s.in_transition_mode);
+            ++n_in;
+        } else if (topic == "/fmu/out/vehicle_land_detected") {
+            if (no_regime) continue;
+            const auto l = Decode<px4_msgs::msg::VehicleLandDetected>(*m);
+            if (out_sink) writer.Write(l, topic, clock_ns);
+            core.LandDetected(l.landed);
+            ++n_in;
         } else if (topic == gdn::kTopicState && !what_if) {
             const auto ls = Decode<gdn_msgs::msg::NavState>(*m);
             if (sink.states.empty() || sink.states.front().seq != ls.seq) {

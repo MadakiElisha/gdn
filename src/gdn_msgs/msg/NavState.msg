@@ -15,3 +15,6 @@ uint8 FLAG_ALIGNED = 1
 uint8 FLAG_HEADING = 2
 uint8 FLAG_DATUM = 4
 uint8 FLAG_AIRBORNE = 8
+# Bits 4-6 (R2.5b): the flight regime from PX4, flags / 16 = 0 unknown, 1 ground, 2 hover,
+# 3 transition, 4 cruise (gdn/flight_regime.hpp).
+uint8 FLAG_REGIME_SHIFT = 4

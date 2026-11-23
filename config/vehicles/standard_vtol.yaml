@@ -12,15 +12,15 @@
 # barometer and magnetometer sit at its origin. The payload's are where Gazebo has them
 # (sim/models/gdn_payload, mounted 0.03 m under base_link by sim/models/standard_vtol_gdn):
 # placeholders until R6.4 measures the real ones.
-schema: 1
+schema: 2
 name: standard_vtol
 description: PX4 standard VTOL (quadplane) with the GDN payload (simulated, R2.3)
 kind: vtol
 px4_airframe: 4004_gz_standard_vtol
 sim_model: standard_vtol_gdn
 
-# Filter settings: the shared file; no overrides yet (R2.5b brings per-regime rules,
-# tuning needs SITL and MC evidence first).
+# Filter settings: the shared file; no overrides yet (tuning per airframe needs SITL and
+# MC evidence first).
 filter_config: config/filter/default.yaml
 
 # Aiding GDN uses here (each from the sensor whose gdn_input names it).
@@ -28,6 +28,26 @@ aiding.agl: true
 aiding.baro: true
 aiding.mag: true
 aiding.zupt: true
+
+# Rules per flight regime (R2.5b), on top of aiding.*. The regime comes from PX4 (its land
+# detector and status, gdn/flight_regime.hpp): ground (landed or disarmed), hover (flying
+# on rotors), transition (a VTOL changing over), cruise (flying as a plane). Without PX4
+# input it's unknown and only aiding.* counts. Zero-velocity updates only on the ground,
+# re-armed at every landing. The altimeter is off on the ground, where it reads under its
+# minimum range; the altitude datum is set from its first reading after take-off.
+regime.ground.agl: false
+regime.ground.baro: true
+regime.ground.mag: true
+regime.ground.zupt: true
+regime.hover.agl: true
+regime.hover.baro: true
+regime.hover.mag: true
+regime.transition.agl: true
+regime.transition.baro: true
+regime.transition.mag: true
+regime.cruise.agl: true
+regime.cruise.baro: true
+regime.cruise.mag: true
 
 # --- the autopilot's sensors (they define base_link) ---
 sensor.fc_imu.kind: imu

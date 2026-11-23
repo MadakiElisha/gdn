@@ -1,0 +1,6 @@
+FAIL  x500: PX4's land detector and status reached GDN: 0 land-detector, 0 status messages in its run log
+REGIME CHECK FAILED
+FAIL  standard_vtol: PX4's land detector and status reached GDN: 0 land-detector, 0 status messages in its run log
+REGIME CHECK FAILED
+FAIL  rc_cessna: PX4's land detector and status reached GDN: 0 land-detector, 0 status messages in its run log
+REGIME CHECK FAILED

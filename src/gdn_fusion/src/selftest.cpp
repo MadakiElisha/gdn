@@ -11,6 +11,7 @@
 #include <initializer_list>
 #include <random>
 #include <sstream>
+#include <tuple>
 #include <vector>
 #include "gdn/map_db.hpp"
 #include "gdn/eskf.hpp"
@@ -435,6 +436,15 @@ sensor.mag.mount_source: placeholder
 sensor.mag.gdn_input: mag
 )";
 
+static Aiding MakeAiding(bool agl, bool baro, bool mag, bool zupt) {
+    Aiding a;
+    a.agl = agl;
+    a.baro = baro;
+    a.mag = mag;
+    a.zupt = zupt;
+    return a;
+}
+
 static std::string ReplaceOnce(std::string s, const std::string& a, const std::string& b) {
     const auto i = s.find(a);
     if (i != std::string::npos) s.replace(i, a.size(), b);
@@ -537,8 +547,8 @@ static void TestVehicleProfiles() {
     };
     RecordingSink on, off, only_baro_off;
     NavCore c_on(def, map, TrnModel::kAgl, &on);
-    NavCore c_off(def, map, TrnModel::kAgl, &off, Aiding{false, false, false, false});
-    NavCore c_nb(def, map, TrnModel::kAgl, &only_baro_off, Aiding{true, false, true, true});
+    NavCore c_off(def, map, TrnModel::kAgl, &off, MakeAiding(false, false, false, false));
+    NavCore c_nb(def, map, TrnModel::kAgl, &only_baro_off, MakeAiding(true, false, true, true));
     FeedSyntheticRun(&c_on, false);
     FeedSyntheticRun(&c_off, false);
     FeedSyntheticRun(&c_nb, false);
@@ -571,6 +581,175 @@ static void TestVehicleProfiles() {
     bool same = dflt.states.size() == on.states.size();
     for (size_t i = 0; same && i < on.states.size(); ++i) same = dflt.states[i] == on.states[i];
     CHECK(same, "profile: TEST-038 all aiding on gives the run without a profile, state for state");
+}
+
+// TEST-039 (R2.5b): the flight regime from PX4. A synthetic flight: parked 8 s, take-off,
+// north at 5 m/s, back down, then parked 25 s after rolling 2 deg on touchdown (a slope).
+// gentle: the climb is at 0.2 m/s^2 (under ground_accel_tol), which the IMU alone reads as
+// still. regime: PX4's status (1 Hz) and land detector (on change) are fed. IMU 100 Hz;
+// mag, baro and AGL 10 Hz. Returns the touchdown time (filter clock, s).
+static double FeedLandingRun(NavCore* c, bool regime, bool gentle) {
+    using V3 = Eigen::Vector3d;
+    std::mt19937_64 rng(39);
+    std::normal_distribution<double> n(0.0, 1.0);
+    const FilterConfig& fc = DefaultConfig();
+    const V3 m_ref(fc.eskf.mag_ref_north, fc.eskf.mag_ref_east, fc.eskf.mag_ref_down);
+    const double t0 = 1.0;  // the IMU clock's start, s
+    // Vertical profile (NED down acceleration) and the north leg.
+    const double climb_a = gentle ? -0.2 : -2.0, climb_s = gentle ? 5.0 : 1.0;
+    const double t_up0 = 8.0, t_up1 = t_up0 + climb_s, t_upstop = t_up1 + climb_s;  // accel, then brake
+    const double t_n0 = t_upstop + 1.0, t_n1 = t_n0 + 1.0, t_n2 = t_n1 + 9.0, t_n3 = t_n2 + 1.0;
+    const double t_dn0 = t_n3 + 1.0, t_dn1 = t_dn0 + climb_s, t_land = t_dn1 + climb_s;
+    const double t_end = t_land + 25.0, roll = 2.0 * Eskf::kDeg;
+    double vd = 0.0, pd = 0.0, vn = 0.0, pn = 0.0, phi = 0.0;
+    bool landed_now = true, first_land = true;
+    for (int i = 0; t0 + i * 0.01 < t0 + t_end; ++i) {
+        const double tt = i * 0.01;
+        double ad = 0.0, an = 0.0, wx = 0.0;
+        if (tt >= t_up0 && tt < t_up1) ad = climb_a;
+        if (tt >= t_up1 && tt < t_upstop) ad = -climb_a;
+        if (tt >= t_n0 && tt < t_n1) an = 5.0;
+        if (tt >= t_n2 && tt < t_n3) an = -5.0;
+        if (tt >= t_dn0 && tt < t_dn1) ad = -climb_a;
+        if (tt >= t_dn1 && tt < t_land) ad = climb_a;
+        if (tt >= t_land && tt < t_land + 1.0) wx = roll;  // touchdown on a 2 deg slope
+        vd += ad * 0.01;
+        pd += vd * 0.01;
+        vn += an * 0.01;
+        pn += vn * 0.01;
+        phi += wx * 0.01;
+        const Eigen::Matrix3d R = Eigen::AngleAxisd(phi, V3::UnitX()).toRotationMatrix();  // body to NED
+        const V3 f_b = R.transpose() * V3(an, 0.0, ad - Eskf::kG);
+        const V3 a = f_b + V3(0.02 * n(rng), 0.02 * n(rng), 0.02 * n(rng));
+        const V3 w = V3(wx, 0.0, 0.0) + V3(1e-4 * n(rng), 1e-4 * n(rng), 1e-4 * n(rng));
+        const std::uint64_t t_us = static_cast<std::uint64_t>(std::llround((t0 + tt) * 1e6));
+        c->Imu(t_us, a, w, 10000);
+        if (regime) {
+            const bool landed = tt < t_up0 + 0.5 || tt >= t_land + 1.0;  // PX4's detector lags a little
+            if (i % 100 == 2) c->Px4Status(kPx4ArmingArmed, 1, false);
+            if (first_land || landed != landed_now) {
+                c->LandDetected(landed);
+                landed_now = landed;
+                first_land = false;
+            }
+        }
+        if (i % 10 == 5) c->Mag(R.transpose() * m_ref + V3(0.5 * n(rng), 0.5 * n(rng), 0.5 * n(rng)));
+        if (i % 10 == 7) c->Baro(pd + 3.0 + 0.3 * n(rng));
+        if (i % 10 == 9) c->Agl(2.0 - pd - 0.2 * pn + 0.2 * n(rng));  // over h = 500 + 0.2 n, 2 m up when parked
+    }
+    return t0 + t_land;
+}
+
+static void TestFlightRegime() {
+    const FilterConfig& def = DefaultConfig();
+    using S = Eskf::Sensor;
+    using R = Eskf::Reason;
+    // The regime from PX4's fields.
+    CHECK(RegimeFromPx4(2, 1, false, false) == Regime::kHover && RegimeFromPx4(2, 1, false, true) == Regime::kGround &&
+              RegimeFromPx4(1, 1, false, false) == Regime::kGround &&
+              RegimeFromPx4(2, 2, false, false) == Regime::kCruise &&
+              RegimeFromPx4(2, 1, true, false) == Regime::kTransition &&
+              RegimeFromPx4(2, 2, true, false) == Regime::kTransition &&
+              RegimeFromPx4(1, 2, false, true) == Regime::kGround,
+          "regime: TEST-039 from PX4: landed or disarmed ground, else transition, cruise (fixed wing) or hover");
+
+    // Profiles: schema 2 rules read; ZUPT in flight and a missing rule are refused; schema 1
+    // reads with the default rules.
+    std::string err;
+    std::string rules;
+    for (const char* r : {"ground", "hover", "transition", "cruise"})
+        for (const char* a : {"agl", "baro", "mag"})
+            rules += std::string("regime.") + r + "." + a + ": " +
+                     (std::string(r) == "ground" && std::string(a) == "agl" ? "false" : "true") + "\n";
+    const std::string good2 =
+        ReplaceOnce(kProfileGood, "schema: 1", "schema: 2") + rules + "regime.ground.zupt: true\n";
+    VehicleProfile p2, p1, bad;
+    const bool r2 = ParseVehicleProfile(good2, "t", &p2, &err);
+    const bool r1 = ParseVehicleProfile(kProfileGood, "t", &p1, &err);
+    const bool zupt_air = !ParseVehicleProfile(good2 + "regime.cruise.zupt: true\n", "t", &bad, &err) &&
+                          err.find("ground's alone") != std::string::npos;
+    const bool missing = !ParseVehicleProfile(ReplaceOnce(good2, "regime.hover.mag: true\n", ""), "t", &bad, &err) &&
+                         err.find("missing regime.hover.mag") != std::string::npos;
+    CHECK(
+        r2 && !p2.aiding.rules.ground.agl && p2.aiding.rules.ground_zupt && p2.aiding.rules.cruise.agl && r1 &&
+            !p1.aiding.rules.ground.agl && zupt_air && missing,
+        "regime: TEST-039 profile rules read (schema 2); ZUPT in flight and a missing rule refused; schema 1 defaults");
+
+    const std::string mp = "/tmp/gdn_selftest_regime_map.bin";
+    WritePlaneMap(mp, 0.2, 500.0);
+    MapDb map;
+    map.Load(mp);
+    // RecordingSink keeps updates without their time; keep a timed copy.
+    struct TimedSink : RecordingSink {
+        std::vector<std::tuple<double, S, R>> timed;
+        std::vector<std::uint32_t> flags;
+        void Update(std::uint64_t seq, double t, const Eskf::UpdateInfo& u) override {
+            RecordingSink::Update(seq, t, u);
+            timed.emplace_back(t, u.sensor, u.reason);
+        }
+        void State(std::uint64_t seq, const NavCore& c) override {
+            RecordingSink::State(seq, c);
+            flags.push_back(static_cast<std::uint32_t>(c.State()[kStateSize - 1]));
+        }
+    };
+    const auto n_upd = [](const TimedSink& k, S s, R r, double lo, double hi) {
+        int n = 0;
+        for (const auto& [t, ss, rr] : k.timed) n += ss == s && rr == r && t >= lo && t < hi;
+        return n;
+    };
+    TimedSink with, without;
+    NavCore c_with(def, map, TrnModel::kAgl, &with), c_without(def, map, TrnModel::kAgl, &without);
+    const double t_land = FeedLandingRun(&c_with, true, false);
+    FeedLandingRun(&c_without, false, false);
+    const double t_up = 1.0 + 8.0, t_end = t_land + 25.0;
+    const int z_after_with = n_upd(with, S::kZupt, R::kApplied, t_land + 1.0, 1e9);
+    const int z_after_without = n_upd(without, S::kZupt, R::kApplied, t_land + 1.0, 1e9);
+    const int z_air_with = n_upd(with, S::kZupt, R::kApplied, t_up + 0.5, t_land + 1.0);
+    bool rearmed = false, seq_ok = false;
+    std::string regimes;
+    for (const std::string& e : with.events) {
+        rearmed = rearmed || e.find("ZUPT re-armed") != std::string::npos;
+        if (e.rfind("regime: ", 0) == 0) regimes += e.substr(8, e.find(" at t=") - 8) + "; ";
+    }
+    seq_ok = regimes == "unknown -> ground; ground -> hover; hover -> ground; ";
+    const double v_end_with = c_with.eskf().vel().head<2>().norm(),
+                 v_end_without = c_without.eskf().vel().head<2>().norm();
+    std::printf(
+        "      regimes: %s ZUPT after landing: %d with the regime, %d without; in the air %d; "
+        "final speed %.3f with, %.3f m/s without\n",
+        regimes.c_str(), z_after_with, z_after_without, z_air_with, v_end_with, v_end_without);
+    CHECK(
+        seq_ok && rearmed && c_with.regime() == Regime::kGround && (with.flags.back() >> 4) == 1,
+        "regime: TEST-039 GDN follows PX4: ground, hover, ground; re-armed on landing; the regime in the state flags");
+    CHECK(z_after_with > 100 && z_after_without == 0 && z_air_with == 0,
+          "regime: TEST-039 ZUPT resumes after landing on a 2 deg slope (none without the regime; none in the air)");
+    // The altimeter's ground rule: not used before take-off with the regime.
+    const int agl_ground_used =
+        n_upd(with, S::kAgl, R::kApplied, 0.0, t_up + 0.5) + n_upd(with, S::kAgl, R::kInit, 0.0, t_up + 0.5);
+    const int agl_ground_unused = n_upd(with, S::kAgl, R::kNotUsed, 0.0, t_up);
+    const int agl_air = n_upd(with, S::kAgl, R::kApplied, t_up + 0.5, t_land);
+    CHECK(agl_ground_used == 0 && agl_ground_unused > 0 && agl_air > 0,
+          "regime: TEST-039 the altimeter is 'not used' on the ground, applied in the air (the profiles' rule)");
+
+    // A gentle take-off the IMU reads as still: without the regime ZUPT holds the climb at
+    // zero; with it, none in the air.
+    TimedSink g_with, g_without;
+    NavCore cg_with(def, map, TrnModel::kAgl, &g_with), cg_without(def, map, TrnModel::kAgl, &g_without);
+    FeedLandingRun(&cg_with, true, true);
+    FeedLandingRun(&cg_without, false, true);
+    const int gz_with = n_upd(g_with, S::kZupt, R::kApplied, t_up + 0.5, t_up + 5.0);
+    const int gz_without = n_upd(g_without, S::kZupt, R::kApplied, t_up + 0.5, t_up + 5.0);
+    std::printf("      gentle climb (0.2 m/s^2): ZUPT applied while climbing %d with the regime, %d without\n", gz_with,
+                gz_without);
+    CHECK(gz_with == 0 && gz_without > 10,
+          "regime: TEST-039 a climb the IMU reads as still gets no ZUPT with the regime (without it, ZUPT holds it)");
+
+    // No PX4 input: the regime stays unknown, so the ground monitor alone decides, as before
+    // R2.5b (its latch: ZUPT before take-off only; the R2.5a selftest checks that path is
+    // unchanged, state for state).
+    const int z_before_without = n_upd(without, S::kZupt, R::kApplied, 0.0, t_up);
+    CHECK(c_without.regime() == Regime::kUnknown && z_before_without > 0 && z_after_without == 0 && t_end > t_land,
+          "regime: TEST-039 without PX4 input the regime stays unknown: ZUPT before take-off, never again");
 }
 
 int main() {
@@ -1733,6 +1912,12 @@ int main() {
         TestVehicleProfiles();
     } catch (const std::exception& e) {
         std::printf("FAIL  profile: TEST-038 threw: %s\n", e.what());
+        g_fail++;
+    }
+    try {
+        TestFlightRegime();
+    } catch (const std::exception& e) {
+        std::printf("FAIL  regime: TEST-039 threw: %s\n", e.what());
         g_fail++;
     }
 std::printf(g_fail == 0 ? "ALL TESTS PASSED\n" : "%d TEST(S) FAILED\n", g_fail);
