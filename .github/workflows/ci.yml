@@ -144,10 +144,13 @@ jobs:
       # R2.5a: every simulated vehicle has a profile (config/vehicles/), its sensors' mounts
       # are where Gazebo has them, its topics, frames and noise files are the simulated
       # drivers'; and the reader and pose arithmetic work on made-up profiles (TEST-038).
-      - name: Vehicle profiles check and self-check (R2.5a)
+      # R2.5b: the flight regime check's logic, on made-up runs (TEST-039; the flights
+      # themselves need the simulation).
+      - name: Vehicle profiles check and self-check (R2.5a), regime check self-check (R2.5b)
         run: |
           python3 tools/check_profiles.py
           python3 tools/check_profiles.py --selfcheck
+          python3 tools/check_regime.py --selfcheck
 
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |

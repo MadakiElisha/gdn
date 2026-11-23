@@ -280,6 +280,18 @@ def selfcheck():
               "mount_source", "an unknown mount source")
     ok &= bad(GOOD.replace("sensor.baro.mount_source: placeholder\n", ""), "missing mount_source",
               "a sensor field missing")
+    # Schema 2 (R2.5b): regime rules, all required; ZUPT only on the ground.
+    rules = "".join(f"regime.{r}.{a}: {'false' if (r, a) == ('ground', 'agl') else 'true'}\n"
+                    for r in ("ground", "hover", "transition", "cruise") for a in ("agl", "baro", "mag"))
+    good2 = GOOD.replace("schema: 1", "schema: 2") + rules + "regime.ground.zupt: true\n"
+    p2 = vp.parse(good2, "t")
+    ok &= ck(not p2["rules"]["ground"]["agl"] and p2["rules"]["ground"]["zupt"] and p2["rules"]["cruise"]["agl"],
+             "selfcheck: schema 2 with regime rules reads (ground: agl off, zupt on)")
+    ok &= ck(p["rules"] == vp.DEFAULT_RULES, "selfcheck: schema 1 reads with the default rules")
+    ok &= bad(good2 + "regime.hover.zupt: true\n", "ground's alone", "a ZUPT rule in flight")
+    ok &= bad(good2.replace("regime.cruise.mag: true\n", ""), "missing regime.cruise.mag", "a missing regime rule")
+    ok &= bad(GOOD + "regime.hover.agl: true\n", "need schema 2", "regime rules in a schema 1 profile")
+    ok &= bad(good2.replace("regime.hover.agl", "regime.taxi.agl"), "unknown regime", "an unknown regime")
     # Fingerprint: comments, order and spacing don't count; a value does.
     lines = GOOD.splitlines()
     shuffled = "# a comment\n" + "\n".join(reversed(lines)).replace(": ", ":   ") + "\n"

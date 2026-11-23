@@ -22,8 +22,12 @@
 //
 // Limits: the reference is the alignment pose, so a vehicle re-parked at a different
 // tilt reads as moving and latches (safe direction). Creeping at under about
-// accel_tol (0.3 m/s^2 in config/filter/default.yaml) is not seen. Landing and re-take-off need a regime input
-// from the autopilot (R2.5); until then the latch is one-way.
+// accel_tol (0.3 m/s^2 in config/filter/default.yaml) is not seen.
+//
+// R2.5b: with the flight regime from the autopilot (gdn/flight_regime.hpp), NavCore calls
+// Rearm() when PX4 reports landed: the reference becomes the filter's current attitude
+// (so a landing at another tilt still reads as still) and the latch is cleared, so ZUPT
+// resumes after landing. Without a regime the latch stays one-way, as above.
 #include <Eigen/Dense>
 #include <deque>
 #include "gdn/unset.hpp"
@@ -50,6 +54,20 @@ public:
         f_ref_ = f_rest; w_ref_ = w_rest; started_ = true;
         buf_.clear(); t_ = span_ = moving_for_ = since_zupt_ = 0.0;
         airborne_ = still_ = false; latch_t_ = -1.0;
+    }
+
+    // R2.5b: on landing (the autopilot says landed). The new rest reference is the filter's
+    // current Eskf::RestSpecificForce() and gyro bias; the window refills before the
+    // first ZUPT, and the latch is cleared.
+    void Rearm(const V3& f_rest, const V3& w_rest) {
+        if (!started_) return;
+        f_ref_ = f_rest;
+        w_ref_ = w_rest;
+        buf_.clear();
+        span_ = moving_for_ = since_zupt_ = 0.0;
+        airborne_ = still_ = false;
+        latch_t_ = -1.0;
+        ++rearms_;
     }
 
     // Feed every IMU sample (dt in seconds). Returns true when a ZUPT is due now.
@@ -85,6 +103,7 @@ public:
     bool still() const { return still_; }
     // Seconds since Start() at which the latch was set; -1 while on the ground.
     double latch_time() const { return latch_t_; }
+    int rearms() const { return rearms_; }
 
 private:
     struct Sample { V3 a, w; double dt; };
@@ -93,6 +112,7 @@ private:
     std::deque<Sample> buf_;
     double t_ = 0.0, span_ = 0.0, moving_for_ = 0.0, since_zupt_ = 0.0, latch_t_ = -1.0;
     bool started_ = false, airborne_ = false, still_ = false;
+    int rearms_ = 0;
 };
 
 }  // namespace gdn

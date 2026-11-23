@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <string>
 #include "gdn/eskf.hpp"
+#include "gdn/flight_regime.hpp"
 #include "gdn/filter_config.hpp"
 #include "gdn/ground_monitor.hpp"
 #include "gdn/map_db.hpp"
@@ -145,11 +146,16 @@ public:
         // airborne latch. No GNSS input (gdn/ground_monitor.hpp, TEST-018).
         const bool was_airborne = ground_.airborne();
         if (ground_.Update(a_m, w_m, dt)) {
-            if (aid_.zupt) {
+            // R2.5b: with a regime from the autopilot, ZUPT only on the ground (and only if
+            // the profile's rule allows it); in flight never, however still the IMU looks
+            // (a steady hover). Without one, the IMU's stillness and latch decide, as before.
+            const bool regime_ok =
+                regime_ == Regime::kUnknown || (regime_ == Regime::kGround && aid_.rules.ground_zupt);
+            if (aid_.zupt && regime_ok) {
                 eskf_.ApplyZupt();
                 Record(eskf_.last_update());
             } else {
-                Skip(Sensor::kZupt, Reason::kNotUsed);  // the profile's aiding.zupt: false
+                Skip(Sensor::kZupt, Reason::kNotUsed);  // the profile: aiding.zupt false, or not on the ground
             }
         }
         if (ground_.airborne() && !was_airborne) {
@@ -172,8 +178,9 @@ public:
             char b[80];
             std::snprintf(b, sizeof b, "heading from magnetometer at t=%.1f", t_cur_);
             Emit(EventLevel::kInfo, b, true);
-        } else if (!aid_.mag || fc_.mag_fusion == "align") {
-            // Initial heading only: the profile's aiding.mag false, or mag_fusion "align".
+        } else if (!aid_.mag || !Allowed(&RegimeAid::mag) || fc_.mag_fusion == "align") {
+            // Initial heading only: the profile's aiding.mag false or its regime rule, or
+            // mag_fusion "align".
             Skip(s, Reason::kNotUsed);
         } else if (fc_.mag_fusion == "auto") {
             eskf_.ApplyMagAuto(z);
@@ -203,7 +210,7 @@ public:
     // alignment fixes the altitude datum: AMSL height of p_z = 0 = map height under the
     // estimate + AGL + current p_z. The baro bias is calibrated at the same moment.
     void Agl(double agl) {
-        if (model_ != TrnModel::kAgl || !aid_.agl) {
+        if (model_ != TrnModel::kAgl || !aid_.agl || !Allowed(&RegimeAid::agl)) {
             Skip(Sensor::kAgl, Reason::kNotUsed);
         } else if (!eskf_.aligned() || !eskf_.yaw_aligned()) {
             Skip(Sensor::kAgl, !eskf_.aligned() ? Reason::kNotAligned : Reason::kNoHeading);
@@ -230,7 +237,7 @@ public:
 
     // Baro altitude, NED z (m): z_true + bias + noise.
     void Baro(double z) {
-        if (!aid_.baro) {  // the profile's aiding.baro: false: not even the bias's start value
+        if (!aid_.baro || !Allowed(&RegimeAid::baro)) {  // the profile: not even the bias's start value
             Skip(Sensor::kBaro, Reason::kNotUsed);
             Done(false);
             return;
@@ -257,11 +264,30 @@ public:
         Done(false);
     }
 
+    // R2.5b: PX4's vehicle_status (arming state, vehicle type, VTOL transition) and
+    // vehicle_land_detected (landed). Once both have arrived they set the flight regime
+    // (gdn/flight_regime.hpp); each change is an event, and a landing re-arms ZUPT.
+    void Px4Status(std::uint8_t arming_state, std::uint8_t vehicle_type, bool in_transition) {
+        arming_ = arming_state;
+        vehicle_type_ = vehicle_type;
+        in_transition_ = in_transition;
+        have_status_ = true;
+        UpdateRegime();
+        Done(false);
+    }
+    void LandDetected(bool landed) {
+        landed_ = landed;
+        have_land_ = true;
+        UpdateRegime();
+        Done(false);
+    }
+
     const Eskf& eskf() const { return eskf_; }
     const GroundMonitor& ground() const { return ground_; }
     const FilterConfig& config() const { return fc_; }
     TrnModel model() const { return model_; }
     const Aiding& aiding() const { return aid_; }
+    Regime regime() const { return regime_; }
     std::uint64_t inputs() const { return seq_; }  // inputs processed so far
     double t() const { return t_cur_; }            // last IMU time, s
     bool have_baro() const { return have_baro_; }
@@ -285,11 +311,37 @@ public:
         for (int i = 0; i < 19; ++i) v[k++] = eskf_.P()(i, i);
         v[k++] = eskf_.P()(0, 1);
         v[k++] = (eskf_.aligned() ? 1 : 0) + (eskf_.yaw_aligned() ? 2 : 0) + (eskf_.datum_set() ? 4 : 0) +
-                 (ground_.airborne() ? 8 : 0);
+                 (ground_.airborne() ? 8 : 0) + 16 * static_cast<int>(regime_);  // R2.5b: regime in bits 4-6
         return v;
     }
 
 private:
+    // The current regime's rule for one aiding (no regime: no rule, allowed).
+    bool Allowed(bool RegimeAid::*which) const {
+        const RegimeAid* ra = aid_.rules.For(regime_);
+        return ra == nullptr || ra->*which;
+    }
+    void UpdateRegime() {
+        if (!have_status_ || !have_land_) return;
+        const Regime r = RegimeFromPx4(arming_, vehicle_type_, in_transition_, landed_);
+        if (r == regime_) return;
+        const Regime prev = regime_;
+        regime_ = r;
+        char b[200];
+        std::snprintf(b, sizeof b, "regime: %s -> %s at t=%.1f (PX4: %s, %s%s, %s)", RegimeName(prev), RegimeName(r),
+                      t_cur_, arming_ == kPx4ArmingArmed ? "armed" : "disarmed",
+                      vehicle_type_ == kPx4VehicleFixedWing ? "fixed wing" : "rotary wing",
+                      in_transition_ ? ", in transition" : "", landed_ ? "landed" : "airborne");
+        Emit(EventLevel::kInfo, b, true);
+        // A landing: re-arm ZUPT, with the rest reference at the attitude the filter has now.
+        const bool was_flying = prev == Regime::kHover || prev == Regime::kTransition || prev == Regime::kCruise;
+        if (r == Regime::kGround && (was_flying || ground_.airborne()) && ground_.started() && eskf_.aligned()) {
+            ground_.Rearm(eskf_.RestSpecificForce(), eskf_.gyro_bias());
+            std::snprintf(b, sizeof b, "ZUPT re-armed at t=%.1f (landed; rest reference from the current attitude)",
+                          t_cur_);
+            Emit(EventLevel::kInfo, b, true);
+        }
+    }
     bool Done(bool propagated) {
         if (sink_) sink_->State(seq_, *this);
         ++seq_;
@@ -320,6 +372,10 @@ private:
     double t_cur_ = 0.0;
     int n_drop_ = 0, n_stall_ = 0, n_undercover_ = 0;
     bool have_baro_ = false, z_initialized_ = false;
+    // R2.5b: the regime from PX4.
+    Regime regime_ = Regime::kUnknown;
+    std::uint8_t arming_ = 0, vehicle_type_ = 0;
+    bool in_transition_ = false, landed_ = false, have_status_ = false, have_land_ = false;
     double last_baro_ = 0.0;
 };
 

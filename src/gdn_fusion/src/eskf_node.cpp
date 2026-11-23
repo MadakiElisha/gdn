@@ -4,7 +4,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <px4_msgs/msg/sensor_combined.hpp>
 #include <px4_msgs/msg/vehicle_attitude.hpp>
+#include <px4_msgs/msg/vehicle_land_detected.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
+#include <px4_msgs/msg/vehicle_status.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -199,6 +201,11 @@ public:
             "/fmu/out/vehicle_local_position", qos, std::bind(&EskfNode::LposCb, this, std::placeholders::_1));
         att_sub_ = create_subscription<px4_msgs::msg::VehicleAttitude>(
             "/fmu/out/vehicle_attitude", qos, std::bind(&EskfNode::AttCb, this, std::placeholders::_1));
+        // R2.5b: the flight regime from PX4 (gdn/flight_regime.hpp).
+        status_sub_ = create_subscription<px4_msgs::msg::VehicleStatus>(
+            "/fmu/out/vehicle_status_v1", qos, std::bind(&EskfNode::StatusCb, this, std::placeholders::_1));
+        land_sub_ = create_subscription<px4_msgs::msg::VehicleLandDetected>(
+            "/fmu/out/vehicle_land_detected", qos, std::bind(&EskfNode::LandCb, this, std::placeholders::_1));
         mag_sub_ = create_subscription<geometry_msgs::msg::Vector3>(
             "/gdn/mag_meas", qos, std::bind(&EskfNode::MagCb, this, std::placeholders::_1));
         trn_sub_ = create_subscription<std_msgs::msg::Float64>(
@@ -286,6 +293,17 @@ private:
         LogInput(*msg, "/fmu/out/vehicle_attitude");
     }
 
+    // R2.5b: PX4's status and land detector set the flight regime.
+    void StatusCb(const px4_msgs::msg::VehicleStatus::ConstSharedPtr& msg) {
+        LogInput(*msg, "/fmu/out/vehicle_status_v1");
+        core_->Px4Status(msg->arming_state, msg->vehicle_type, msg->in_transition_mode);
+    }
+
+    void LandCb(const px4_msgs::msg::VehicleLandDetected::ConstSharedPtr& msg) {
+        LogInput(*msg, "/fmu/out/vehicle_land_detected");
+        core_->LandDetected(msg->landed);
+    }
+
     void MagCb(const geometry_msgs::msg::Vector3::ConstSharedPtr& msg) {
         LogInput(*msg, "/gdn/mag_meas");
         if (core_->eskf().aligned()) mag_cb_++;
@@ -326,6 +344,8 @@ private:
     rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr lpos_sub_;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr trn_sub_;
     rclcpp::Subscription<px4_msgs::msg::VehicleAttitude>::SharedPtr att_sub_;
+    rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr status_sub_;
+    rclcpp::Subscription<px4_msgs::msg::VehicleLandDetected>::SharedPtr land_sub_;
     rclcpp::Subscription<geometry_msgs::msg::Vector3>::SharedPtr mag_sub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr sig_pub_;

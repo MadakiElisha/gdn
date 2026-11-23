@@ -352,7 +352,7 @@ if [ -n "${GDN_BAG_IMAGES:-}" ]; then
 fi
 ros2 bag record -s mcap -o "$LOG/sitl_bag" --qos-profile-overrides-path "$ROOT/tools/bag_qos.yaml" \
   /fmu/out/sensor_combined /fmu/out/vehicle_attitude /fmu/out/vehicle_local_position \
-  /fmu/out/vehicle_status_v1 /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
+  /fmu/out/vehicle_status_v1 /fmu/out/vehicle_land_detected /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
   /gdn/sim/truth_odom /gdn/sim/agl_scan /imu/data /livox/imu /oak/imu/data /tfmini/range \
   /oak/left/camera_info /oak/right/camera_info /gdn/sim/raw/imu_h30wp /livox/lidar \
   > "$LOG/bag.log" 2>&1 & PIDS+=($!)
