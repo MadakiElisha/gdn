@@ -1,0 +1,16 @@
+# As x500_emmental_smoke, with GNSS cut 60 s into the route (Stage B: PX4 stops using GPS).
+# GDN keeps navigating on terrain; PX4 lands blind. About 7 minutes.
+schema: 1
+name: x500_emmental_gnss_cut
+description: as x500_emmental_smoke, with GNSS cut 60 s into the route (PX4 EKF2_GPS_CTRL 0)
+vehicle: x500
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+  clearance_m: 40
+gnss:
+  loss: cut
+  at_s: 60
+limits:
+  timeout_s: 1500

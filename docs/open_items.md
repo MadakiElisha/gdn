@@ -164,6 +164,38 @@ beside the point below, on higher or lower ground.
   ("nadir-pointing rangefinder") had this down for the planes; it applies to the
   multirotor now.
 
+### OI-017: GDN takes faulty inputs as good, and a stuck baro locks it out for good (open)
+Found by TEST-041 (R2.6b): faults on GDN's inputs in SITL, each one in GDN's own record
+(`docs/test_reports/test041_data/gdn_response.txt`).
+- **No fault detection of its own.** GDN applied every stuck altimeter and stuck baro
+  reading. Its innovation gate let through:
+  - a third of a magnetometer noise burst (sigma 20 uT);
+  - almost all of a baro one (sigma 5 m);
+  - a fifth of a stuck magnetometer, the rest gated.
+
+  A stuck or noisy IMU raised nothing.
+- **A stuck baro locks the baro out, for good.**
+  - **During:** on the x500, GDN followed the 30 s stuck value while the vehicle changed
+    height.
+  - **After:** the real readings came back 71 m off, and the gate rejected every one of
+    them to the end of the flight. Of the altimeter's after it, 153 were applied, 152
+    gated and 297 off the map.
+  - **The result:** its vertical ran away: the baro innovation reached 0.9 km by the
+    landing (2.2 km on a first flight). Its horizontal error reached 18 km (26 km on the
+    first), against 1.6 km on the same route without faults.
+  - **What's missing:** there's no recovery: no re-acceptance after a run of rejections,
+    no reset from another source.
+- **An IMU gap over 0.25 s is skipped, not propagated.** A 1 s IMU dropout (cessna)
+  ended in "IMU sample dropped: dt 1.008 s". The filter dropped that second (about 25 m
+  at cruise) without widening its uncertainty for it, and said so only in the run log,
+  not in `gdn.log`. Up to 0.25 s it propagates and widens (TEST-029).
+- **Fix (R4.x integrity, with R2.7's scoring):**
+  - per-sensor health: stuck, rate and innovation-run checks;
+  - re-acceptance after a run of gate rejections, with the covariance widened;
+  - propagation across a longer IMU gap with honest uncertainty, or a declared outage.
+
+  The scenarios to judge it are in `config/scenarios/*_faults.yaml`.
+
 ## Closed
 
 ### OI-007: Gazebo heightmap visuals broken (closed)

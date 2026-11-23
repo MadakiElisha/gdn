@@ -1,0 +1,28 @@
+{
+ "scenario": "rc_cessna_emmental_start_error",
+ "file": "config/scenarios/rc_cessna_emmental_start_error.yaml",
+ "run_dir": "/home/bf-s2/gdn_workspace/log/r26b/final/rc_cessna_emmental_start_error/20261123_151608",
+ "gdn_version": "c96859b-dirty",
+ "started_utc": "20261123_151608",
+ "settings": {
+  "GDN_VEHICLE": "rc_cessna",
+  "GDN_FLY_ARGS": "--legs 2 --leg-len 800 --spacing 250 --clearance 60",
+  "HEADLESS": "1",
+  "GDN_SITE": "ch_emmental",
+  "GDN_START_ERROR": "106.066 106.066"
+ },
+ "timeout_s": 1800,
+ "sim_run_exit": 0,
+ "timed_out": false,
+ "duration_s": 355.0,
+ "teardown_clean": true,
+ "left_running": [],
+ "bag_ok": true,
+ "bag_mb": 1441.7,
+ "run_log": "/home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_151641",
+ "run_log_ok": true,
+ "replay": "IDENTICAL",
+ "check_passed": true,
+ "checks_failed": [],
+ "passed": true
+}

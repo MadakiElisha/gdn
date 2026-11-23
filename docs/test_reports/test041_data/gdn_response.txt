@@ -1,0 +1,52 @@
+== x500_emmental_faults: GDN's horizontal error over the whole run: RMS whole run: 7579.7 m | P95: 15907.4 m | MAX: 18018.4 m | n=806
+  agl dropout at 30 s for 20 s                         before             updates 38 applied
+  agl dropout at 30 s for 20 s                         during             updates none
+  agl dropout at 30 s for 20 s                         after              updates 37 applied
+  agl dropout at 30 s for 20 s                         after, to the end  updates 153 applied, 297 off map, 152 gated
+  baro stuck at 70 s for 30 s                          before             updates 1500 applied
+  baro stuck at 70 s for 30 s                          during             updates 1500 applied
+  baro stuck at 70 s for 30 s                          after              updates 1500 gated
+  baro stuck at 70 s for 30 s                          after, to the end  updates 15196 gated
+  mag noise at 120 s for 20 s, sigma 20                before             updates 2000 applied
+  mag noise at 120 s for 20 s, sigma 20                during             updates 667 applied, 2 weak field, 1331 gated
+  mag noise at 120 s for 20 s, sigma 20                after              updates 2000 applied
+  mag noise at 120 s for 20 s, sigma 20                after, to the end  updates 26391 applied
+  imu noise at 170 s for 10 s, sigma 2 (gyro 0.05 rad/s) before             IMU events: none
+  imu noise at 170 s for 10 s, sigma 2 (gyro 0.05 rad/s) during             IMU events: none
+  imu noise at 170 s for 10 s, sigma 2 (gyro 0.05 rad/s) after              IMU events: none
+  imu noise at 170 s for 10 s, sigma 2 (gyro 0.05 rad/s) after, to the end  IMU events: none
+== standard_vtol_emmental_faults: GDN's horizontal error over the whole run: RMS whole run: 1548.3 m | P95: 3781.4 m | MAX: 4570.4 m | n=615
+  agl noise at 30 s for 20 s, sigma 5                  before             updates 34 applied
+  agl noise at 30 s for 20 s, sigma 5                  during             updates 33 applied
+  agl noise at 30 s for 20 s, sigma 5                  after              updates 38 applied
+  agl noise at 30 s for 20 s, sigma 5                  after, to the end  updates 242 applied, 161 gated
+  baro dropout at 60 s for 20 s                        before             updates 1000 applied
+  baro dropout at 60 s for 20 s                        during             updates none
+  baro dropout at 60 s for 20 s                        after              updates 1000 applied
+  baro dropout at 60 s for 20 s                        after, to the end  updates 10916 applied
+  mag stuck at 90 s for 20 s                           before             updates 2000 applied
+  mag stuck at 90 s for 20 s                           during             updates 407 applied, 1593 gated
+  mag stuck at 90 s for 20 s                           after              updates 2000 applied
+  mag stuck at 90 s for 20 s                           after, to the end  updates 18832 applied
+  imu stuck at 120 s for 2 s                           before             IMU events: none
+  imu stuck at 120 s for 2 s                           during             IMU events: none
+  imu stuck at 120 s for 2 s                           after              IMU events: none
+  imu stuck at 120 s for 2 s                           after, to the end  IMU events: none
+== rc_cessna_emmental_faults: GDN's horizontal error over the whole run: RMS whole run: 477.7 m | P95: 742.0 m | MAX: 778.3 m | n=593
+  agl stuck at 20 s for 20 s                           before             updates 38 applied
+  agl stuck at 20 s for 20 s                           during             updates 32 applied
+  agl stuck at 20 s for 20 s                           after              updates 37 applied
+  agl stuck at 20 s for 20 s                           after, to the end  updates 303 applied, 109 gated | IMU events: IMU sample dropped: dt 1.008 s
+  baro noise at 50 s for 20 s, sigma 5                 before             updates 1000 applied
+  baro noise at 50 s for 20 s, sigma 5                 during             updates 959 applied, 41 gated
+  baro noise at 50 s for 20 s, sigma 5                 after              updates 1000 applied
+  baro noise at 50 s for 20 s, sigma 5                 after, to the end  updates 11347 applied | IMU events: IMU sample dropped: dt 1.008 s
+  mag dropout at 80 s for 20 s                         before             updates 2000 applied
+  mag dropout at 80 s for 20 s                         during             updates none
+  mag dropout at 80 s for 20 s                         after              updates 2000 applied | IMU events: IMU sample dropped: dt 1.008 s
+  mag dropout at 80 s for 20 s                         after, to the end  updates 19694 applied | IMU events: IMU sample dropped: dt 1.008 s
+  imu dropout at 110 s for 1 s                         before             IMU events: none
+  imu dropout at 110 s for 1 s                         during             IMU events: none
+  imu dropout at 110 s for 1 s                         after              IMU events: IMU sample dropped: dt 1.008 s
+  imu dropout at 110 s for 1 s                         after, to the end  IMU events: IMU sample dropped: dt 1.008 s
+== x500_emmental_smoke: GDN's horizontal error over the whole run: RMS whole run: 638.8 m | P95: 1372.5 m | MAX: 1594.4 m | n=806

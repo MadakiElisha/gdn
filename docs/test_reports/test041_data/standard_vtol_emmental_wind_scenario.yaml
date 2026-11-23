@@ -1,0 +1,17 @@
+# The standard VTOL over Emmental in a steady 6 m/s wind from the west (Gazebo wind
+# effects): flying north and south as a plane, it crabs into it. About 9 minutes.
+schema: 1
+name: standard_vtol_emmental_wind
+description: standard VTOL, Emmental, 2 legs of 800 m at 60 m over the terrain, 6 m/s wind from the west
+vehicle: standard_vtol
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+gnss:
+  loss: none
+wind:
+  speed_mps: 6
+  from_deg: 270
+limits:
+  timeout_s: 1800

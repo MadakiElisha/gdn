@@ -1,0 +1,19 @@
+PASS  the run is the scenario's vehicle and world: x500 over ch_emmental (asked x500 over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  within the scenario's time limit: 450 s of 1800
+PASS  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 2688 m asked
+PASS  the route never lower than 40 m over the terrain: lowest 40.0 m
+PASS  PX4's position followed the truth before the spoof: within 2.38 m over 60 s
+PASS  PX4's position walked off at 0.5 m/s towards 90 deg from 60 s into the route: 150.8 m at 89.6 deg before the landing (asked 150.5 m), 1.0 m apart
+note  PX4's position was 3 m off the truth 63.7 s into the route (spoof asked at 60 s, 6 s to walk that far)
+note  PX4 never noticed: its position valid and eph under 10 m throughout
+PASS  GDN started at the truth (no start error asked): 0.01 m off
+PASS  no wind in the world (none asked)
+PASS  no steady lean on the route (no wind; at most 1 deg): 0.45 deg
+PASS  no sensor fault switched on (none asked)
+PASS  the world's own sun (no lighting asked): 60.9 deg up at 126.9 deg
+note  OAK-D Lite scene light 0.1371 of full scale over 408 s; the image it sends 109 of 255 after its auto-exposure
+PASS  the bag and GDN's run log were written: bag 1874 MB, run log /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_141745
+PASS  GDN's run log replays bit for bit: IDENTICAL
+PASS  nothing of the simulation left running after the run: none
+SCENARIO CHECK PASSED

@@ -1,0 +1,28 @@
+{
+ "scenario": "standard_vtol_emmental_faults",
+ "file": "config/scenarios/standard_vtol_emmental_faults.yaml",
+ "run_dir": "/home/bf-s2/gdn_workspace/log/r26b/final/standard_vtol_emmental_faults/20261123_152222",
+ "gdn_version": "c96859b-dirty",
+ "started_utc": "20261123_152222",
+ "settings": {
+  "GDN_VEHICLE": "standard_vtol",
+  "GDN_FLY_ARGS": "--legs 2 --leg-len 800 --spacing 250 --clearance 60",
+  "HEADLESS": "1",
+  "GDN_SITE": "ch_emmental",
+  "GDN_FAULTS": "agl:noise:30:20:5;baro:dropout:60:20;mag:stuck:90:20;imu:stuck:120:2"
+ },
+ "timeout_s": 1800,
+ "sim_run_exit": 0,
+ "timed_out": false,
+ "duration_s": 364.5,
+ "teardown_clean": true,
+ "left_running": [],
+ "bag_ok": true,
+ "bag_mb": 1488.8,
+ "run_log": "/home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_152255",
+ "run_log_ok": true,
+ "replay": "IDENTICAL",
+ "check_passed": true,
+ "checks_failed": [],
+ "passed": true
+}

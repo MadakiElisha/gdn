@@ -1,0 +1,18 @@
+# As x500_emmental_smoke, in a steady 6 m/s wind from the west (Gazebo wind effects): the
+# x500 leans into it to hold its track. About 7 minutes.
+schema: 1
+name: x500_emmental_wind
+description: as x500_emmental_smoke, in a steady 6 m/s wind from the west
+vehicle: x500
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+  clearance_m: 40
+gnss:
+  loss: none
+limits:
+  timeout_s: 1500
+wind:
+  speed_mps: 6
+  from_deg: 270

@@ -1,0 +1,19 @@
+# As x500_emmental_smoke, with PX4's GPS spoofed from 60 s into the route: the position
+# it reports walks off east at 0.5 m/s (tools/sim_spoof.py, MAVLink HIL_GPS). PX4 follows
+# the lie, so the x500 itself drifts west of its route; GDN uses no GNSS. About 8 minutes.
+schema: 1
+name: x500_emmental_spoof
+description: as x500_emmental_smoke, with PX4's GPS spoofed from 60 s into the route, walking off east at 0.5 m/s
+vehicle: x500
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+  clearance_m: 40
+gnss:
+  loss: spoof
+  at_s: 60
+  rate_mps: 0.5
+  bearing_deg: 90
+limits:
+  timeout_s: 1800

@@ -1,0 +1,27 @@
+{
+ "scenario": "x500_emmental_smoke",
+ "file": "config/scenarios/x500_emmental_smoke.yaml",
+ "run_dir": "/home/bf-s2/gdn_workspace/log/r26b/final/x500_emmental_smoke/20261123_144958",
+ "gdn_version": "c96859b-dirty",
+ "started_utc": "20261123_144958",
+ "settings": {
+  "GDN_VEHICLE": "x500",
+  "GDN_FLY_ARGS": "--legs 2 --leg-len 800 --spacing 250 --clearance 40",
+  "HEADLESS": "1",
+  "GDN_SITE": "ch_emmental"
+ },
+ "timeout_s": 1500,
+ "sim_run_exit": 0,
+ "timed_out": false,
+ "duration_s": 463.4,
+ "teardown_clean": true,
+ "left_running": [],
+ "bag_ok": true,
+ "bag_mb": 1935.4,
+ "run_log": "/home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_145031",
+ "run_log_ok": true,
+ "replay": "IDENTICAL",
+ "check_passed": true,
+ "checks_failed": [],
+ "passed": true
+}

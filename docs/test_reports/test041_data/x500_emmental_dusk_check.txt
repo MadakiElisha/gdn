@@ -1,0 +1,16 @@
+PASS  the run is the scenario's vehicle and world: x500 over ch_emmental (asked x500 over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  within the scenario's time limit: 257 s of 1200
+PASS  the route's length is the scenario's legs, leg length and spacing: 1200 m planned, 1200 m asked
+PASS  the route never lower than 40 m over the terrain: lowest 40.0 m
+PASS  PX4 kept GPS throughout (no GNSS loss asked): 18529 samples, eph under 10 m
+PASS  GDN started at the truth (no start error asked): 0.01 m off
+PASS  no wind in the world (none asked)
+PASS  no steady lean on the route (no wind; at most 1 deg): 0.31 deg
+PASS  no sensor fault switched on (none asked)
+PASS  the world's sun 8 deg up at 250 deg, x0.3 light: 8.0 deg up at 250.0 deg, diffuse 0.270 (the world's 0.9)
+PASS  the OAK-D Lite saw the light asked (darker than 0.1316): scene light 0.0144 against 0.2025 in the world's own light; the image it sends 94 of 255 after its auto-exposure
+PASS  the bag and GDN's run log were written: bag 1004 MB, run log /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_144606
+PASS  GDN's run log replays bit for bit: IDENTICAL
+PASS  nothing of the simulation left running after the run: none
+SCENARIO CHECK PASSED
