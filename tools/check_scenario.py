@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Did a SITL run do what its scenario asked? (roadmap R2.6a, TEST-040)
+"""Did a SITL run do what its scenario asked? (roadmap R2.6, TEST-040 and TEST-041)
 
     python3 tools/check_scenario.py --run RUN_DIR                    # the run's scenario.yaml
     python3 tools/check_scenario.py --run RUN_DIR --scenario FILE    # any sim_run.sh log directory
@@ -14,6 +14,18 @@ for the bag and GDN's run log (the dev image).
     within 1%, and never lower than the clearance asked over the terrain (route.csv);
   - GNSS: with "cut", PX4 lost GPS no earlier than asked and within 30 s of it (its own
     position estimate in GDN's run log: invalid, or eph over 10 m); with "none", it never did;
+    with "spoof" (R2.6b), PX4's position followed the truth until the spoof, then walked off
+    from it at the asked rate and bearing (PX4's estimate minus the truth, less the frames'
+    constant offset found before the spoof: within 5 m or 10% at the landing, 10 deg);
+  - faults (R2.6b): each fault in GDN's own record of its inputs (the run log), switched
+    on when asked (the adapter's /gdn/sim/fault, within 1 s): a dropout's window empty, a
+    stuck value constant and equal to the last one before, a noise burst at least 0.6 of
+    its sigma and twice the sensor's own; an IMU relay passed PX4's IMU on whole outside
+    its faults; without faults, none switched on;
+  - lighting (R2.6b): the run's world has the sun asked (or the world's own), and the
+    light the OAK-D Lite sees (Gazebo's raw linear image, before its auto-exposure)
+    answers it: darker by at least half the asked change against the x500's over
+    Emmental in the world's own light (TEST-041);
   - start error: once GDN's heading was aligned its position was the asked distance (1 m)
     and bearing (2 deg) from the truth; without one, within 5 m;
   - wind: the run's world and server config carry it, and the vehicle leaned or crabbed
@@ -42,6 +54,20 @@ START_DIST_TOL, START_BEAR_TOL, START_NONE_TOL = 1.0, 2.0, 5.0
 WIND_MIN_DEG = {"multirotor": 1.5, "plane": 5.0}
 CALM_MAX_DEG = {"multirotor": 1.0, "plane": 3.0}
 WIND_DIR_TOL = 35.0
+# R2.6b. Spoofing: PX4's estimate minus the truth within SPOOF_PRE_MAX before the spoof;
+# at the landing within max(SPOOF_TOL_M, SPOOF_TOL_FRAC x asked) of the asked offset and
+# SPOOF_BEAR_TOL of its bearing. Faults: FAULT_ON_TOL between asked and switched on.
+SPOOF_PRE_MAX, SPOOF_TOL_M, SPOOF_TOL_FRAC, SPOOF_BEAR_TOL = 3.0, 5.0, 0.10, 10.0
+FAULT_ON_TOL = 1.0
+FAULT_TOPICS = {"agl": "/gdn/agl_meas", "baro": "/gdn/baro_meas", "mag": "/gdn/mag_meas",
+                "imu": "/fmu/out/sensor_combined"}
+# Lighting: the light the OAK-D Lite's left camera sees (/gdn/sim/scene_light, its raw
+# linear image's mean, fraction of full scale) on the x500 over Emmental in the world's
+# own light, on x500_emmental_dusk's route (TEST-041's first flights: 0.2025; dusk at 0.3
+# of the light saw 0.0139). A run asking intensity k must be at most ref x (1 - 0.5 (1 - k))
+# (darker), or at least that much brighter for k > 1. The image the camera sends is held
+# near mid-grey by its auto-exposure (sim_sensors), so it isn't the measure.
+LIGHT_REF = {("x500", "ch_emmental"): 0.2025}
 
 
 def ck(ok, what, detail=""):
@@ -95,6 +121,62 @@ def heading_ne(q_wxyz):
     fx = 1 - 2 * (y * y + z * z)
     fy = 2 * (x * y + w * z)
     return np.array([fy, fx])
+
+
+def noise_sigma(v):
+    """A robust white-noise sigma of a series (columns: axes): from the first differences'
+    median absolute deviation, so slow changes (the flight itself) hardly count."""
+    v = np.asarray(v, dtype=float).reshape(len(v), -1)
+    if len(v) < 5:
+        return float("nan")
+    d = np.diff(v, axis=0)
+    mad = np.median(np.abs(d - np.median(d, axis=0)), axis=0)
+    return float(np.mean(1.4826 * mad / math.sqrt(2.0)))
+
+
+def judge_fault(kind, t, v, on, off, sigma=0.0):
+    """(ok, detail) for one fault in a series t (s), v (rows), switched on at on, off at off."""
+    t = np.asarray(t, dtype=float)
+    v = np.asarray(v, dtype=float).reshape(len(t), -1)
+    period = float(np.median(np.diff(t))) if len(t) > 2 else 1.0
+    m = max(0.3, 1.5 * period)
+    inside = (t > on + m) & (t < off - m)
+    before = (t >= on - 20.0) & (t < on)
+    after = (t > off + m) & (t <= off + 20.0)
+    if kind == "dropout":
+        gap = t[(t >= on - 5 * period - 1) & (t <= off + 5 * period + 1)]
+        longest = float(np.max(np.diff(gap))) if len(gap) > 1 else 0.0
+        ok = inside.sum() == 0 and before.sum() > 0 and after.sum() > 0
+        return ok, (f"no sample for {longest:.1f} s (asked {off - on:g} s); "
+                    f"{before.sum()} before, {after.sum()} after")
+    if inside.sum() < 2 or before.sum() < 3:
+        return False, f"{inside.sum()} samples in the fault, {before.sum()} before it"
+    if kind == "stuck":
+        w = v[inside]
+        last = v[before][-1]
+        const = bool(np.all(w == w[0])) and bool(np.all(w[0] == last))
+        varies = bool(np.any(np.ptp(v[before], axis=0) > 0)) and (after.sum() < 2 or
+                                                                   bool(np.any(np.ptp(v[after], axis=0) > 0)))
+        return const and varies, (f"{inside.sum()} samples all {np.round(w[0], 4).tolist()}, the last before it"
+                                  if const else f"{len(np.unique(w, axis=0))} different values in the fault") + \
+            ("" if varies else "; constant outside it too")
+    # noise
+    s_in = noise_sigma(v[inside])
+    s_out = noise_sigma(np.concatenate([v[before], v[after]])) if after.sum() > 2 else noise_sigma(v[before])
+    ok = s_in >= 0.6 * sigma and s_in >= 2.0 * s_out
+    return ok, f"noise {s_in:.3g} in the fault (asked {sigma:g}), {s_out:.3g} outside"
+
+
+def spoof_offsets(t_l, xy_l, truth, t_pre0, t_pre1):
+    """PX4's position minus the truth (north, east) at PX4's sample times, less the frames'
+    constant offset (its median over [t_pre0, t_pre1], before the spoof)."""
+    tn = np.interp(t_l, truth[:, 0], truth[:, 2])
+    te = np.interp(t_l, truth[:, 0], truth[:, 1])
+    d = np.asarray(xy_l, dtype=float) - np.stack([tn, te], 1)
+    pre = (t_l >= t_pre0) & (t_l <= t_pre1)
+    if pre.sum() < 10:
+        return None
+    return d - np.median(d[pre], axis=0)
 
 
 # --- reading a run ---
@@ -165,6 +247,23 @@ def fly_times(fly_log):
     return t_start, t_end
 
 
+def route_start_time(run):
+    """The unix time the route started, as the spoofer and the faults count it: sim_fly.py's
+    /gdn/sim/route_start in the bag, else its "starting the route" (or "climbed out") line."""
+    import check_sim_sensors as cs
+    try:
+        msgs = cs.read_bag(Path(run) / "sitl_bag", ["/gdn/sim/route_start"])[1]["/gdn/sim/route_start"]
+        if msgs:
+            return float(msgs[0][1].data)
+    except Exception:  # noqa: BLE001 (a bag without the topic, or none)
+        pass
+    for line in (Path(run) / "fly.log").read_text().splitlines() if (Path(run) / "fly.log").exists() else []:
+        m = re.match(r"\[\w+\] \[(\d+\.\d+)\]", line)
+        if m and ("starting the route" in line or "climbed out" in line):
+            return float(m.group(1))
+    return None
+
+
 def landed_time(fly_log):
     for line in Path(fly_log).read_text().splitlines() if Path(fly_log).exists() else []:
         m = re.match(r"\[\w+\] \[(\d+\.\d+)\]", line)
@@ -173,8 +272,154 @@ def landed_time(fly_log):
     return None
 
 
+def read_lpos_xy(run_log):
+    import check_sim_sensors as cs
+    lp = cs.read_bag(run_log, ["/fmu/out/vehicle_local_position"])[1]["/fmu/out/vehicle_local_position"]
+    return (np.array([m.timestamp * 1e-6 for _, m in lp]), np.array([(m.x, m.y) for _, m in lp]),
+            np.array([bool(m.xy_valid) for _, m in lp]), np.array([float(m.eph) for _, m in lp]))
+
+
+def fault_values(topic, msgs):
+    if topic == "/fmu/out/sensor_combined":
+        return np.array([list(m.accelerometer_m_s2) for _, m in msgs])
+    if topic == "/gdn/mag_meas":
+        return np.array([(m.x, m.y, m.z) for _, m in msgs])
+    return np.array([m.data for _, m in msgs])
+
+
+def check_spoof(sc, runlog, truth, t_route0, t_land):
+    g = sc["gnss"]
+    ok = True
+    t_l, xy, valid, eph = read_lpos_xy(runlog)
+    if not len(t_l) or not len(truth) or t_route0 is None:
+        return ck(False, "PX4's position and the truth found for the spoof")
+    t_on = t_route0 + g["at_s"]
+    t_end = t_land if t_land is not None else t_l[-1]
+    off = spoof_offsets(t_l, xy, truth, t_route0 + 2.0, t_on - 1.0)
+    if off is None:
+        return ck(False, "PX4's position before the spoof (to align its frame with the truth's)",
+                  f"spoof {g['at_s']:g} s into the route: too early")
+    air = (t_l >= t_route0) & (t_l <= t_end)
+    pre = air & (t_l < t_on)
+    dist = np.hypot(off[:, 0], off[:, 1])
+    ok &= ck(pre.sum() > 0 and dist[pre].max() <= SPOOF_PRE_MAX, "PX4's position followed the truth before the spoof",
+             f"within {dist[pre].max():.2f} m over {t_on - t_route0:.0f} s" if pre.sum() else "no samples")
+    import sim_spoof
+    at_end = air & (t_l >= t_end - 10.0)
+    if at_end.sum() == 0:
+        return ck(False, "PX4's position at the landing found")
+    meas = off[at_end].mean(axis=0)
+    want = np.array(sim_spoof.offset_ne(float(np.mean(t_l[at_end])) - t_route0, g["at_s"], g["rate_mps"],
+                                        g["bearing_deg"]))
+    err = float(np.hypot(*(meas - want)))
+    bear = bearing_deg(*meas)
+    ok &= ck(err <= max(SPOOF_TOL_M, SPOOF_TOL_FRAC * np.hypot(*want)) and
+             abs(angle_diff(bear, g["bearing_deg"])) <= SPOOF_BEAR_TOL,
+             f"PX4's position walked off at {g['rate_mps']:g} m/s towards {g['bearing_deg']:g} deg from "
+             f"{g['at_s']:g} s into the route",
+             f"{np.hypot(*meas):.1f} m at {bear:.1f} deg before the landing (asked {np.hypot(*want):.1f} m), "
+             f"{err:.1f} m apart")
+    walk = air & (t_l >= t_on) & (dist > SPOOF_PRE_MAX)
+    if walk.any():
+        note(f"PX4's position was {SPOOF_PRE_MAX:g} m off the truth {t_l[walk][0] - t_route0:.1f} s into the route "
+             f"(spoof asked at {g['at_s']:g} s, {SPOOF_PRE_MAX / g['rate_mps']:.0f} s to walk that far)")
+    lost = air & ((~valid) | (eph > GNSS_EPH_LOST))
+    note("PX4 never noticed: its position valid and eph under {:g} m throughout".format(GNSS_EPH_LOST) if not lost.any()
+         else f"PX4 flagged its position {lost.sum()} times, first {t_l[lost][0] - t_route0:.0f} s into the route")
+    return ok
+
+
+def check_faults(sc, run, runlog, t_route0):
+    import check_sim_sensors as cs
+    ok = True
+    ev = cs.read_bag(run / "sitl_bag", ["/gdn/sim/fault"])[1]["/gdn/sim/fault"]
+    events = [(t, m.data) for t, m in ev]
+    if not sc["faults"]:
+        return ck(not events, "no sensor fault switched on (none asked)", f"{len(events)} fault events" if events else "")
+    if t_route0 is None:
+        return ck(False, "the route's start found (fault times count from it)")
+    topics = sorted({FAULT_TOPICS[f["sensor"]] for f in sc["faults"]})
+    series = cs.read_bag(runlog, topics)[1]
+    for f in sc["faults"]:
+        import sim_faults
+        fl = sim_faults.Fault(**f)
+        on_ev = next((t for t, d in events if d == f"on {fl.text()}"), None)
+        off_ev = next((t for t, d in events if d == f"off {fl.text()}"), None)
+        ask = t_route0 + f["at_s"]
+        good = on_ev is not None and abs(on_ev - ask) <= FAULT_ON_TOL
+        ok &= ck(good, f"{fl.text()}: switched on as asked",
+                 "never" if on_ev is None else f"{on_ev - t_route0:.2f} s into the route")
+        if not good:
+            continue
+        msgs = series[FAULT_TOPICS[f["sensor"]]]
+        t = np.array([x for x, _ in msgs])
+        v = fault_values(FAULT_TOPICS[f["sensor"]], msgs)
+        good, detail = judge_fault(f["kind"], t, v, on_ev, off_ev if off_ev is not None else on_ev + f["duration_s"],
+                                   f["sigma"])
+        ok &= ck(good, f"{fl.text()}: in GDN's inputs (run log)", detail)
+    if any(f["sensor"] == "imu" for f in sc["faults"]):
+        raw = cs.read_bag(run / "sitl_bag", ["/fmu/out/sensor_combined"])[1]["/fmu/out/sensor_combined"]
+        t_raw = np.array([x for x, _ in raw])
+        t_gdn = np.array([x for x, _ in series["/fmu/out/sensor_combined"]])
+        lo, hi = max(t_raw[0], t_gdn[0]) + 5, min(t_raw[-1], t_gdn[-1]) - 5
+        out = np.ones(len(t_raw), bool)
+        for f in sc["faults"]:
+            if f["sensor"] == "imu" and f["kind"] == "dropout":
+                a = t_route0 + f["at_s"]
+                out &= ~((t_raw >= a - 1) & (t_raw <= a + f["duration_s"] + 1))
+        n_raw = int(((t_raw >= lo) & (t_raw <= hi) & out).sum())
+        out_g = np.ones(len(t_gdn), bool)
+        for f in sc["faults"]:
+            if f["sensor"] == "imu" and f["kind"] == "dropout":
+                a = t_route0 + f["at_s"]
+                out_g &= ~((t_gdn >= a - 1) & (t_gdn <= a + f["duration_s"] + 1))
+        n_gdn = int(((t_gdn >= lo) & (t_gdn <= hi) & out_g).sum())
+        ok &= ck(n_raw > 0 and n_gdn >= 0.98 * n_raw, "the IMU relay passed PX4's IMU on to GDN outside its faults",
+                 f"{n_gdn} of {n_raw} samples ({100.0 * n_gdn / max(n_raw, 1):.1f}%)")
+    return ok
+
+
+def check_lighting(sc, run):
+    import check_sim_sensors as cs
+    import sim_light
+    ok = True
+    li = sc["lighting"]
+    wsdf = next((p for p in run.glob("*.sdf")), None)
+    src = ROOT / "data/sim" / sc["world"] / f"{sc['world']}.sdf"
+    have, base = (sim_light.read_lighting(wsdf) if wsdf else None), (sim_light.read_lighting(src) if src.exists() else None)
+    if have is None or base is None:
+        return ck(False, "the run's world and its sun found", f"{wsdf} / {src}")
+    el, az, dif, _amb = have
+    if li:
+        k = li["intensity"]
+        ok &= ck(abs(el - li["sun_elevation_deg"]) < 0.1 and abs(angle_diff(az, li["sun_azimuth_deg"])) < 0.1 and
+                 np.allclose(dif, np.minimum(1.0, np.array(base[2]) * k), atol=1e-3),
+                 f"the world's sun {li['sun_elevation_deg']:g} deg up at {li['sun_azimuth_deg']:g} deg, x{k:g} light",
+                 f"{el:.1f} deg up at {az:.1f} deg, diffuse {dif[0]:.3f} (the world's {base[2][0]:g})")
+    else:
+        ok &= ck(abs(el - base[0]) < 0.1 and np.allclose(dif, base[2]), "the world's own sun (no lighting asked)",
+                 f"{el:.1f} deg up at {az:.1f} deg")
+    got = cs.read_bag(run / "sitl_bag", ["/gdn/sim/scene_light", "/gdn/sim/image_brightness"])[1]
+    sl, br = got["/gdn/sim/scene_light"], got["/gdn/sim/image_brightness"]
+    if not sl:
+        note("no scene light recorded (no cameras: GDN_SIM_CPU?, or a run from before R2.6b)")
+        return ok if not li else ck(False, "the light the OAK-D Lite sees recorded")
+    b = float(np.mean([m.data for _, m in sl]))
+    img = f"; the image it sends {np.mean([m.data for _, m in br]):.0f} of 255 after its auto-exposure" if br else ""
+    ref = LIGHT_REF.get((sc["vehicle"], sc["world"]))
+    if li and ref:
+        k = li["intensity"]
+        bound = ref * (1.0 - 0.5 * (1.0 - k))
+        ok &= ck(b <= bound if k < 1 else b >= bound,
+                 f"the OAK-D Lite saw the light asked ({'darker' if k < 1 else 'brighter'} than {bound:.4f})",
+                 f"scene light {b:.4f} against {ref:g} in the world's own light{img}")
+    else:
+        note(f"OAK-D Lite scene light {b:.4f} of full scale over {len(sl)} s{img}" +
+             ("" if not li else " (no reference for this vehicle and world)"))
+    return ok
+
+
 def check_run(run, sc):
-    import scenario as scn
     import sim_vehicles
     run = Path(run)
     ok = True
@@ -212,7 +457,9 @@ def check_run(run, sc):
         t_land = landed_time(run / "fly.log")
         lost = [t for t, _z, _zv, xy_valid, eph in lp if ((not xy_valid) or eph > GNSS_EPH_LOST)
                 and (t_route0 is None or t >= t_route0) and (t_land is None or t <= t_land)]
-        if sc["gnss"]["loss"] == "cut":
+        if sc["gnss"]["loss"] == "spoof":
+            ok &= check_spoof(sc, runlog, read_truth(run / "sitl_bag"), route_start_time(run), t_land)
+        elif sc["gnss"]["loss"] == "cut":
             ask = (t_route0 or 0) + sc["gnss"]["at_s"]
             first = lost[0] if lost else None
             ok &= ck(first is not None and ask - 1.0 <= first <= ask + GNSS_LATE_S,
@@ -282,6 +529,10 @@ def check_run(run, sc):
                      f"{CALM_MAX_DEG[group]:g} deg)", f"{deg:.2f} deg")
         else:
             note(f"no-wind {what.split(' (')[0]} not judged: the route wasn't flown whole (legs that cancel)")
+    # Faults and lighting (R2.6b).
+    if runlog is not None:
+        ok &= check_faults(sc, run, runlog, route_start_time(run))
+    ok &= check_lighting(sc, run)
     # Recording and teardown, from the runner.
     if res is not None:
         ok &= ck(res.get("bag_ok") and res.get("run_log_ok"), "the bag and GDN's run log were written",
@@ -326,6 +577,33 @@ def selfcheck():
     deg, d = wind_response(np.array(rows), "multirotor", 1, 99)
     ok &= ck(abs(deg - 2) < 0.05 and d[1] < -0.99, "selfcheck: a 2 deg lean west is found, pointing west",
              f"{deg:.2f} deg, ({d[0]:.2f}, {d[1]:.2f})")
+    # R2.6b: faults judged on made-up series (a 50 Hz sensor that changes slowly, sd 0.1).
+    rng = np.random.default_rng(3)
+    tt = np.arange(0.0, 100.0, 0.02)
+    base = np.sin(tt / 10.0) + rng.normal(0, 0.1, len(tt))
+    keep = ~((tt >= 40) & (tt < 60))
+    good, d = judge_fault("dropout", tt[keep], base[keep], 40.0, 60.0)
+    ok &= ck(good, "selfcheck: a 20 s dropout is found", d)
+    ok &= ck(not judge_fault("dropout", tt, base, 40.0, 60.0)[0], "selfcheck: no dropout where none was")
+    st = base.copy()
+    st[(tt >= 40) & (tt < 60)] = base[np.searchsorted(tt, 40.0) - 1]
+    good, d = judge_fault("stuck", tt, st, 40.0, 60.0)
+    ok &= ck(good, "selfcheck: a stuck value is found", d)
+    ok &= ck(not judge_fault("stuck", tt, base, 40.0, 60.0)[0], "selfcheck: no stuck value where none was")
+    nz = base.copy()
+    w = (tt >= 40) & (tt < 60)
+    nz[w] += rng.normal(0, 2.0, w.sum())
+    good, d = judge_fault("noise", tt, nz, 40.0, 60.0, 2.0)
+    ok &= ck(good, "selfcheck: a noise burst of sigma 2 is found", d)
+    ok &= ck(not judge_fault("noise", tt, base, 40.0, 60.0, 2.0)[0], "selfcheck: no noise burst where none was")
+    # The spoof: PX4's frame 30 m north of the truth's, walking off east at 1 m/s from t = 60.
+    tl = np.arange(0.0, 200.0, 0.1)
+    tr = np.column_stack([tl, 5 * np.sin(tl / 20), 2 * tl, np.zeros((len(tl), 7))])   # t, E, N, ...
+    xy = np.stack([tr[:, 2] + 30.0, tr[:, 1] + np.where(tl > 60, tl - 60, 0.0)], 1)
+    off = spoof_offsets(tl, xy, tr, 2.0, 59.0)
+    ok &= ck(off is not None and np.allclose(off[-1], [0.0, 139.9], atol=1e-6) and np.abs(off[tl < 60]).max() < 1e-9,
+             "selfcheck: a spoof's offset found against the truth, the frames' offset taken out",
+             str(np.round(off[-1], 2)) if off is not None else "none")
     print("SELFCHECK PASSED" if ok else "SELFCHECK FAILED")
     return ok
 

@@ -20,6 +20,14 @@
 #                                         # (default config/vehicles/$GDN_VEHICLE.yaml)
 #   GDN_WIND="6 270" tools/sim_run.sh     # R2.6a: a steady wind, m/s and from where (deg)
 #   GDN_START_ERROR="106 106" tools/sim_run.sh   # R2.6a: GDN starts 106 m north, 106 m east off
+#   GDN_SPOOF="60 1.0 90" tools/sim_run.sh   # R2.6b: PX4's GPS through tools/sim_spoof.py,
+#                                         # walking off at 1.0 m/s towards 90 deg from 60 s
+#                                         # into the route (HIL_GPS; Gazebo's GPS no fix)
+#   GDN_FAULTS="agl:dropout:30:20;mag:noise:90:20:40" tools/sim_run.sh   # R2.6b: faults on
+#                                         # GDN's inputs (tools/sim_faults.py; an imu fault
+#                                         # relays PX4's IMU to GDN through the adapter)
+#   GDN_LIGHTING="8 250 0.3" tools/sim_run.sh   # R2.6b: the sun's elevation, azimuth (deg)
+#                                         # and intensity (x the world's; tools/sim_light.py)
 #   tools/run_scenario.py config/scenarios/x500_emmental_smoke.yaml   # R2.6a: a whole scenario
 #   GDN_SIM_CPU=1 tools/sim_run.sh        # no GPU: leave out the OAK-D Lite's cameras and
 #                                         # the Mid-360S lidar, which Gazebo can't render
@@ -97,7 +105,7 @@ PIDS=()
 # A bridge or map_viz_node left from an earlier run doubles every Gazebo message
 # and keeps redrawing the old path in RViz.
 SIM_PROCS=("px4_sitl_default/bin/px4" "gz sim" "MicroXRCEAgent" "ros_gz_bridge/parameter_bridge" "gdn_fusion/sim_sensors"
-           "tools/sim_adapter.py" "tools/replay_scorer.py" "tools/sim_fly.py" "gdn_fusion/map_viz_node"
+           "tools/sim_adapter.py" "tools/sim_spoof.py" "tools/replay_scorer.py" "tools/sim_fly.py" "gdn_fusion/map_viz_node"
            "rviz2 -d $ROOT/sim/gdn_sim.rviz" "ros2 bag record -s mcap -o $LOG/sitl_bag"
            "ros2 bag record -s mcap -o $LOG/image_bag")
 stop_sim() {
@@ -182,6 +190,32 @@ if [ -n "${GDN_WIND:-}" ]; then
   case ":$GZ_SIM_RESOURCE_PATH:" in *":$LOG/models:"*) ;; *) export GZ_SIM_RESOURCE_PATH="$LOG/models:$GZ_SIM_RESOURCE_PATH" ;; esac
 fi
 
+# R2.6b: GDN_LIGHTING="elevation_deg azimuth_deg intensity", the sun in this run's world.
+if [ -n "${GDN_LIGHTING:-}" ]; then
+  read -r L_EL L_AZ L_K <<< "$GDN_LIGHTING"
+  python3 tools/sim_light.py --world "$RUN_WORLD" --elevation "$L_EL" --azimuth "$L_AZ" --intensity "$L_K" \
+    || die "couldn't set the lighting (tools/sim_light.py)"
+fi
+# R2.6b: GDN_SPOOF="at_s rate_mps bearing_deg". PX4's parameters are set at its boot
+# (PX4_PARAM_*, rcS) and on every run, both ways, since PX4 keeps them between runs.
+if [ -n "${GDN_SPOOF:-}" ]; then
+  read -r SP_AT SP_RATE SP_BEAR <<< "$GDN_SPOOF"
+  PX4_GPS_ENV=(PX4_PARAM_MAV_USEHILGPS=1 PX4_PARAM_SIM_GPS_USED=0)
+else
+  PX4_GPS_ENV=(PX4_PARAM_MAV_USEHILGPS=0 PX4_PARAM_SIM_GPS_USED=10)
+fi
+# R2.6b: GDN_FAULTS, sensor faults on GDN's inputs (tools/sim_faults.py).
+ADAPTER_FAULTS=()
+NODE_IMU=()
+if [ -n "${GDN_FAULTS:-}" ]; then
+  python3 tools/sim_faults.py "$GDN_FAULTS" > /dev/null || die "GDN_FAULTS: $(python3 tools/sim_faults.py "$GDN_FAULTS" 2>&1)"
+  ADAPTER_FAULTS=(-p "faults:=$GDN_FAULTS")
+  case ";$GDN_FAULTS" in
+    *";imu:"*) ADAPTER_FAULTS+=(-p imu_relay:=true); NODE_IMU=(-r /fmu/out/sensor_combined:=/gdn/sim/imu_relay)
+               echo "sim_run: an IMU fault: eskf_node takes PX4's IMU through the adapter's relay" ;;
+  esac
+fi
+
 # Server and GUI run as separate processes, so a GUI crash doesn't stop the simulation.
 echo "sim_run: starting Gazebo ($WORLD, $VEHICLE, render engine $RENDER)"
 if [ -n "$HEADLESS" ]; then
@@ -232,8 +266,14 @@ fi
 
 MicroXRCEAgent udp4 -p 8888 > "$LOG/agent.log" 2>&1 & PIDS+=($!)
 
+if [ -n "${GDN_SPOOF:-}" ]; then
+  echo "sim_run: PX4's GPS through tools/sim_spoof.py (spoof from $SP_AT s into the route, $SP_RATE m/s towards $SP_BEAR deg)"
+  LD_LIBRARY_PATH="$GZ_LD" python3 -u tools/sim_spoof.py --world "$WORLD" --model "$MODEL_INSTANCE" \
+    --at "$SP_AT" --rate "$SP_RATE" --bearing "$SP_BEAR" > "$LOG/spoof.log" 2>&1 & PIDS+=($!)
+fi
+
 echo "sim_run: starting PX4 (airframe $VEHICLE_AUTOSTART, attaching to $MODEL_INSTANCE)"
-( cd "$PX4_DIR" && LD_LIBRARY_PATH="$GZ_LD" PX4_SYS_AUTOSTART="$VEHICLE_AUTOSTART" PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
+( cd "$PX4_DIR" && env "${PX4_GPS_ENV[@]}" LD_LIBRARY_PATH="$GZ_LD" PX4_SYS_AUTOSTART="$VEHICLE_AUTOSTART" PX4_GZ_STANDALONE=1 PX4_GZ_MODEL_NAME="$MODEL_INSTANCE" \
     PX4_GZ_WORLD="$WORLD" ./build/px4_sitl_default/bin/px4 -d > "$LOG/px4.log" 2>&1 ) & PIDS+=($!)
 
 # Each try listens 5 s: on GitHub's CPU runner a fresh "ros2 topic echo" needed more than
@@ -323,7 +363,7 @@ done
 ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:="$LOG/bridge.yaml" > "$LOG/bridge.log" 2>&1 & PIDS+=($!)
 ros2 run gdn_fusion sim_sensors --ros-args --params-file "$ROOT/config/sim/sensors.yaml" "${SIM_SENSOR_ARGS[@]}" \
   > "$LOG/sensors.log" 2>&1 & PIDS+=($!)
-python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" -p gz_model:="$MODEL_INSTANCE" ${GDN_SIM_ADAPTER_ARGS:-} \
+python3 tools/sim_adapter.py --ros-args -p world_info:="$WDIR/world_info.txt" -p gz_model:="$MODEL_INSTANCE" "${ADAPTER_FAULTS[@]}" ${GDN_SIM_ADAPTER_ARGS:-} \
   > "$LOG/adapter.log" 2>&1 & PIDS+=($!)
 
 # GDN in shadow mode. The mag reference is the field Gazebo's magnetometer actually
@@ -350,7 +390,7 @@ if [ -n "${GDN_START_ERROR:-}" ]; then
   read -r SE_N SE_E <<< "$GDN_START_ERROR"
   START_ERR=(-p start_error_north_m:="$SE_N" -p start_error_east_m:="$SE_E")
 fi
-ros2 run gdn_fusion eskf_node --ros-args -p vehicle_profile:="$PROFILE" -p map_path:="$NAV_MAP" "${NAV_ORIGIN[@]}" "${START_ERR[@]}" \
+ros2 run gdn_fusion eskf_node --ros-args "${NODE_IMU[@]}" -p vehicle_profile:="$PROFILE" -p map_path:="$NAV_MAP" "${NAV_ORIGIN[@]}" "${START_ERR[@]}" \
   -p mag_ref_north:="$MAG_N" -p mag_ref_east:="$MAG_E" -p mag_ref_down:="$MAG_D" ${GDN_NODE_ARGS:-} \
   > "$LOG/gdn.log" 2>&1 & PIDS+=($!)
 python3 -u tools/replay_scorer.py > "$LOG/scorer.log" 2>&1 & PIDS+=($!)
@@ -373,6 +413,7 @@ ros2 bag record -s mcap -o "$LOG/sitl_bag" --qos-profile-overrides-path "$ROOT/t
   /fmu/out/vehicle_status_v1 /fmu/out/vehicle_land_detected /gdn/odom /gdn/truth /gdn/mag_meas /gdn/baro_meas /gdn/agl_meas \
   /gdn/sim/truth_odom /gdn/sim/agl_scan /imu/data /livox/imu /oak/imu/data /tfmini/range \
   /oak/left/camera_info /oak/right/camera_info /gdn/sim/raw/imu_h30wp /livox/lidar \
+  /gdn/sim/route_start /gdn/sim/fault /gdn/sim/spoof_offset /gdn/sim/image_brightness /gdn/sim/scene_light \
   > "$LOG/bag.log" 2>&1 & PIDS+=($!)
 
 if [ -z "$HEADLESS" ]; then

@@ -34,6 +34,10 @@ estimator stops using GPS. PX4's failure injection (VEHICLE_CMD_INJECT_FAILURE, 
 (Gazebo Classic, jMAVSim) acts on it, and gz_bridge passes every GPS reading on. With
 it, PX4 kept a 0.2 m position through every Stage B run until TEST-032.
 
+At the route's start (cruise height; a fixed wing: climbed out) it publishes
+/gdn/sim/route_start once (std_msgs/Float64, the unix time; reliable, transient local):
+the spoofer and the sensor faults (R2.6b) count their times from it, as the cut does.
+
 The route is planned from the same terrain map GDN uses. A "carrot" setpoint moves
 along the legs at --speed. Its height is the highest terrain within --lookahead
 metres along the track, plus --clearance, so climbs start early. The carrot waits
@@ -58,6 +62,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+from std_msgs.msg import Float64
 from px4_msgs.msg import (OffboardControlMode, TrajectorySetpoint, VehicleCommand,
                           VehicleLocalPosition, VehicleStatus)
 
@@ -142,6 +147,9 @@ class Flyer(Node):
         self.pub_mode = self.create_publisher(OffboardControlMode, "/fmu/in/offboard_control_mode", qos)
         self.pub_sp = self.create_publisher(TrajectorySetpoint, "/fmu/in/trajectory_setpoint", qos)
         self.pub_cmd = self.create_publisher(VehicleCommand, "/fmu/in/vehicle_command", qos)
+        self.pub_start = self.create_publisher(Float64, "/gdn/sim/route_start", QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST, depth=1))
         sub_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=5)
         self.create_subscription(VehicleLocalPosition, "/fmu/out/vehicle_local_position", self.on_pos, sub_qos)
         # VehicleStatus is message version 1 in PX4 1.16, so its topic carries a _v1 suffix.
@@ -316,7 +324,7 @@ class Flyer(Node):
         err = target - self.pos
         if self.phase == "climb":
             if abs(err[2]) < 3.0 and self.armed:
-                self.t_takeoff = self.k / 10.0
+                self.start_route()
                 self.get_logger().info(f"at cruise height ({-self.pos[2]:.0f} m above pad), starting the route")
                 if self.kind == "vtol":
                     self.command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1, 4, 3)    # AUTO / LOITER: Hold
@@ -388,6 +396,11 @@ class Flyer(Node):
             self.get_logger().info(f"route done, circling over the pad (Hold) for {FW_HOLD_S:.0f} s")
         self.progress()
 
+    def start_route(self):
+        """The route's start: the time GPS cuts, spoofing and sensor faults count from."""
+        self.t_takeoff = self.k / 10.0
+        self.pub_start.publish(Float64(data=time.time()))
+
     def set_phase(self, phase):
         self.phase, self.phase_k = phase, self.k
 
@@ -434,7 +447,7 @@ class Flyer(Node):
                 self.get_logger().info("runway take-off: PX4 rolls down the runway and climbs out")
         top = float(self.v.params.get("MIS_TAKEOFF_ALT", 50.0))
         if self.launched and self.pos is not None and -self.pos[2] >= top - 5.0:
-            self.t_takeoff = self.k / 10.0
+            self.start_route()
             self.fw_setpoint()
             self.command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1, 6)
             self.set_phase("route_fw")

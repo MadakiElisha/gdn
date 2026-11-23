@@ -1,0 +1,20 @@
+# The standard VTOL over Emmental with a fault on each of GDN's inputs in turn
+# (tools/sim_faults.py): the altimeter gets noise, the barometer drops out, the
+# magnetometer and then the IMU stick. PX4 flies on its own sensors. About 6 minutes.
+schema: 1
+name: standard_vtol_emmental_faults
+description: standard VTOL, Emmental, 2 legs of 800 m; GDN's altimeter noise, baro dropout, mag and then IMU stuck
+vehicle: standard_vtol
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+gnss:
+  loss: none
+faults:
+  - {sensor: agl, kind: noise, at_s: 30, duration_s: 20, sigma: 5}
+  - {sensor: baro, kind: dropout, at_s: 60, duration_s: 20}
+  - {sensor: mag, kind: stuck, at_s: 90, duration_s: 20}
+  - {sensor: imu, kind: stuck, at_s: 120, duration_s: 2}
+limits:
+  timeout_s: 1800
