@@ -1,0 +1,13 @@
+PASS  the run is the scenario's vehicle and world: x500 over ch_emmental (asked x500 over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  within the scenario's time limit: 232 s of 1500
+PASS  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 2688 m asked
+PASS  the route never lower than 40 m over the terrain: lowest 40.0 m
+PASS  PX4 lost GPS as asked, 60 s into the route: at 64.1 s into the route
+PASS  GDN started at the truth (no start error asked): 0.01 m off
+PASS  no wind in the world (none asked)
+note  no-wind lean not judged: the route wasn't flown whole (legs that cancel)
+PASS  the bag and GDN's run log were written: bag 895 MB, run log /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_112332
+PASS  GDN's run log replays bit for bit: IDENTICAL
+PASS  nothing of the simulation left running after the run: none
+SCENARIO CHECK PASSED

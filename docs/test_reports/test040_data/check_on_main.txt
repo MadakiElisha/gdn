@@ -1,0 +1,33 @@
+### x500_emmental_wind judged on log/r25b/t039/x500 (or rc_cessna): a run from main (R2.5b), made without scenarios
+PASS  the run is the scenario's vehicle and world: x500 over ch_emmental (asked x500 over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 2688 m asked
+PASS  the route never lower than 40 m over the terrain: lowest 60.0 m
+PASS  PX4 kept GPS throughout (no GNSS loss asked): 37416 samples, eph under 10 m
+PASS  GDN started at the truth (no start error asked): 0.01 m off
+FAIL  the world carries 6 m/s from 270 deg, with Gazebo's wind effects (a multirotor's drag): world wind none (ENU)
+FAIL  the vehicle lean (thrust axis upwind) into the wind on the route (at least 1.5 deg upwind): 0.45 deg, 0.01 deg upwind, 89 deg from upwind
+note  no result.json (not a tools/run_scenario.py run): recording, replay and teardown not checked
+SCENARIO CHECK FAILED
+### x500_emmental_gnss_cut judged on log/r25b/t039/x500 (or rc_cessna): a run from main (R2.5b), made without scenarios
+PASS  the run is the scenario's vehicle and world: x500 over ch_emmental (asked x500 over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 2688 m asked
+PASS  the route never lower than 40 m over the terrain: lowest 60.0 m
+FAIL  PX4 lost GPS as asked, 60 s into the route: never
+PASS  GDN started at the truth (no start error asked): 0.01 m off
+PASS  no wind in the world (none asked)
+PASS  no steady lean on the route (no wind; at most 1 deg): 0.45 deg
+note  no result.json (not a tools/run_scenario.py run): recording, replay and teardown not checked
+SCENARIO CHECK FAILED
+### rc_cessna_emmental_start_error judged on log/r25b/t039/x500 (or rc_cessna): a run from main (R2.5b), made without scenarios
+PASS  the run is the scenario's vehicle and world: rc_cessna over ch_emmental (asked rc_cessna over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 2688 m asked
+PASS  the route never lower than 60 m over the terrain: lowest 60.0 m
+PASS  PX4 kept GPS throughout (no GNSS loss asked): 26609 samples, eph under 10 m
+FAIL  GDN started 150 m from the truth, bearing 45 deg: 0.01 m at 29.5 deg
+PASS  no wind in the world (none asked)
+PASS  no steady crab on the route (no wind; at most 3 deg): 0.07 deg
+note  no result.json (not a tools/run_scenario.py run): recording, replay and teardown not checked
+SCENARIO CHECK FAILED

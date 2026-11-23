@@ -1,0 +1,5 @@
+      start error: pos (300, -400), sigma 500/500 m, largest cross term 0, other states moved 0
+      start error: position (100.000, 50.000) m, sigma 111.80 m (asked 100, 50; 111.80); 5 m asked: sigma 10.00 m
+PASS  scenario: TEST-040 a start error moves GDN's position once heading is aligned, sigma the distance
+PASS  scenario: TEST-040 none asked: no move and no event; a 5 m error is told sigma 10 m (the floor)
+ALL TESTS PASSED

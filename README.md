@@ -320,6 +320,7 @@ Everything in `tools/` is run from the repo root after `source env.sh`.
 | Setup and data | `setup_ubuntu.sh` (machine setup), `make_data.sh` (derived data and checksum checks), `fetch_data.sh` / `pack_data.sh` (download or publish the flight001 recording) |
 | Tests and benches | `run_selftest.sh` (unit tests at `-O2` and `-O3`), `quality.sh` (warnings, cppcheck, clang-tidy, sanitizers, formatting; R1.9), `mc_run.sh` (Monte Carlo), `bench.sh` (ROS replay bench with scoring), `bench_viz.sh` (the same with RViz) |
 | Sensor simulators | `trn_sensor_sim.py` (terrain height under the vehicle), `baro_sim.py`, `mag_sim.py`; all fed by PX4 truth from the bag |
+| Scenarios (R2.6a) | `scenario.py` (the scenario file format; `--list`, `--check`), `run_scenario.py` (fly scenarios headless: record, tear down, replay, judge), `check_scenario.py` (did a run do what its scenario asked), `sim_wind.py` (a steady wind for one run) |
 | Vehicle profiles and flight regime (R2.5) | `vehicle_profile.py` (read and print one), `check_profiles.py` (every simulated airframe against its profile: mounts, topics, frames, noise files), `check_regime.py` (a SITL flight against PX4's regime: ZUPT only on the ground, re-armed after landing) |
 | Run logs (R1.11) | `plot_run_log.py` (draw a run log: error, innovations, every update decision; export CSVs), `log_check.sh` (record a bench run and replay it, as CI does) |
 | Scoring and plots | `replay_scorer.py` (horizontal error against truth), `plot_sim_run.py` (one page per SITL run: GDN's track against the truth over the terrain, every error with GDN's 3 sigma, flight phases, every update decision), `plot_zermatt_track.py` (track over hillshade, error and innovations), `ci_check_mc.py` (fails CI if a Monte Carlo report is worse than its thresholds) |
@@ -378,6 +379,7 @@ Source `env.sh` first in every terminal.
 | Replay a run log, checked bit for bit (R1.11) | `ros2 run gdn_fusion gdn_replay log/gdn_runs/gdn_...` (every node run writes one) |
 | Replay a run with other settings | `gdn_replay LOG --set=r_agl=200 --out=/tmp/whatif` |
 | Diagnose a run log | `python3 tools/plot_run_log.py LOG [LOG2] --out run.png` |
+| Fly a scenario headless and judge it (R2.6a) | `tools/run_scenario.py config/scenarios/x500_emmental_smoke.yaml` (dev image, `--gpu`) |
 | Draw a SITL run, GDN against the truth | `python3 tools/plot_sim_run.py GDN_LOG_DIR` (writes `gdn_vs_truth.png` there) |
 | Run-log check, as CI runs it | `tools/log_check.sh` |
 | Check sensor rates from PX4 | `ros2 run gdn_sensors sensor_monitor` |
