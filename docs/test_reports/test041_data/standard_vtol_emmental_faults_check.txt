@@ -1,0 +1,24 @@
+PASS  the run is the scenario's vehicle and world: standard_vtol over ch_emmental (asked standard_vtol over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  within the scenario's time limit: 364 s of 1800
+PASS  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 2688 m asked
+PASS  the route never lower than 60 m over the terrain: lowest 60.0 m
+PASS  PX4 kept GPS throughout (no GNSS loss asked): 27477 samples, eph under 10 m
+PASS  GDN started at the truth (no start error asked): 0.00 m off
+PASS  no wind in the world (none asked)
+note  no-wind crab not judged: the route wasn't flown whole (legs that cancel)
+PASS  agl noise at 30 s for 20 s, sigma 5: switched on as asked: 30.03 s into the route
+PASS  agl noise at 30 s for 20 s, sigma 5: in GDN's inputs (run log): noise 3.49 in the fault (asked 5), 0.829 outside
+PASS  baro dropout at 60 s for 20 s: switched on as asked: 60.03 s into the route
+PASS  baro dropout at 60 s for 20 s: in GDN's inputs (run log): no sample for 20.0 s (asked 20 s); 998 before, 985 after
+PASS  mag stuck at 90 s for 20 s: switched on as asked: 90.03 s into the route
+PASS  mag stuck at 90 s for 20 s: in GDN's inputs (run log): 1940 samples all [23.4529, 0.5099, -41.7158], the last before it
+PASS  imu stuck at 120 s for 2 s: switched on as asked: 120.03 s into the route
+PASS  imu stuck at 120 s for 2 s: in GDN's inputs (run log): 116 samples all [0.8854, -0.0831, -10.2545], the last before it
+PASS  the IMU relay passed PX4's IMU on to GDN outside its faults: 26632 of 26632 samples (100.0%)
+PASS  the world's own sun (no lighting asked): 60.9 deg up at 126.9 deg
+note  OAK-D Lite scene light 0.1312 of full scale over 324 s; the image it sends 107 of 255 after its auto-exposure
+PASS  the bag and GDN's run log were written: bag 1489 MB, run log /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_152255
+PASS  GDN's run log replays bit for bit: IDENTICAL
+PASS  nothing of the simulation left running after the run: none
+SCENARIO CHECK PASSED

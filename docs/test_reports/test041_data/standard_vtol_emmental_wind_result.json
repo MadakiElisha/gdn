@@ -1,0 +1,28 @@
+{
+ "scenario": "standard_vtol_emmental_wind",
+ "file": "config/scenarios/standard_vtol_emmental_wind.yaml",
+ "run_dir": "/home/bf-s2/gdn_workspace/log/r26b/final/standard_vtol_emmental_wind/20261123_150951",
+ "gdn_version": "c96859b-dirty",
+ "started_utc": "20261123_150951",
+ "settings": {
+  "GDN_VEHICLE": "standard_vtol",
+  "GDN_FLY_ARGS": "--legs 2 --leg-len 800 --spacing 250 --clearance 60",
+  "HEADLESS": "1",
+  "GDN_SITE": "ch_emmental",
+  "GDN_WIND": "6 270"
+ },
+ "timeout_s": 1800,
+ "sim_run_exit": 0,
+ "timed_out": false,
+ "duration_s": 363.5,
+ "teardown_clean": true,
+ "left_running": [],
+ "bag_ok": true,
+ "bag_mb": 1481.2,
+ "run_log": "/home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_151025",
+ "run_log_ok": true,
+ "replay": "IDENTICAL",
+ "check_passed": true,
+ "checks_failed": [],
+ "passed": true
+}

@@ -1,0 +1,35 @@
+=== x500_emmental_spoof judged on R2.6a's x500_emmental_smoke (log/r26a/final/x500_emmental_smoke/20261123_111508/)
+FAIL  PX4's position walked off at 0.5 m/s towards 90 deg from 60 s into the route: 1.0 m at 2.4 deg before the landing (asked 157.4 m), 157.4 m apart
+note  PX4 never noticed: its position valid and eph under 10 m throughout
+note  no camera brightness recorded (no cameras: GDN_SIM_CPU?)
+SCENARIO CHECK FAILED
+=== x500_emmental_faults judged on R2.6a's x500_emmental_smoke (log/r26a/final/x500_emmental_smoke/20261123_111508/)
+FAIL  agl dropout at 30 s for 20 s: switched on as asked: never
+FAIL  baro stuck at 70 s for 30 s: switched on as asked: never
+FAIL  mag noise at 120 s for 20 s, sigma 20: switched on as asked: never
+FAIL  imu noise at 170 s for 10 s, sigma 2 (gyro 0.05 rad/s): switched on as asked: never
+note  no camera brightness recorded (no cameras: GDN_SIM_CPU?)
+SCENARIO CHECK FAILED
+=== x500_emmental_dusk judged on R2.6a's x500_emmental_smoke (log/r26a/final/x500_emmental_smoke/20261123_111508/)
+FAIL  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 1200 m asked
+FAIL  the world's sun 8 deg up at 250 deg, x0.3 light: 60.9 deg up at 126.9 deg, diffuse 0.900 (the world's 0.9)
+note  no camera brightness recorded (no cameras: GDN_SIM_CPU?)
+FAIL  the cameras' brightness recorded
+SCENARIO CHECK FAILED
+=== rc_cessna_emmental_faults judged on R2.6a's cessna (log/r26a/final/rc_cessna_emmental_start_error/20261123_114055/)
+FAIL  GDN started at the truth (no start error asked): 150.01 m off
+FAIL  agl stuck at 20 s for 20 s: switched on as asked: never
+FAIL  baro noise at 50 s for 20 s, sigma 5: switched on as asked: never
+FAIL  mag dropout at 80 s for 20 s: switched on as asked: never
+FAIL  imu dropout at 110 s for 1 s: switched on as asked: never
+note  no camera brightness recorded (no cameras: GDN_SIM_CPU?)
+SCENARIO CHECK FAILED
+=== standard_vtol_emmental_faults judged on R2.6a's VTOL (log/r26a/final/standard_vtol_emmental_wind/20261123_113448/)
+FAIL  no wind in the world (none asked)
+note  no-wind crab not judged: the route wasn't flown whole (legs that cancel)
+FAIL  agl noise at 30 s for 20 s, sigma 5: switched on as asked: never
+FAIL  baro dropout at 60 s for 20 s: switched on as asked: never
+FAIL  mag stuck at 90 s for 20 s: switched on as asked: never
+FAIL  imu stuck at 120 s for 2 s: switched on as asked: never
+note  no camera brightness recorded (no cameras: GDN_SIM_CPU?)
+SCENARIO CHECK FAILED

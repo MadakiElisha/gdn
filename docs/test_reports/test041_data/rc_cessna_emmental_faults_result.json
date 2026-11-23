@@ -1,0 +1,28 @@
+{
+ "scenario": "rc_cessna_emmental_faults",
+ "file": "config/scenarios/rc_cessna_emmental_faults.yaml",
+ "run_dir": "/home/bf-s2/gdn_workspace/log/r26b/final/rc_cessna_emmental_faults/20261123_153652",
+ "gdn_version": "c96859b-dirty",
+ "started_utc": "20261123_153652",
+ "settings": {
+  "GDN_VEHICLE": "rc_cessna",
+  "GDN_FLY_ARGS": "--legs 2 --leg-len 800 --spacing 250 --clearance 60",
+  "HEADLESS": "1",
+  "GDN_SITE": "ch_emmental",
+  "GDN_FAULTS": "agl:stuck:20:20;baro:noise:50:20:5;mag:dropout:80:20;imu:dropout:110:1"
+ },
+ "timeout_s": 1800,
+ "sim_run_exit": 0,
+ "timed_out": false,
+ "duration_s": 353.0,
+ "teardown_clean": true,
+ "left_running": [],
+ "bag_ok": true,
+ "bag_mb": 1437.0,
+ "run_log": "/home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_153725",
+ "run_log_ok": true,
+ "replay": "IDENTICAL",
+ "check_passed": true,
+ "checks_failed": [],
+ "passed": true
+}

@@ -152,13 +152,15 @@ jobs:
           python3 tools/check_profiles.py --selfcheck
           python3 tools/check_regime.py --selfcheck
 
-      # R2.6a: every scenario file reads cleanly, and the scenario check's geometry (route
-      # length, bearings, lean and crab into the wind) works on made-up data (TEST-040; the
-      # runs themselves need the simulation).
-      - name: Scenario files and scenario check self-check (R2.6a)
+      # R2.6a/b: every scenario file reads cleanly, and the scenario check works on made-up
+      # data: route length, bearings, lean and crab into the wind (TEST-040); dropouts,
+      # stuck values, noise bursts and a spoof's offset (TEST-041). The fault logic itself
+      # too (tools/sim_faults.py). The runs need the simulation.
+      - name: Scenario files and scenario check self-check (R2.6a, R2.6b)
         run: |
           python3 tools/scenario.py --check
           python3 tools/check_scenario.py --selfcheck
+          python3 tools/sim_faults.py --selfcheck
 
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |

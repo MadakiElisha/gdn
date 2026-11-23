@@ -1,0 +1,38 @@
+PASS  selfcheck: a lawnmower's planned length: 2688.2 m
+PASS  selfcheck: bearings clockwise from north
+PASS  selfcheck: angle differences
+PASS  selfcheck: wind from 270 comes from the west
+PASS  selfcheck: a north-facing body pitched 5 deg nose down leans its thrust 5 deg north: [0.0872 0.    ]
+PASS  selfcheck: yaw 90 deg in ENU faces north
+PASS  selfcheck: a 2 deg lean west is found, pointing west: 2.00 deg, (0.00, -1.00)
+PASS  selfcheck: a 20 s dropout is found: no sample for 20.0 s (asked 20 s); 1000 before, 986 after
+PASS  selfcheck: no dropout where none was
+PASS  selfcheck: a stuck value is found: 970 samples all [-0.8453], the last before it
+PASS  selfcheck: no stuck value where none was
+PASS  selfcheck: a noise burst of sigma 2 is found: noise 2.04 in the fault (asked 2), 0.0948 outside
+PASS  selfcheck: no noise burst where none was
+PASS  selfcheck: a spoof's offset found against the truth, the frames' offset taken out: [  0.  139.9]
+SELFCHECK PASSED
+PASS  selfcheck: the string form round-trips
+PASS  selfcheck: 'agl:melt:1:2' refused
+PASS  selfcheck: 'agl:dropout:1' refused
+PASS  selfcheck: 'agl:noise:1:2' refused
+PASS  selfcheck: 'agl:stuck:1:2:3' refused
+PASS  selfcheck: 'mag:noise:1:2:3:4' refused
+PASS  selfcheck: 'baro:dropout:10:20;baro:stuck:25:5' refused
+PASS  selfcheck: stuck repeats the last value before it, then lets go
+PASS  selfcheck: dropout publishes nothing for 20 s
+PASS  selfcheck: noise has the sigma asked, no bias
+PASS  selfcheck: imu noise: accel and gyro sigmas
+SELFCHECK PASSED
+PASS  config/scenarios/rc_cessna_emmental_faults.yaml
+PASS  config/scenarios/rc_cessna_emmental_start_error.yaml
+PASS  config/scenarios/standard_vtol_emmental_faults.yaml
+PASS  config/scenarios/standard_vtol_emmental_wind.yaml
+PASS  config/scenarios/x500_emmental_dusk.yaml
+PASS  config/scenarios/x500_emmental_faults.yaml
+PASS  config/scenarios/x500_emmental_gnss_cut.yaml
+PASS  config/scenarios/x500_emmental_smoke.yaml
+PASS  config/scenarios/x500_emmental_spoof.yaml
+PASS  config/scenarios/x500_emmental_wind.yaml
+10 of 10 scenarios read cleanly

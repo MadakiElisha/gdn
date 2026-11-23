@@ -38,7 +38,7 @@ import scenario as scn  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 # Everything tools/sim_run.sh starts (its SIM_PROCS), to make sure none is left.
 SIM_PROCS = ("px4_sitl_default/bin/px4", "gz sim", "MicroXRCEAgent", "ros_gz_bridge/parameter_bridge",
-             "gdn_fusion/sim_sensors", "tools/sim_adapter.py", "tools/replay_scorer.py", "tools/sim_fly.py",
+             "gdn_fusion/sim_sensors", "tools/sim_adapter.py", "tools/sim_spoof.py", "tools/replay_scorer.py", "tools/sim_fly.py",
              "gdn_fusion/eskf_node", "gdn_fusion/map_viz_node", "ros2 bag record -s mcap -o")
 
 

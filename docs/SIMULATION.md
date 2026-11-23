@@ -476,7 +476,7 @@ python3 tools/check_sim_sensors.py --run /tmp/gdn_sim   # judge a run against th
   fingerprint and arrival time, then every return against the world's terrain from the
   true pose at the point's own `offset_time`. Timing is judged on Gazebo's clock.
 
-## Scenarios and the runner (R2.6a)
+## Scenarios and the runner (R2.6)
 
 A scenario is one SITL flight described in a file, `config/scenarios/<name>.yaml`
 (format: `tools/scenario.py`):
@@ -523,6 +523,58 @@ How each condition is made:
   - **The x500:** has no aero model, so Gazebo's wind effects push its body (a linear
     drag, `mass x 0.1/s x (wind - velocity)`): it leaned 4.4 deg into 6 m/s.
   - **The VTOL's hover phases** feel no wind this way.
+
+### Spoofing, sensor faults and lighting (R2.6b)
+
+The scenario file can also name these three (format: `tools/scenario.py`):
+
+```yaml
+gnss: {loss: spoof, at_s: 60, rate_mps: 0.5, bearing_deg: 90}
+faults:
+  - {sensor: agl, kind: dropout, at_s: 30, duration_s: 20}
+  - {sensor: mag, kind: noise, at_s: 120, duration_s: 20, sigma: 20}
+lighting: {sun_elevation_deg: 8, sun_azimuth_deg: 250, intensity: 0.3}
+```
+
+- **GNSS spoofing:** `GDN_SPOOF="at_s rate_mps bearing_deg"` (`tools/sim_spoof.py`).
+  - **The relay:** PX4's GPS comes from a relay. It reads Gazebo's own GPS, the same
+    sensor PX4's `gz_bridge` reads, and sends it to PX4 as MAVLink `HIL_GPS`.
+  - **PX4's settings, at its boot:** `MAV_USEHILGPS` 1 takes `HIL_GPS` outside HIL
+    mode, and `SIM_GPS_USED` 0 gives PX4's own Gazebo GPS no fix. PX4 picks the receiver
+    with the best fix. Both are set on every run, both ways, since PX4 keeps its
+    parameters between runs.
+  - **The spoof:** from `at_s` into the route, the reported position walks off at
+    `rate_mps` towards `bearing_deg`. The reported velocity carries the same drift, so
+    the two agree. PX4 steers its spoofed position along the route, and the vehicle
+    drifts the other way.
+  - **GDN** uses no GNSS, so it isn't fooled.
+  - **Why `HIL_GPS`:** PX4 1.16 has no handler for MAVLink `GPS_INPUT` (only
+    `HIL_GPS`, and that one only from its own system id).
+- **Sensor faults on GDN's inputs:** `GDN_FAULTS="sensor:kind:at_s:duration_s[:sigma[:sigma_gyro]];..."`
+  (`tools/sim_faults.py`).
+  - **Where:** the adapter applies them to what it publishes for GDN: the altimeter,
+    baro and mag.
+  - **The IMU:** an IMU fault relays PX4's `/fmu/out/sensor_combined` through the
+    adapter (`/gdn/sim/imu_relay`), and `eskf_node` is pointed at the relay.
+  - **The kinds:** dropout (nothing), stuck (the last value, repeated), noise (Gaussian,
+    in the sensor's units).
+  - **PX4 is untouched,** since it flies on its own sensors.
+  - **The record:** each fault's start and end goes out on `/gdn/sim/fault`.
+- **Lighting:** `GDN_LIGHTING="elevation azimuth intensity"` (`tools/sim_light.py`).
+  - **In the run's world:** the sun's direction, and its light, the ambient and the
+    sky scaled by the intensity.
+  - **The camera:** the adapter reports the light the OAK-D Lite's left camera sees:
+    `/gdn/sim/scene_light`, the mean of Gazebo's raw linear image. It also reports the
+    image's brightness after the simulated auto-exposure, `/gdn/sim/image_brightness`,
+    which stays near mid-grey (TEST-041: dusk at 0.3 of the light let 7% of the light
+    through, and the image went from 108 to 95 of 255).
+  - **GDN** uses no camera until Phase 3.
+
+All three count their times from the route's start (`/gdn/sim/route_start`, from
+`sim_fly.py`), as the GNSS cut does. `tools/check_scenario.py` checks each one:
+- the spoof: PX4's position walked off the truth as asked;
+- the faults: each one is in GDN's own record of its inputs;
+- the lighting: the world's sun, and the images darker.
 
 ## Current result (read this before judging the red line)
 

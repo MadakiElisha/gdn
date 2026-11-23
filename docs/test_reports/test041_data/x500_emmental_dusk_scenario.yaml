@@ -1,0 +1,20 @@
+# The x500 over Emmental at dusk: the sun 8 deg above the western horizon at 0.3 of the
+# world's light (tools/sim_light.py). It changes what the OAK-D Lite sees; GDN uses no
+# camera until Phase 3. One 600 m leg, about 4 minutes.
+schema: 1
+name: x500_emmental_dusk
+description: x500, Emmental, one 600 m leg at dusk (sun 8 deg up in the west-south-west, 0.3 of the light)
+vehicle: x500
+world: ch_emmental
+route:
+  legs: 1
+  leg_len_m: 600
+  clearance_m: 40
+gnss:
+  loss: none
+lighting:
+  sun_elevation_deg: 8
+  sun_azimuth_deg: 250
+  intensity: 0.3
+limits:
+  timeout_s: 1200

@@ -1,0 +1,16 @@
+PASS  the run is the scenario's vehicle and world: standard_vtol over ch_emmental (asked standard_vtol over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  within the scenario's time limit: 364 s of 1800
+PASS  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 2688 m asked
+PASS  the route never lower than 60 m over the terrain: lowest 60.0 m
+PASS  PX4 kept GPS throughout (no GNSS loss asked): 27335 samples, eph under 10 m
+PASS  GDN started at the truth (no start error asked): 0.00 m off
+PASS  the world carries 6 m/s from 270 deg (the wings' lift-drag model reads it): world wind 6.000000 0.000000 0 (ENU)
+PASS  the vehicle crab (nose upwind of the track) into the wind on the route (at least 5 deg upwind): 19.37 deg, 19.32 deg upwind, 4 deg from upwind
+PASS  no sensor fault switched on (none asked)
+PASS  the world's own sun (no lighting asked): 60.9 deg up at 126.9 deg
+note  OAK-D Lite scene light 0.1125 of full scale over 324 s; the image it sends 105 of 255 after its auto-exposure
+PASS  the bag and GDN's run log were written: bag 1481 MB, run log /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_151025
+PASS  GDN's run log replays bit for bit: IDENTICAL
+PASS  nothing of the simulation left running after the run: none
+SCENARIO CHECK PASSED

@@ -1,0 +1,21 @@
+# As x500_emmental_smoke, with a fault on each of GDN's inputs in turn (tools/sim_faults.py):
+# the altimeter drops out, the barometer sticks, the magnetometer and then the IMU get a
+# burst of noise. PX4 flies on its own sensors, untouched. About 8 minutes.
+schema: 1
+name: x500_emmental_faults
+description: as x500_emmental_smoke; GDN's altimeter drops out, its baro sticks, its mag and IMU get noise bursts
+vehicle: x500
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+  clearance_m: 40
+gnss:
+  loss: none
+faults:
+  - {sensor: agl, kind: dropout, at_s: 30, duration_s: 20}
+  - {sensor: baro, kind: stuck, at_s: 70, duration_s: 30}
+  - {sensor: mag, kind: noise, at_s: 120, duration_s: 20, sigma: 20}
+  - {sensor: imu, kind: noise, at_s: 170, duration_s: 10, sigma: 2, sigma_gyro: 0.05}
+limits:
+  timeout_s: 1800

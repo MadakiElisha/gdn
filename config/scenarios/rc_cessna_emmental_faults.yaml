@@ -1,0 +1,20 @@
+# The cessna over Emmental with a fault on each of GDN's inputs in turn (tools/sim_faults.py):
+# the altimeter sticks, the barometer gets noise, the magnetometer drops out, then the
+# IMU drops out for a second. PX4 flies on its own sensors. About 6 minutes.
+schema: 1
+name: rc_cessna_emmental_faults
+description: cessna, Emmental, 2 legs of 800 m; GDN's altimeter sticks, baro noise, mag and then IMU drop out
+vehicle: rc_cessna
+world: ch_emmental
+route:
+  legs: 2
+  leg_len_m: 800
+gnss:
+  loss: none
+faults:
+  - {sensor: agl, kind: stuck, at_s: 20, duration_s: 20}
+  - {sensor: baro, kind: noise, at_s: 50, duration_s: 20, sigma: 5}
+  - {sensor: mag, kind: dropout, at_s: 80, duration_s: 20}
+  - {sensor: imu, kind: dropout, at_s: 110, duration_s: 1}
+limits:
+  timeout_s: 1800

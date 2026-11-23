@@ -24,15 +24,30 @@ GDN gets. tools/sim_run.sh prints the whole flight's figure at the end.
 If the radar isn't publishing (no GPU rendering), agl_source:=auto falls back to that
 map prediction plus 0.3 m noise, and says so.
 
+Sensor faults (R2.6b, tools/sim_faults.py): the "faults" parameter (GDN_FAULTS in
+sim_run.sh) applies dropouts, stuck values and noise bursts to what this publishes for
+GDN, timed from the route's start (/gdn/sim/route_start, from sim_fly.py). For an IMU
+fault, imu_relay:=true relays PX4's /fmu/out/sensor_combined to /gdn/sim/imu_relay with
+the fault applied, and sim_run.sh points eskf_node at it. Each fault's start and end
+goes out on /gdn/sim/fault (std_msgs/String, "on agl dropout at 30 s for 20 s" and
+"off ..."), recorded in the bag for tools/check_scenario.py.
+
+Lighting (R2.6b): every second, the light the OAK-D Lite's left camera sees, on
+/gdn/sim/scene_light (Float64: Gazebo's raw linear mono16 image, /gdn/sim/raw/oak_left,
+its mean as a fraction of full scale), and the mean brightness (0-255) of the image it
+sends after its auto-exposure (sim_sensors), on /gdn/sim/image_brightness.
+
 Parameters: world_info (data/sim/<world>/world_info.txt), agl_source (auto|lidar|truth),
 agl_rate_hz (2), baro_bias_m (0), baro_drift_m_per_min (0), max_tilt_deg (35),
 gz_model (the vehicle's Gazebo name, for the window's follow camera; default the
-world's x500), gz_follow (true), gz_follow_offset (-1.8,0,0.7).
+world's x500), gz_follow (true), gz_follow_offset (-1.8,0,0.7), faults (""),
+imu_relay (false), fault_seed (0).
 """
 import math
 import os
 import subprocess
 import threading
+import sys
 import time
 from pathlib import Path
 
@@ -42,12 +57,15 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import PointStamped, PoseStamped, TransformStamped, Vector3
 from nav_msgs.msg import Odometry, Path as PathMsg
-from sensor_msgs.msg import FluidPressure, LaserScan, MagneticField
-from std_msgs.msg import Float64
-from px4_msgs.msg import VehicleAttitude
+from rclpy.qos import DurabilityPolicy
+from sensor_msgs.msg import FluidPressure, Image, LaserScan, MagneticField
+from std_msgs.msg import Float64, String
+from px4_msgs.msg import SensorCombined, VehicleAttitude
 from tf2_ros import TransformBroadcaster
 
-from gdn_paths import ROOT, load_map
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gdn_paths import ROOT, load_map  # noqa: E402
+import sim_faults  # noqa: E402
 
 
 def pressure_altitude(p_pa):
@@ -75,13 +93,22 @@ class SimAdapter(Node):
         if len(self.follow_offset) != 3:
             raise SystemExit(f"sim_adapter: gz_follow_offset needs 3 numbers (x,y,z), got {off}")
 
+        try:
+            self.faults = sim_faults.parse(str(self.declare_parameter("faults", "").value))
+        except ValueError as e:
+            raise SystemExit(f"sim_adapter: {e}") from e
+        rng = np.random.default_rng(int(self.declare_parameter("fault_seed", 0).value))
+        self.inj = {k: sim_faults.Injector(self.faults, k, rng) for k in sim_faults.SENSORS}
+        self.t_route0 = None          # unix time of the route's start (sim_fly.py)
+        imu_relay = bool(self.declare_parameter("imu_relay", False).value)
+        if any(f.sensor == "imu" for f in self.faults) and not imu_relay:
+            raise SystemExit("sim_adapter: an imu fault needs imu_relay:=true (and eskf_node on /gdn/sim/imu_relay)")
+
         info = dict(l.split("=", 1) for l in Path(info_path).read_text().split() if "=" in l)
         self.gz_model = str(self.declare_parameter("gz_model", info.get("model_instance", "x500_gdn_0")).value)
         self.z0_amsl = float(info["z0_amsl"])
         self.alt, self.hdr = load_map(info.get("world_map", info["map"]))
         self.alt = self.alt.astype(np.float64)
-        import sys
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
         from make_sim_world import sample_map
         self.sample_map = sample_map
         self.base_alt = float(sample_map(self.alt, self.hdr, np.array(0.0), np.array(0.0)))
@@ -97,6 +124,25 @@ class SimAdapter(Node):
         self.pub_mag = self.create_publisher(Vector3, "/gdn/mag_meas", 10)
         self.pub_truth = self.create_publisher(PointStamped, "/gdn/truth", 10)
         self.pub_tpath = self.create_publisher(PathMsg, "/gdn/truth_path", 10)
+        self.pub_fault = self.create_publisher(String, "/gdn/sim/fault", 10)
+        self.pub_bright = self.create_publisher(Float64, "/gdn/sim/image_brightness", 10)
+        self.create_subscription(Float64, "/gdn/sim/route_start", self.on_route_start, QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST, depth=1))
+        self.create_subscription(Image, "/oak/left/image_raw", self.on_image, QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1))
+        self.create_subscription(Image, "/gdn/sim/raw/oak_left", self.on_raw_image, QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1))
+        self.pub_light = self.create_publisher(Float64, "/gdn/sim/scene_light", 10)
+        self.last_bright = self.last_light = 0.0
+        if imu_relay:
+            self.pub_imu = self.create_publisher(SensorCombined, "/gdn/sim/imu_relay", qos_profile_sensor_data)
+            self.create_subscription(SensorCombined, "/fmu/out/sensor_combined", self.on_imu, qos_profile_sensor_data)
+        self.faults_on = set()
+        for f in self.faults:
+            self.get_logger().info(f"fault asked: {f.text()} into the route")
+        if self.faults:
+            self.create_timer(0.05, self.fault_events)
 
         self.cos_tilt = None          # from PX4 attitude
         self.truth = None             # (north, east, z_world_up)
@@ -150,7 +196,63 @@ class SimAdapter(Node):
         if t - self.last_agl_t < self.agl_period:
             return
         self.last_agl_t = t
-        self.pub_agl.publish(Float64(data=float(value)))
+        value = self.fault("agl", value)
+        if value is not None:
+            self.pub_agl.publish(Float64(data=float(value)))
+
+    def t_route(self):
+        return None if self.t_route0 is None else time.time() - self.t_route0
+
+    def fault(self, sensor, value):
+        """The value with any fault in force applied (None: publish nothing)."""
+        inj = self.inj[sensor]
+        if not inj.faults:
+            return value
+        return inj.apply(self.t_route(), value)[0]
+
+    def fault_events(self):
+        """Each fault's start and end on /gdn/sim/fault, by the schedule (20 Hz), not by the
+        sensor's samples: a sensor can be silent when its fault starts (the VTOL's altimeter
+        just after its transition, TEST-041)."""
+        t = self.t_route()
+        for f in self.faults:
+            now = f.active(t)
+            if now != (f in self.faults_on):
+                (self.faults_on.add if now else self.faults_on.discard)(f)
+                text = f"{'on' if now else 'off'} {f.text()}"
+                self.pub_fault.publish(String(data=text))
+                self.get_logger().warn(f"fault {text} ({t:.2f} s into the route)")
+
+    def on_route_start(self, msg):
+        if self.t_route0 is None:
+            self.t_route0 = float(msg.data)
+            self.get_logger().info(f"route started ({time.time() - self.t_route0:.2f} s ago): fault times count from here")
+
+    def on_image(self, msg):
+        t = self.now_s()
+        if t - self.last_bright < 1.0 or not msg.data:
+            return
+        self.last_bright = t
+        px = np.frombuffer(bytes(msg.data), dtype=np.uint8)
+        self.pub_bright.publish(Float64(data=float(px[::7].mean())))
+
+    def on_raw_image(self, msg):
+        t = self.now_s()
+        if t - self.last_light < 1.0 or not msg.data or msg.encoding != "mono16":
+            return
+        self.last_light = t
+        px = np.frombuffer(bytes(msg.data), dtype="<u2" if not msg.is_bigendian else ">u2")
+        self.pub_light.publish(Float64(data=float(px[::7].mean() / 65535.0)))
+
+    def on_imu(self, msg):
+        acc = tuple(float(v) for v in msg.accelerometer_m_s2)
+        gyr = tuple(float(v) for v in msg.gyro_rad)
+        out = self.fault("imu", (acc, gyr))
+        if out is None:
+            return
+        msg.accelerometer_m_s2 = [float(v) for v in out[0]]
+        msg.gyro_rad = [float(v) for v in out[1]]
+        self.pub_imu.publish(msg)
 
     # --- callbacks -----------------------------------------------------------
     def on_att(self, msg):
@@ -185,7 +287,9 @@ class SimAdapter(Node):
         # reflection and only right at one heading; PX4 still flies on GPS.
         f = msg.magnetic_field
         m = np.array([f.x, -f.y, -f.z]) * 100.0             # gauss -> uT, FLU -> FRD
-        self.pub_mag.publish(Vector3(x=float(m[0]), y=float(m[1]), z=float(m[2])))
+        out = self.fault("mag", (float(m[0]), float(m[1]), float(m[2])))
+        if out is not None:
+            self.pub_mag.publish(Vector3(x=out[0], y=out[1], z=out[2]))
         self.n_mag += 1
         if self.q_truth is not None:                        # field in NED, for the mag_ref check
             self.mag_ned.append(self.r_ned_frd() @ m)
@@ -196,7 +300,9 @@ class SimAdapter(Node):
         if self.h_ref is None:
             self.h_ref, self.t_start = h, t
         bias = self.baro_bias + self.baro_drift * (t - self.t_start)
-        self.pub_baro.publish(Float64(data=-(h - self.h_ref) + bias))   # NED z + bias
+        out = self.fault("baro", -(h - self.h_ref) + bias)               # NED z + bias
+        if out is not None:
+            self.pub_baro.publish(Float64(data=float(out)))
         self.n_baro += 1
 
     def on_truth(self, msg):

@@ -1,0 +1,24 @@
+PASS  the run is the scenario's vehicle and world: rc_cessna over ch_emmental (asked rc_cessna over ch_emmental)
+PASS  PX4 flew the route and landed: landed
+PASS  within the scenario's time limit: 353 s of 1800
+PASS  the route's length is the scenario's legs, leg length and spacing: 2688 m planned, 2688 m asked
+PASS  the route never lower than 60 m over the terrain: lowest 60.0 m
+PASS  PX4 kept GPS throughout (no GNSS loss asked): 26535 samples, eph under 10 m
+PASS  GDN started at the truth (no start error asked): 0.01 m off
+PASS  no wind in the world (none asked)
+PASS  no steady crab on the route (no wind; at most 3 deg): 0.12 deg
+PASS  agl stuck at 20 s for 20 s: switched on as asked: 20.04 s into the route
+PASS  agl stuck at 20 s for 20 s: in GDN's inputs (run log): 28 samples all [62.6374], the last before it
+PASS  baro noise at 50 s for 20 s, sigma 5: switched on as asked: 50.04 s into the route
+PASS  baro noise at 50 s for 20 s, sigma 5: in GDN's inputs (run log): noise 4.79 in the fault (asked 5), 0.0117 outside
+PASS  mag dropout at 80 s for 20 s: switched on as asked: 80.04 s into the route
+PASS  mag dropout at 80 s for 20 s: in GDN's inputs (run log): no sample for 20.0 s (asked 20 s); 1996 before, 1970 after
+PASS  imu dropout at 110 s for 1 s: switched on as asked: 110.04 s into the route
+PASS  imu dropout at 110 s for 1 s: in GDN's inputs (run log): no sample for 1.0 s (asked 0.999986 s); 1664 before, 1642 after
+PASS  the IMU relay passed PX4's IMU on to GDN outside its faults: 25442 of 25442 samples (100.0%)
+PASS  the world's own sun (no lighting asked): 60.9 deg up at 126.9 deg
+note  OAK-D Lite scene light 0.1528 of full scale over 313 s; the image it sends 101 of 255 after its auto-exposure
+PASS  the bag and GDN's run log were written: bag 1437 MB, run log /home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261123_153725
+PASS  GDN's run log replays bit for bit: IDENTICAL
+PASS  nothing of the simulation left running after the run: none
+SCENARIO CHECK PASSED

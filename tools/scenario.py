@@ -18,19 +18,32 @@ tools/run_scenario.py flies it; tools/check_scenario.py checks a run did what it
       launch: runway                  # optional, fixed-wing: runway | catapult
     gnss:
       loss: none                      # none | cut (PX4's EKF2_GPS_CTRL 0, as Stage B)
-      at_s: 120                       # cut: seconds after reaching cruise height
+                                      #   | spoof (tools/sim_spoof.py: PX4's GPS walks off)
+      at_s: 120                       # cut, spoof: seconds after reaching cruise height
+      rate_mps: 1.0                   # spoof: how fast the reported position walks off
+      bearing_deg: 90                 # spoof: towards where, clockwise from north
     start_error:                      # optional: GDN starts this far from the truth
       distance_m: 0                   #   (once heading is aligned, as mc_campaign --start-error)
       bearing_deg: 0                  #   the direction from the truth to GDN's first estimate
     wind:                             # optional: a steady wind (Gazebo's wind effects)
       speed_mps: 0
       from_deg: 270                   #   where it blows from, clockwise from north
+    faults:                           # optional: faults on GDN's inputs (tools/sim_faults.py)
+      - {sensor: agl, kind: dropout, at_s: 30, duration_s: 20}
+      - {sensor: mag, kind: noise, at_s: 90, duration_s: 20, sigma: 40}
+                                      # sensor agl | baro | mag | imu; kind dropout | stuck |
+                                      # noise (sigma in the sensor's units; imu: sigma m/s^2
+                                      # on the accelerometer, sigma_gyro rad/s); at_s from
+                                      # the route's start
+    lighting:                         # optional: the sun (tools/sim_light.py)
+      sun_elevation_deg: 8
+      sun_azimuth_deg: 250            #   where the sun is, clockwise from north
+      intensity: 0.3                  #   x the world's own sun (1)
     limits:
       timeout_s: 1800                 # the whole run, start to teardown
 
 Every key is checked: unknown keys, missing required keys and values out of range are
-errors, with the file and key named. R2.6b adds spoofing (gnss.loss: spoof), sensor
-faults and lighting.
+errors, with the file and key named. Spoofing, faults and lighting came with R2.6b.
 
     python3 tools/scenario.py config/scenarios/x500_emmental_gnss_cut.yaml   # read and print
     python3 tools/scenario.py --list                                          # every scenario
@@ -41,6 +54,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 SCHEMA = 1
 
 
@@ -86,7 +100,8 @@ def _keys(d, where, allowed):
 
 def parse(data, label="scenario", check_names=True):
     """A checked scenario as a plain dict with every default filled in."""
-    top = ("schema", "name", "description", "vehicle", "world", "route", "gnss", "start_error", "wind", "limits")
+    top = ("schema", "name", "description", "vehicle", "world", "route", "gnss", "start_error", "wind", "faults",
+           "lighting", "limits")
     _keys(data, label, top)
     for k in ("schema", "name", "vehicle", "world", "route", "gnss", "limits"):
         if k not in data:
@@ -116,11 +131,18 @@ def parse(data, label="scenario", check_names=True):
         raise ScenarioError(f"{w}: the pattern reaches {max(half, across):.0f} m from the pad; the worlds are "
                             "4 km across (keep it within 1800 m)")
     g = data["gnss"]
-    _keys(g, f"{label}.gnss", ("loss", "at_s"))
-    if g.get("loss") not in ("none", "cut"):
-        raise ScenarioError(f"{label}.gnss.loss: none or cut (spoofing comes with R2.6b; is {g.get('loss')!r})")
-    out["gnss"] = {"loss": g["loss"],
-                   "at_s": _num(g, "at_s", f"{label}.gnss", 0, 7200) if g["loss"] != "none" else None}
+    w = f"{label}.gnss"
+    _keys(g, w, ("loss", "at_s", "rate_mps", "bearing_deg"))
+    if g.get("loss") not in ("none", "cut", "spoof"):
+        raise ScenarioError(f"{w}.loss: none, cut or spoof (is {g.get('loss')!r})")
+    if g["loss"] != "spoof" and ("rate_mps" in g or "bearing_deg" in g):
+        raise ScenarioError(f"{w}: rate_mps and bearing_deg are for loss: spoof")
+    if g["loss"] == "none" and "at_s" in g:
+        raise ScenarioError(f"{w}: at_s is for a cut or a spoof")
+    out["gnss"] = {"loss": g["loss"], "at_s": _num(g, "at_s", w, 0, 7200) if g["loss"] != "none" else None}
+    if g["loss"] == "spoof":
+        out["gnss"]["rate_mps"] = _num(g, "rate_mps", w, 0.05, 20)
+        out["gnss"]["bearing_deg"] = _num(g, "bearing_deg", w, -360, 360)
     se = data.get("start_error") or {}
     _keys(se, f"{label}.start_error", ("distance_m", "bearing_deg"))
     out["start_error"] = {"distance_m": _num(se, "distance_m", f"{label}.start_error", 0, 2000, default=0.0,
@@ -131,6 +153,37 @@ def parse(data, label="scenario", check_names=True):
     _keys(wi, f"{label}.wind", ("speed_mps", "from_deg"))
     out["wind"] = {"speed_mps": _num(wi, "speed_mps", f"{label}.wind", 0, 20, default=0.0, required=False),
                    "from_deg": _num(wi, "from_deg", f"{label}.wind", -360, 360, default=0.0, required=False)}
+    import sim_faults
+    fl = data.get("faults") or []
+    if not isinstance(fl, list):
+        raise ScenarioError(f"{label}.faults: a list expected")
+    specs = []
+    for i, f in enumerate(fl):
+        w = f"{label}.faults[{i}]"
+        _keys(f, w, ("sensor", "kind", "at_s", "duration_s", "sigma", "sigma_gyro"))
+        if f.get("sensor") not in sim_faults.SENSORS or f.get("kind") not in sim_faults.KINDS:
+            raise ScenarioError(f"{w}: sensor {'|'.join(sim_faults.SENSORS)}, kind {'|'.join(sim_faults.KINDS)} "
+                                f"(is {f.get('sensor')!r}, {f.get('kind')!r})")
+        parts = [f["sensor"], f["kind"], f"{_num(f, 'at_s', w, 0, 7200):g}", f"{_num(f, 'duration_s', w, 0.1, 3600):g}"]
+        if f["kind"] == "noise":
+            parts.append(f"{_num(f, 'sigma', w, 0, 1000):g}")
+            if "sigma_gyro" in f:
+                parts.append(f"{_num(f, 'sigma_gyro', w, 0, 10):g}")
+        elif "sigma" in f or "sigma_gyro" in f:
+            raise ScenarioError(f"{w}: only noise takes a sigma")
+        specs.append(":".join(parts))
+    try:
+        out["faults"] = [vars(x) for x in sim_faults.parse(";".join(specs))]
+    except ValueError as e:
+        raise ScenarioError(f"{label}.faults: {e}") from e
+    li = data.get("lighting")
+    if li is not None:
+        w = f"{label}.lighting"
+        _keys(li, w, ("sun_elevation_deg", "sun_azimuth_deg", "intensity"))
+        li = {"sun_elevation_deg": _num(li, "sun_elevation_deg", w, 1, 90),
+              "sun_azimuth_deg": _num(li, "sun_azimuth_deg", w, -360, 360),
+              "intensity": _num(li, "intensity", w, 0.02, 3)}
+    out["lighting"] = li
     lim = data["limits"]
     _keys(lim, f"{label}.limits", ("timeout_s",))
     out["limits"] = {"timeout_s": _num(lim, "timeout_s", f"{label}.limits", 120, 14400)}
@@ -166,8 +219,11 @@ def sim_env(s):
         env["GDN_SITE"] = s["world"]
     if r["launch"] == "catapult":
         env["GDN_FW_LAUNCH"] = "catapult"
-    if s["gnss"]["loss"] == "cut":
-        env["GPS_OFF_AT"] = f"{s['gnss']['at_s']:g}"
+    g = s["gnss"]
+    if g["loss"] == "cut":
+        env["GPS_OFF_AT"] = f"{g['at_s']:g}"
+    elif g["loss"] == "spoof":
+        env["GDN_SPOOF"] = f"{g['at_s']:g} {g['rate_mps']:g} {g['bearing_deg']:g}"
     se = s["start_error"]
     if se["distance_m"] > 0:
         b = math.radians(se["bearing_deg"])
@@ -175,6 +231,12 @@ def sim_env(s):
     wi = s["wind"]
     if wi["speed_mps"] > 0:
         env["GDN_WIND"] = f"{wi['speed_mps']:g} {wi['from_deg']:g}"
+    if s["faults"]:
+        import sim_faults
+        env["GDN_FAULTS"] = ";".join(sim_faults.Fault(**f).spec() for f in s["faults"])
+    li = s["lighting"]
+    if li:
+        env["GDN_LIGHTING"] = f"{li['sun_elevation_deg']:g} {li['sun_azimuth_deg']:g} {li['intensity']:g}"
     return env
 
 
@@ -196,7 +258,8 @@ def main():
             try:
                 s = load(f)
                 print(f"{s['name']:36s} {s['vehicle']:14s} {s['world']:13s} gnss {s['gnss']['loss']:5s} "
-                      f"start {s['start_error']['distance_m']:g} m, wind {s['wind']['speed_mps']:g} m/s")
+                      f"start {s['start_error']['distance_m']:g} m, wind {s['wind']['speed_mps']:g} m/s, "
+                      f"{len(s['faults'])} faults" + (f", sun x{s['lighting']['intensity']:g}" if s["lighting"] else ""))
             except ScenarioError as e:
                 print(f"ERROR {e}")
         return
