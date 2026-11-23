@@ -185,15 +185,24 @@ int main(int argc, char** argv) {
         std::printf("ERROR: %s\n", err.c_str());
         return 2;
     }
-    // R2.5a: the vehicle profile, the log's second message when the node had one. Its
-    // aiding is applied as logged. A log without one ran with all aiding on.
+    // R2.5a: the vehicle profile, and R2.6a: a start error, right after RunInfo when the
+    // node had them. Both are applied as logged. A log without a profile ran with all
+    // aiding on; without a start error, from where it started.
     decltype(first) pending;
     gdn::VehicleProfile profile;
     gdn_msgs::msg::VehicleProfileInfo profile_info;
-    bool have_profile = false;
-    if (reader.has_next()) {
+    gdn_msgs::msg::StartError start_error;
+    bool have_profile = false, have_start_error = false;
+    while (reader.has_next()) {
         pending = reader.read_next();
-        if (pending->topic_name == gdn::kTopicProfile) {
+        if (pending->topic_name == gdn::kTopicStartError) {
+            start_error = Decode<gdn_msgs::msg::StartError>(*pending);
+            pending.reset();
+            have_start_error = true;
+            continue;
+        }
+        if (pending->topic_name != gdn::kTopicProfile) break;  // the first input: the loop below takes it
+        {
             profile_info = Decode<gdn_msgs::msg::VehicleProfileInfo>(*pending);
             pending.reset();
             if (!gdn::ParseVehicleProfile(profile_info.text, "the log's vehicle profile", &profile, &err)) {
@@ -208,6 +217,9 @@ int main(int argc, char** argv) {
             have_profile = true;
         }
     }
+    if (have_start_error)
+        std::printf("  start error: %.2f m north, %.2f m east, sigma %.1f m\n", start_error.north_m, start_error.east_m,
+                    start_error.sigma_m);
     std::printf("  vehicle profile: %s\n", have_profile
                                                ? gdn::DescribeVehicleProfile(profile, profile_info.path).c_str()
                                                : "none (all aiding on)");
@@ -247,11 +259,13 @@ int main(int argc, char** argv) {
         oi.config_text = gdn::DumpFilterConfig(fc, "gdn_replay of " + log_path);
         writer.Write(oi, gdn::kTopicRunInfo, first->recv_timestamp);
         if (have_profile) writer.Write(profile_info, gdn::kTopicProfile, first->recv_timestamp);
+        if (have_start_error) writer.Write(start_error, gdn::kTopicStartError, first->recv_timestamp);
         out_sink = std::make_unique<gdn::RunLogSink>(&writer, [&clock_ns] { return clock_ns; });
     }
     ReplaySink sink(out_sink.get());
     gdn::NavCore core(fc, map, info.trn_model == "ideal" ? gdn::TrnModel::kIdeal : gdn::TrnModel::kAgl, &sink,
                       have_profile ? profile.aiding : gdn::Aiding{});
+    if (have_start_error) core.SetStartError(start_error.north_m, start_error.east_m);
 
     std::uint64_t n_in = 0, n_state = 0, n_upd = 0, n_ev = 0;
     std::string diff;  // the first difference
