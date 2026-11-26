@@ -264,6 +264,15 @@ def route_start_time(run):
     return None
 
 
+def touchdown_time(run_log, t_from):
+    """When PX4's land detector first felt the ground after t_from (ground contact, maybe
+    landed or landed; the run log's record time), or None. Touching down jolts PX4's
+    estimator (eph briefly over 10 m on the x500, TEST-042), so airborne windows end here."""
+    import check_sim_sensors as cs
+    msgs = cs.read_bag(run_log, ["/fmu/out/vehicle_land_detected"])[1]["/fmu/out/vehicle_land_detected"]
+    return next((t for t, m in msgs if t > t_from and (m.ground_contact or m.maybe_landed or m.landed)), None)
+
+
 def landed_time(fly_log):
     for line in Path(fly_log).read_text().splitlines() if Path(fly_log).exists() else []:
         m = re.match(r"\[\w+\] \[(\d+\.\d+)\]", line)
@@ -273,9 +282,13 @@ def landed_time(fly_log):
 
 
 def read_lpos_xy(run_log):
+    """PX4's position, timed by when GDN received it (the run log's record time, the host's
+    clock, as the truth's bag times), not by PX4's own stamp: in SITL that's Gazebo's
+    time, which falls behind the host's when the simulation runs slower than real time
+    (at 10 m/s a 0.3 s lag is 3 m; TEST-042)."""
     import check_sim_sensors as cs
     lp = cs.read_bag(run_log, ["/fmu/out/vehicle_local_position"])[1]["/fmu/out/vehicle_local_position"]
-    return (np.array([m.timestamp * 1e-6 for _, m in lp]), np.array([(m.x, m.y) for _, m in lp]),
+    return (np.array([t for t, _ in lp]), np.array([(m.x, m.y) for _, m in lp]),
             np.array([bool(m.xy_valid) for _, m in lp]), np.array([float(m.eph) for _, m in lp]))
 
 
@@ -453,10 +466,13 @@ def check_run(run, sc):
         import check_gps_cut as gc
         lp = gc.read_lpos(runlog)
         # The airborne part only, as tools/check_gps_cut.py (before take-off PX4's GPS is
-        # still settling): from the route's start to the landing.
+        # still settling): from the route's start to touchdown (the land detector; landing
+        # jolts PX4's estimator), else to "landed and disarmed".
         t_land = landed_time(run / "fly.log")
+        t_touch = touchdown_time(runlog, t_route0) if t_route0 else None
+        t_end = t_touch or t_land
         lost = [t for t, _z, _zv, xy_valid, eph in lp if ((not xy_valid) or eph > GNSS_EPH_LOST)
-                and (t_route0 is None or t >= t_route0) and (t_land is None or t <= t_land)]
+                and (t_route0 is None or t >= t_route0) and (t_end is None or t <= t_end)]
         if sc["gnss"]["loss"] == "spoof":
             ok &= check_spoof(sc, runlog, read_truth(run / "sitl_bag"), route_start_time(run), t_land)
         elif sc["gnss"]["loss"] == "cut":
