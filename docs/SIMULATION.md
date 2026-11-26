@@ -601,11 +601,54 @@ tools/docker_dev.sh run -- python3 tools/score_run.py log/scenarios/x500_emmenta
   from PX4's sample to GDN's output.
 - **Cross-check:** the whole-run numbers sit beside the run's own `replay_scorer`.
 
-One run gives one run's CEP95 and max; the requirement pools a set of runs. That's
-R2.7b, with the accepted baseline and integrity rates.
+- **Integrity (REQ-INT-002, 003), a proxy until R4.4 gives GDN a status:** GDN "flags"
+  while 3 x its sigma is over the class's 5-minute max limit.
+  - **A lost-lock case:** the error passes 3 x that limit. It's detected if GDN is
+    flagged within 30 s.
+  - **A false alarm:** a flagged spell (gaps under 10 s merged) in which the error never
+    passes the limit. Counted on nominal flights: no sensor faults and no start error.
+    GDN uses no GNSS, so cuts and spoofing are nominal to it.
+
+### Sets of runs and the baseline (R2.7b)
+
+One run gives one run's CEP95 and max; the requirements pool a set of runs.
+`tools/score_set.py` pools runs per scenario from each run's `metrics.json` and
+`series.npz` (no ROS needed), and compares them with the accepted baseline,
+`config/baselines/sitl.json`.
+
+```bash
+tools/docker_dev.sh run --gpu -- tools/run_scenario.py config/scenarios/*.yaml --runs 3 --out log/set   # scores the set at the end
+python3 tools/score_set.py log/set --out log/set           # again: set.md, set.json, set.png
+python3 tools/score_set.py log/set --accept --note "why"   # make it the baseline, then commit it in a PR
+```
+
+- **Pooled as the requirements count:**
+  - CEP95 over every sample of the set's flights;
+  - the max rule as the share of flights never over the limit;
+  - over 3 sigma over every sample;
+  - the integrity rates over every scenario.
+
+  A few runs can't show a 99% rule. The report says how many flights each figure stands on.
+- **The comparison:** the set's median per metric against the baseline's runs.
+  - **Gated:** `eskf_node`'s CPU, memory and processing time, and the error at 120 s from
+    a start error. WORSE past the worst baseline run by more than the tolerance gives
+    exit code 1.
+  - **Reported, not gated:** the navigation, consistency and integrity metrics. The report
+    says whether the set is above all the baseline's runs, below all of them or among
+    them, and how many times the worst.
+  - **Why not gated:** while GDN's drift is unbounded (OI-012), one scenario's runs span
+    up to 33 x (TEST-043). A few runs can't tell a regression from that. The report's
+    leave-one-out spread table shows how far an unchanged GDN lands. The navigation
+    regression guard stays the Monte Carlo in CI, which is repeatable.
+- **Accepting:** `--accept` writes the set's scenarios into the baseline and keeps the
+  others. It refuses a run that failed its scenario check, fewer than three runs of a
+  scenario (`--min-runs`), or runs of different scenario files. The baseline keeps each
+  scenario file's hash, so runs of a changed scenario aren't compared.
 
 **Fly timed batches on mains power.** On a laptop on battery in power-saver mode,
-Gazebo ran at 0.86 of real time (TEST-042).
+Gazebo ran at 0.86 of real time (TEST-042). Even on mains power with the performance
+profile, 9 of TEST-043's 30 runs ran at 0.93 to 0.955 (cause not known, no visible
+effect on GDN's error). Each run's report states its real-time factor.
 - **The effect:** PX4's clock, which is Gazebo's, kept falling out of sync with the PC's
   ("time jump detected" in `px4.log`). GDN dropped IMU samples, and the timing figures
   measured the drift.

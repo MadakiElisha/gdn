@@ -1,0 +1,756 @@
+{
+ "about": "The accepted SITL baseline (roadmap R2.7b): per scenario, each accepted run's metrics (tools/score_set.py METRICS). Change it only with tools/score_set.py --accept, in a PR.",
+ "scenarios": {
+  "rc_cessna_emmental_faults": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 20.01879103482233,
+    "cep95_10min_m": 2075.2985161478246,
+    "cep95_5min_m": 2075.2985161478246,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 70.64603291574552
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/rc_cessna_emmental_faults/20261126_082439",
+     "started_utc": "20261126_082439",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 13.308234,
+      "cep95_10min": 1943.509912,
+      "cep95_5min": 1943.509912,
+      "cpu_mean": 4.558841,
+      "int_detect": 0.0,
+      "int_false": 0.0,
+      "max_10min": 2273.473946,
+      "max_5min": 2273.473946,
+      "nees_dev": 2.680613,
+      "over3sigma": 76.722533,
+      "proc_p95": 0.044584,
+      "rss_max": 46.8
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/rc_cessna_emmental_faults/20261126_131740",
+     "started_utc": "20261126_131740",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 20.562227,
+      "cep95_10min": 2509.548852,
+      "cep95_5min": 2509.548852,
+      "cpu_mean": 2.887543,
+      "int_detect": 0.0,
+      "int_false": 1.0,
+      "max_10min": 2715.750608,
+      "max_5min": 2715.750608,
+      "nees_dev": 3.057195,
+      "over3sigma": 79.542203,
+      "proc_p95": 0.030518,
+      "rss_max": 45.2
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/rc_cessna_emmental_faults/20261126_142355",
+     "started_utc": "20261126_142355",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 12.332448,
+      "cep95_10min": 474.482366,
+      "cep95_5min": 474.482366,
+      "cpu_mean": 3.142664,
+      "int_detect": 0.0,
+      "int_false": 1.0,
+      "max_10min": 501.268572,
+      "max_5min": 501.268572,
+      "nees_dev": 2.197171,
+      "over3sigma": 55.16723,
+      "proc_p95": 0.032187,
+      "rss_max": 43.5
+     }
+    }
+   ],
+   "scenario_sha": "c69e2a0aa463b637"
+  },
+  "rc_cessna_emmental_start_error": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 11.171692024097968,
+    "cep95_10min_m": 2377.3502496159604,
+    "cep95_5min_m": 2377.3502496159604,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 100.0
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/rc_cessna_emmental_start_error/20261126_075602",
+     "started_utc": "20261126_075602",
+     "values": {
+      "acq_120s": 449.288383,
+      "alt_p95": 10.947342,
+      "cep95_10min": 706.531654,
+      "cep95_5min": 706.531654,
+      "cpu_mean": 3.8628,
+      "int_detect": 0.0,
+      "int_false": 0.0,
+      "max_10min": 791.128205,
+      "max_5min": 791.128205,
+      "nees_dev": 2.697507,
+      "over3sigma": 100.0,
+      "proc_p95": 0.039577,
+      "rss_max": 44.6
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/rc_cessna_emmental_start_error/20261126_132411",
+     "started_utc": "20261126_132411",
+     "values": {
+      "acq_120s": 603.549308,
+      "alt_p95": 8.039818,
+      "cep95_10min": 658.234604,
+      "cep95_5min": 658.234604,
+      "cpu_mean": 2.72309,
+      "int_detect": 0.0,
+      "int_false": 0.0,
+      "max_10min": 705.244218,
+      "max_5min": 705.244218,
+      "nees_dev": 2.967492,
+      "over3sigma": 100.0,
+      "proc_p95": 0.034571,
+      "rss_max": 45.5
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/rc_cessna_emmental_start_error/20261126_143008",
+     "started_utc": "20261126_143008",
+     "values": {
+      "acq_120s": 705.233824,
+      "alt_p95": 14.746298,
+      "cep95_10min": 2842.606131,
+      "cep95_5min": 2842.606131,
+      "cpu_mean": 2.72567,
+      "int_detect": 0.0,
+      "int_false": 0.0,
+      "max_10min": 3171.345804,
+      "max_5min": 3171.345804,
+      "nees_dev": 2.957116,
+      "over3sigma": 100.0,
+      "proc_p95": 0.034332,
+      "rss_max": 44.2
+     }
+    }
+   ],
+   "scenario_sha": "d67d2d516483fa0e"
+  },
+  "standard_vtol_emmental_faults": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 40.772071081416186,
+    "cep95_10min_m": 7979.674580034712,
+    "cep95_5min_m": 7979.674580034712,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 71.71530599679843
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/standard_vtol_emmental_faults/20261126_081814",
+     "started_utc": "20261126_081814",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 7.859941,
+      "cep95_10min": 1557.186848,
+      "cep95_5min": 1557.186848,
+      "cpu_mean": 4.715797,
+      "int_detect": 100.0,
+      "int_false": 2.0,
+      "max_10min": 2470.05369,
+      "max_5min": 2470.05369,
+      "nees_dev": 2.770897,
+      "over3sigma": 59.505988,
+      "proc_p95": 0.044584,
+      "rss_max": 46.0
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/standard_vtol_emmental_faults/20261126_133035",
+     "started_utc": "20261126_133035",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 5.812264,
+      "cep95_10min": 8675.517465,
+      "cep95_5min": 8675.517465,
+      "cpu_mean": 3.14359,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 10050.300772,
+      "max_5min": 10050.300772,
+      "nees_dev": 3.129401,
+      "over3sigma": 66.679231,
+      "proc_p95": 0.031233,
+      "rss_max": 45.5
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/standard_vtol_emmental_faults/20261126_143634",
+     "started_utc": "20261126_143634",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 40.950279,
+      "cep95_10min": 8597.589546,
+      "cep95_5min": 8597.589546,
+      "cpu_mean": 2.92811,
+      "int_detect": 0.0,
+      "int_false": 0.0,
+      "max_10min": 9995.563573,
+      "max_5min": 9995.563573,
+      "nees_dev": 3.980654,
+      "over3sigma": 88.16166,
+      "proc_p95": 0.031471,
+      "rss_max": 45.4
+     }
+    }
+   ],
+   "scenario_sha": "e55dab4f21c09465"
+  },
+  "standard_vtol_emmental_wind": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 10.77242918070739,
+    "cep95_10min_m": 555.6123971117288,
+    "cep95_5min_m": 555.6123971117288,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 58.74921036007581
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/standard_vtol_emmental_wind/20261126_074941",
+     "started_utc": "20261126_074941",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 11.458652,
+      "cep95_10min": 532.652724,
+      "cep95_5min": 532.652724,
+      "cpu_mean": 3.589963,
+      "int_detect": 0.0,
+      "int_false": 1.0,
+      "max_10min": 539.863118,
+      "max_5min": 539.863118,
+      "nees_dev": 1.954566,
+      "over3sigma": 54.604017,
+      "proc_p95": 0.037432,
+      "rss_max": 46.9
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/standard_vtol_emmental_wind/20261126_133656",
+     "started_utc": "20261126_133656",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 3.46687,
+      "cep95_10min": 110.287446,
+      "cep95_5min": 110.287446,
+      "cpu_mean": 2.938529,
+      "int_detect": null,
+      "int_false": 1.0,
+      "max_10min": 114.474432,
+      "max_5min": 114.474432,
+      "nees_dev": 1.189785,
+      "over3sigma": 38.181818,
+      "proc_p95": 0.032902,
+      "rss_max": 43.7
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/standard_vtol_emmental_wind/20261126_144314",
+     "started_utc": "20261126_144314",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 5.1893,
+      "cep95_10min": 563.999439,
+      "cep95_5min": 563.999439,
+      "cpu_mean": 2.978376,
+      "int_detect": 0.0,
+      "int_false": 0.0,
+      "max_10min": 570.382523,
+      "max_5min": 570.382523,
+      "nees_dev": 2.278768,
+      "over3sigma": 83.497724,
+      "proc_p95": 0.033855,
+      "rss_max": 44.1
+     }
+    }
+   ],
+   "scenario_sha": "2fefcdca3fe1c72a"
+  },
+  "x500_emmental_dusk": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 7.83677879491214,
+    "cep95_10min_m": 6121.429090094553,
+    "cep95_5min_m": 6121.429090094553,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 59.40065681444992
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/x500_emmental_dusk/20261126_083054",
+     "started_utc": "20261126_083054",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 4.192085,
+      "cep95_10min": 8390.404888,
+      "cep95_5min": 8390.404888,
+      "cpu_mean": 4.343593,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 9629.856655,
+      "max_5min": 9629.856655,
+      "nees_dev": 2.939272,
+      "over3sigma": 61.566934,
+      "proc_p95": 0.047684,
+      "rss_max": 47.2
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_dusk/20261126_134313",
+     "started_utc": "20261126_134313",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 8.092189,
+      "cep95_10min": 366.973253,
+      "cep95_5min": 366.973253,
+      "cpu_mean": 2.978182,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 380.858639,
+      "max_5min": 380.858639,
+      "nees_dev": 1.907451,
+      "over3sigma": 65.799257,
+      "proc_p95": 0.033617,
+      "rss_max": 45.0
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_dusk/20261126_144931",
+     "started_utc": "20261126_144931",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 9.765702,
+      "cep95_10min": 265.954809,
+      "cep95_5min": 265.954809,
+      "cpu_mean": 2.715497,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 290.160982,
+      "max_5min": 290.160982,
+      "nees_dev": 1.789854,
+      "over3sigma": 50.946854,
+      "proc_p95": 0.035763,
+      "rss_max": 45.3
+     }
+    }
+   ],
+   "scenario_sha": "d2ea1996b4ae283e"
+  },
+  "x500_emmental_faults": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 7133.346767307515,
+    "cep95_10min_m": 22018.620569180963,
+    "cep95_5min_m": 13104.452519318043,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 79.95499549954995
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/x500_emmental_faults/20261126_081006",
+     "started_utc": "20261126_081006",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 10782.440007,
+      "cep95_10min": 31867.858447,
+      "cep95_5min": 15290.596067,
+      "cpu_mean": 4.481605,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 38489.530169,
+      "max_5min": 16489.515157,
+      "nees_dev": 1.98647,
+      "over3sigma": 80.813008,
+      "proc_p95": 0.042439,
+      "rss_max": 46.9
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_faults/20261126_134741",
+     "started_utc": "20261126_134741",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 1730.615568,
+      "cep95_10min": 3862.457361,
+      "cep95_5min": 3816.669887,
+      "cpu_mean": 2.892538,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 4290.243795,
+      "max_5min": 4290.243795,
+      "nees_dev": 2.24873,
+      "over3sigma": 79.690005,
+      "proc_p95": 0.031233,
+      "rss_max": 45.4
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_faults/20261126_145404",
+     "started_utc": "20261126_145404",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 1573.86314,
+      "cep95_10min": 18248.446247,
+      "cep95_5min": 10425.695652,
+      "cpu_mean": 3.131953,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 20480.784861,
+      "max_5min": 11871.488082,
+      "nees_dev": 2.315979,
+      "over3sigma": 79.363785,
+      "proc_p95": 0.032187,
+      "rss_max": 45.1
+     }
+    }
+   ],
+   "scenario_sha": "bc32f62ed446e5ba"
+  },
+  "x500_emmental_gnss_cut": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 14.1205542866096,
+    "cep95_10min_m": 1863.4013746840672,
+    "cep95_5min_m": 1863.4013746840672,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 27.6944380336949
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/x500_emmental_gnss_cut/20261126_073729",
+     "started_utc": "20261126_073729",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 3.728482,
+      "cep95_10min": 114.400356,
+      "cep95_5min": 114.400356,
+      "cpu_mean": 3.299932,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 124.581762,
+      "max_5min": 124.581762,
+      "nees_dev": 0.238974,
+      "over3sigma": 0.0,
+      "proc_p95": 0.036955,
+      "rss_max": 45.7
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_gnss_cut/20261126_135557",
+     "started_utc": "20261126_135557",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 6.313296,
+      "cep95_10min": 238.644578,
+      "cep95_5min": 238.644578,
+      "cpu_mean": 2.96973,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 269.794872,
+      "max_5min": 269.794872,
+      "nees_dev": 0.674748,
+      "over3sigma": 17.520776,
+      "proc_p95": 0.032663,
+      "rss_max": 45.3
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_gnss_cut/20261126_150215",
+     "started_utc": "20261126_150215",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 14.171277,
+      "cep95_10min": 2599.851186,
+      "cep95_5min": 2599.851186,
+      "cpu_mean": 2.784503,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 3030.13088,
+      "max_5min": 3030.13088,
+      "nees_dev": 3.064561,
+      "over3sigma": 65.175499,
+      "proc_p95": 0.034809,
+      "rss_max": 45.3
+     }
+    }
+   ],
+   "scenario_sha": "0cdfa994c0d41a9b"
+  },
+  "x500_emmental_smoke": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 33.90376629060506,
+    "cep95_10min_m": 5443.372019078823,
+    "cep95_5min_m": 3272.5841805498612,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 81.19389587073609
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/x500_emmental_smoke/20261126_072924",
+     "started_utc": "20261126_072924",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 7.725471,
+      "cep95_10min": 2662.713244,
+      "cep95_5min": 956.892388,
+      "cpu_mean": 3.036745,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 3263.985412,
+      "max_5min": 1227.224378,
+      "nees_dev": 3.053314,
+      "over3sigma": 87.857528,
+      "proc_p95": 0.034571,
+      "rss_max": 44.4
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_smoke/20261126_140000",
+     "started_utc": "20261126_140000",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 24.186396,
+      "cep95_10min": 1858.434321,
+      "cep95_5min": 641.914795,
+      "cpu_mean": 2.921319,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 2238.913151,
+      "max_5min": 727.385995,
+      "nees_dev": 2.623227,
+      "over3sigma": 81.015752,
+      "proc_p95": 0.032663,
+      "rss_max": 44.6
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_smoke/20261126_150621",
+     "started_utc": "20261126_150621",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 34.047798,
+      "cep95_10min": 6366.825853,
+      "cep95_5min": 4052.079078,
+      "cpu_mean": 2.725897,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 6751.446311,
+      "max_5min": 4490.356192,
+      "nees_dev": 2.998596,
+      "over3sigma": 74.78678,
+      "proc_p95": 0.035524,
+      "rss_max": 45.2
+     }
+    }
+   ],
+   "scenario_sha": "52c2fdbf49412013"
+  },
+  "x500_emmental_spoof": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 39.19088528917955,
+    "cep95_10min_m": 3585.796028862589,
+    "cep95_5min_m": 2299.7329016611066,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 81.88991170392636
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/x500_emmental_spoof/20261126_080213",
+     "started_utc": "20261126_080213",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 16.510797,
+      "cep95_10min": 5700.157379,
+      "cep95_5min": 2617.318859,
+      "cpu_mean": 4.029044,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 6996.129573,
+      "max_5min": 3189.862328,
+      "nees_dev": 3.50327,
+      "over3sigma": 83.17836,
+      "proc_p95": 0.041008,
+      "rss_max": 47.5
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_spoof/20261126_140801",
+     "started_utc": "20261126_140801",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 44.393503,
+      "cep95_10min": 899.880387,
+      "cep95_5min": 902.886863,
+      "cpu_mean": 3.00074,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 940.26844,
+      "max_5min": 940.26844,
+      "nees_dev": 2.798694,
+      "over3sigma": 80.467869,
+      "proc_p95": 0.033379,
+      "rss_max": 43.2
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_spoof/20261126_151439",
+     "started_utc": "20261126_151439",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 23.683993,
+      "cep95_10min": 1243.103782,
+      "cep95_5min": 545.514849,
+      "cpu_mean": 3.041534,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 1503.653506,
+      "max_5min": 685.841682,
+      "nees_dev": 2.571414,
+      "over3sigma": 82.023105,
+      "proc_p95": 0.034332,
+      "rss_max": 45.6
+     }
+    }
+   ],
+   "scenario_sha": "cc832ea81fb01d50"
+  },
+  "x500_emmental_wind": {
+   "accepted_at_commit": "ff8650e",
+   "accepted_utc": "2026-11-26T15:34:38Z",
+   "note": "R2.7b first baseline (TEST-043): R2.7a's run and two more of each R2.6 scenario, on mains power; GDN as of R2.7a (no code change in GDN since)",
+   "pooled": {
+    "alt_p95_m": 23.688804768500265,
+    "cep95_10min_m": 15754.846474897467,
+    "cep95_5min_m": 6429.066280147372,
+    "flights_under_max_5min": 0,
+    "over3sigma_pct": 82.52925292529252
+   },
+   "runs": [
+    {
+     "gdn_version": "43b78cd-dirty",
+     "run_dir": "log/r27a/final2/x500_emmental_wind/20261126_074131",
+     "started_utc": "20261126_074131",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 9.921733,
+      "cep95_10min": 20608.280509,
+      "cep95_5min": 9708.544002,
+      "cpu_mean": 3.614884,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 22778.304267,
+      "max_5min": 11721.637946,
+      "nees_dev": 3.51451,
+      "over3sigma": 86.252002,
+      "proc_p95": 0.041008,
+      "rss_max": 45.3
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_wind/20261126_141551",
+     "started_utc": "20261126_141551",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 18.20568,
+      "cep95_10min": 1828.71276,
+      "cep95_5min": 863.843154,
+      "cpu_mean": 2.95562,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 2100.100153,
+      "max_5min": 994.653375,
+      "nees_dev": 3.086058,
+      "over3sigma": 80.667934,
+      "proc_p95": 0.033855,
+      "rss_max": 42.8
+     }
+    },
+    {
+     "gdn_version": "ee89947-dirty",
+     "run_dir": "log/r27b/batch/x500_emmental_wind/20261126_152230",
+     "started_utc": "20261126_152230",
+     "values": {
+      "acq_120s": null,
+      "alt_p95": 23.732378,
+      "cep95_10min": 2190.016214,
+      "cep95_5min": 822.616999,
+      "cpu_mean": 3.008153,
+      "int_detect": 100.0,
+      "int_false": 0.0,
+      "max_10min": 2703.392731,
+      "max_5min": 1001.759563,
+      "nees_dev": 2.709852,
+      "over3sigma": 80.603097,
+      "proc_p95": 0.03624,
+      "rss_max": 45.3
+     }
+    }
+   ],
+   "scenario_sha": "c42eb4c9d522ca82"
+  }
+ },
+ "schema": 1
+}
