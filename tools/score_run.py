@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Score one SITL run, and write its short report (roadmap R2.7a, TEST-042).
+"""Score one SITL run, and write its short report (roadmap R2.7a, TEST-042; integrity R2.7b).
 
-    python3 tools/score_run.py RUN_DIR                  # metrics.json, report.md, report.png in RUN_DIR
-    python3 tools/score_run.py RUN_DIR [RUN_DIR ...]    # each, then the set pooled per scenario
+    python3 tools/score_run.py RUN_DIR                  # metrics.json, series.npz, report.md, report.png
+    python3 tools/score_run.py RUN_DIR [RUN_DIR ...]    # each, then the set (tools/score_set.py)
     python3 tools/score_run.py --selfcheck              # the metrics on made-up data (CI)
 
 RUN_DIR is a tools/run_scenario.py run (it calls this after its check). Needs ROS 2 for the
@@ -39,6 +39,14 @@ From GDN's run log (its state after every input, at 10 Hz here) against the trut
     not a latency. Even at a real-time factor of 0.998 it spread from 1 us to 300 ms
     (TEST-042), so in SITL it's a diagnostic; the real transport latency is measured on
     the hardware (R6.3). Hence:
+  - integrity (REQ-INT-002, 003), a labelled proxy until R4.4 gives GDN a status (agreed,
+    R2.7b): GDN "flags" while 3 x its sigma is over the class's 5-minute max limit. A
+    case (REQ-INT-002) starts when the error passes 3 x that limit, having been under the
+    limit since the last case; it's detected if the flag is on within 30 s. A false alarm
+    (REQ-INT-003) is a flag episode (off for under 10 s doesn't end one) in which the
+    error never passes the limit: a warning that comes true isn't false. The rate counts
+    nominal flights only (no sensor faults, no start error: GDN uses no GNSS, so
+    GNSS cuts and spoofing are nominal to it);
   - the simulation's real-time factor (Gazebo's time against the wall clock, from the
     truth's stamps and the bag's receive times; TEST-042: 1.000 on a quiet PC, 0.86 on
     battery in power-saver): below RTF_TIMING_MIN the sample-to-output latency is marked
@@ -46,7 +54,9 @@ From GDN's run log (its state after every input, at 10 Hz here) against the trut
 
 The map condition (REQ-DB-002): the R2.2 sites run GDN on an independent map (GLO-30)
 against a swisstopo world, so their scores count; the Zermatt world shares its map and
-is a regression check only. Integrity rates and the baseline are R2.7b.
+is a regression check only. series.npz keeps the per-sample error, sigma and altitude
+error, so tools/score_set.py can pool a set of runs (and compare it with the accepted
+baseline) without ROS.
 """
 import argparse
 import json
@@ -65,6 +75,9 @@ WINDOWS = (300.0, 600.0)
 STATE_HZ = 10.0
 ACQ_HOLD_S = 30.0
 RTF_TIMING_MIN = 0.98                          # below it, PX4-clocked latency is the sim's drift
+INT_DETECT_S = 30.0                            # REQ-INT-002: flagged within 30 s
+INT_ERR_FACTOR = 3.0                           # REQ-INT-002: the error passes 3 x the requirement
+INT_MERGE_S = 10.0                             # the proxy flag off for less than this: one episode
 CHI2_997 = {1: 8.81, 2: 11.62, 3: 13.93}      # chi-square 99.7% points by dimension
 INK, INK2, MUTED, GRID = "#0b0b0b", "#52514e", "#8a8984", "#d9d8d4"
 BLUE, ORANGE, GREEN, RED = "#2a78d6", "#eb6834", "#1f9e6a", "#b3261e"
@@ -117,6 +130,56 @@ def time_to_acquire(t, err, limit, hold=ACQ_HOLD_S):
         else:
             start = None
     return None
+
+
+def flag_episodes(t, flag, merge_s=INT_MERGE_S):
+    """(start, end) sample indices of the flag's episodes, end inclusive; an episode isn't
+    ended by the flag going off for less than merge_s."""
+    ep = []
+    k, n = 0, len(t)
+    while k < n:
+        if not flag[k]:
+            k += 1
+            continue
+        a = k
+        while k < n and flag[k]:
+            k += 1
+        if ep and t[a] - t[ep[-1][1]] < merge_s:
+            ep[-1] = (ep[-1][0], k - 1)
+        else:
+            ep.append((a, k - 1))
+    return ep
+
+
+def integrity(t, err, sig, limit, detect_s=INT_DETECT_S, factor=INT_ERR_FACTOR, merge_s=INT_MERGE_S):
+    """The integrity proxy (until R4.4) on one flight's samples (t from the route's start):
+    flag = 3 sigma > limit. Cases: the error passes factor x limit, having been under limit
+    since the last case (or the start); detected if the flag is on at some sample in
+    [crossing, crossing + detect_s]; a case the flight ended before judging (and not yet
+    detected) isn't judged. False alarms: flag episodes (flag_episodes) in which the error
+    never passes the limit."""
+    t, err, sig = (np.asarray(x, dtype=float) for x in (t, err, sig))
+    flag = 3.0 * sig > limit
+    cases, armed = [], True
+    for k in range(len(t)):
+        if armed and err[k] > factor * limit:
+            on = np.nonzero(flag & (t >= t[k]) & (t <= t[k] + detect_s))[0]
+            done = bool(len(on)) or bool(t[-1] >= t[k] + detect_s)
+            cases.append({"t_s": float(t[k]), "error_m": float(err[k]), "judged": done, "detected": bool(len(on)),
+                          "latency_s": float(t[on[0]] - t[k]) if len(on) else None})
+            armed = False
+        elif not armed and err[k] <= limit:
+            armed = True
+    ep = flag_episodes(t, flag, merge_s)
+    false = [a for a, b in ep if err[a:b + 1].max() <= limit]
+    judged = [c for c in cases if c["judged"]]
+    return {"limit_m": float(limit), "case_error_m": float(factor * limit), "detect_s": float(detect_s),
+            "flag_pct": float(100 * flag.mean()) if len(t) else float("nan"),
+            "flag_while_under_pct": float(100 * (flag & (err <= limit)).mean()) if len(t) else float("nan"),
+            "cases": cases, "judged": len(judged), "detected": sum(c["detected"] for c in judged),
+            "detection_pct": float(100 * np.mean([c["detected"] for c in judged])) if judged else float("nan"),
+            "episodes": len(ep), "false_alarms": int(len(false)), "false_alarm_t_s": [float(t[k]) for k in false],
+            "flight_h": float((t[-1] - t[0]) / 3600.0) if len(t) > 1 else 0.0}
 
 
 def nis_stats(nis, dim):
@@ -221,11 +284,13 @@ def score(d):
                           "nees_median": float(np.median(ne)) if len(ne) else float("nan"),
                           "nees_over9_pct": float(100 * (ne > 9).mean()) if len(ne) else float("nan")}
     out["consistency"]["ok"] = bool(out["consistency"]["over3sigma_pct"] <= out["consistency"]["limit_pct"])
+    verr = np.full(len(t), np.nan)
     # Vertical: GDN's NED down against the adapter's truth (both from the pad's map height).
     vt = d["vtruth"]
     if len(vt):
         vz = np.interp(s[fly, 0], vt[:, 0], vt[:, 1])
         ve = np.abs(s[fly, 3] - vz)
+        verr[fly] = ve
         out["vertical"] = {"p95_m": cep(ve, 95), "max_m": float(ve.max()) if len(ve) else float("nan"),
                            "limit_m": lim.get("REQ-NAV-010", float("nan"))}
         out["vertical"]["ok"] = bool(out["vertical"]["p95_m"] <= out["vertical"]["limit_m"])
@@ -250,6 +315,13 @@ def score(d):
     else:
         acq["judged"] = False
     out["acquisition"] = acq
+    # Integrity: the labelled proxy (until R4.4), on the flight's samples.
+    ig = integrity(t[fly], err[fly], sig[fly], max5, detect_s=lim.get("REQ-INT-002_s", INT_DETECT_S))
+    ig["proxy"] = "GDN flags while 3 sigma > the class's 5-minute max limit (R2.7b proxy, until R4.4)"
+    ig["nominal"] = bool(not sc["faults"] and sc["start_error"]["distance_m"] == 0)
+    ig["req_int_002_pct"] = lim.get("REQ-INT-002", 99.0)
+    ig["req_int_003_per_10h"] = lim.get("REQ-INT-003", 1.0)
+    out["integrity"] = ig
     # The simulation's real-time factor, over the flight (30 s windows).
     if len(tr) > 10:
         wall, sim = tr[:, 0], tr[:, 9]
@@ -283,7 +355,12 @@ def score(d):
                              "processing_max": float(p.max()), "sample_to_output_p50": cep(s2o, 50),
                              "sample_to_output_p95": cep(s2o, 95), "sample_to_output_max": float(s2o.max()),
                              "n": int(sel.sum())}
-    return out, {"t": t, "err": err, "sig": sig, "nees": nees, "fly": fly, "vz": s[:, 3]}
+    return out, {"t": t, "err": err, "sig": sig, "nees": nees, "fly": fly, "vz": s[:, 3], "verr": verr}
+
+
+def save_series(series, path):
+    """The per-sample series a set is pooled from (tools/score_set.py), without ROS."""
+    np.savez_compressed(path, **{k: series[k] for k in ("t", "err", "sig", "nees", "fly", "verr")})
 
 
 def report(m, series, d, out_dir):
@@ -301,6 +378,12 @@ def report(m, series, d, out_dir):
     fig.subplots_adjust(hspace=0.5, wspace=0.38, top=0.86, bottom=0.08, left=0.07, right=0.97)
     ax = axs[0, 0]
     ax.fill_between(t, 0, 3 * sig, color=BLUE, alpha=0.12, lw=0, label="GDN's 3 sigma")
+    ig = m.get("integrity")
+    if ig:
+        fl = (3 * sig > ig["limit_m"]) & fly
+        if fl.any():
+            ax.fill_between(t, 0, 1, where=fl, transform=ax.get_xaxis_transform(), color=ORANGE, alpha=0.10, lw=0,
+                            label="flagged (proxy: 3 sigma over the max limit)")
     ax.plot(t, err, color=BLUE, lw=1.3, label="horizontal error")
     ax.axhline(w5["max_limit_m"], color=RED, lw=1, ls=(0, (3, 2)), label=f"max limit {w5['max_limit_m']:g} m (5 min)")
     ax.axhline(w5["cep95_limit_m"], color=ORANGE, lw=1, ls=(0, (1, 2)), label=f"CEP95 limit {w5['cep95_limit_m']:g} m")
@@ -412,7 +495,7 @@ def report_md(m):
 
     def verdict(ok, complete=True):
         return ("PASS" if ok else "FAIL") + ("" if complete else " (window not complete)")
-    lines = [f"# {m['scenario']}: score (R2.7a)", "",
+    lines = [f"# {m['scenario']}: score", "",
              f"{m['vehicle']} ({m['class']}, {m['requirement']}) over {m['world']} ({m['map_condition']}); "
              f"route {m['route_s']:.0f} s from its start; GNSS to PX4: {m['gnss']}; start error "
              f"{m['start_error_m']:g} m; {m['faults']} sensor faults. GNSS-free time counts from the route's "
@@ -435,7 +518,18 @@ def report_md(m):
     if a["judged"]:
         lines.append(f"| REQ-ACQ-001 error at {a['error_at_s']:g} s | from a {m['start_error_m']:g} m start | "
                      f"{f(a['error_m'])} m | {a['limit_m']:g} m | {verdict(a['ok'])} |")
-    lines += ["", "One run's CEP95 and max; the requirement pools a set of runs (R2.7b's baseline).", "",
+    ig = m.get("integrity")
+    if ig:
+        lines.append(f"| REQ-INT-002 lost lock flagged within {ig['detect_s']:g} s (proxy) | error over "
+                     f"{ig['case_error_m']:g} m | {ig['detected']} of {ig['judged']} cases | "
+                     f"{ig['req_int_002_pct']:g}% | "
+                     + (verdict(ig['detection_pct'] >= ig['req_int_002_pct']) if ig['judged'] else "no case") + " |")
+        lines.append(f"| REQ-INT-003 false alarms (proxy) | {ig['flight_h'] * 60:.1f} min"
+                     f"{'' if ig['nominal'] else ', not nominal (faults or a start error): not counted'} | "
+                     f"{ig['false_alarms']} | {ig['req_int_003_per_10h']:g} per 10 h | pooled over a set |")
+    lines += ["", "One run's CEP95 and max; the requirement pools a set of runs (tools/score_set.py). The "
+              "integrity rows use a proxy until R4.4 gives GDN a status: it \"flags\" while 3 x its sigma is over "
+              "the class's 5-minute max limit.", "",
               "| Measure | Value |", "|---|---|",
               f"| whole route | CEP50 {f(m['whole_route']['cep50_m'])} m, CEP95 {f(m['whole_route']['cep95_m'])} m, "
               f"max {f(m['whole_route']['max_m'])} m, RMS {f(m['whole_route']['rms_m'])} m, at the end "
@@ -475,23 +569,6 @@ def report_md(m):
     return "\n".join(lines) + "\n"
 
 
-def pooled(metrics_list):
-    """The set's scores per scenario: CEP95 pooled over all samples isn't available from
-    metrics.json alone, so this pools the per-run numbers: the max rule over flights
-    (share never over the max limit) and the median CEP95."""
-    by = {}
-    for m in metrics_list:
-        by.setdefault(m["scenario"], []).append(m)
-    lines = []
-    for name, ms in by.items():
-        w = [m["windows"]["300"] for m in ms]
-        share = 100.0 * np.mean([x["max_ok"] for x in w])
-        lines.append(f"{name}: {len(ms)} runs; 5 min: CEP95 median {np.median([x['cep95_m'] for x in w]):.1f} m "
-                     f"(limit {w[0]['cep95_limit_m']:g}), flights never over {w[0]['max_limit_m']:g} m: "
-                     f"{share:.0f}% (99% needed)")
-    return lines
-
-
 def selfcheck():
     ok = True
 
@@ -526,6 +603,32 @@ def selfcheck():
     s = nis_stats(rng.chisquare(1, 100000), 1)
     ck(abs(s["mean"] - 1) < 0.02 and abs(s["over_997_pct"] - 0.3) < 0.06, f"NIS of honest 1-D innovations: mean "
        f"{s['mean']:.3f}, over the 99.7% point {s['over_997_pct']:.2f}%")
+    # Integrity proxy: limit 30 m (flag when 3 sigma > 30, i.e. sigma > 10). The error ramps
+    # 0 -> 200 m over 0..200 s and back to 0; sigma is 5 m until 120 s, then 20 m.
+    t = np.arange(0.0, 400.0, 1.0)
+    err = np.where(t <= 200, t, np.maximum(400 - t, 0))
+    sig = np.where(t < 120, 5.0, 20.0)
+    ig = integrity(t, err, sig, 30.0)
+    ck(ig["judged"] == 1 and ig["detected"] == 1 and abs(ig["cases"][0]["t_s"] - 91) < 1e-9 and
+       abs(ig["cases"][0]["latency_s"] - 29) < 1e-9, f"a lost lock flagged 29 s after the error passes 90 m: "
+       f"{ig['cases']}")
+    ig = integrity(t, err, np.where(t < 125, 5.0, 20.0), 30.0)
+    ck(ig["judged"] == 1 and ig["detected"] == 0, "flagged 34 s after: not detected")
+    ck(ig["false_alarms"] == 0, "a flag episode in which the error passes the limit isn't a false alarm")
+    ig = integrity(t, np.where(t < 60, 5.0, 100.0), np.where(t > 30, 20.0, 5.0), 30.0)
+    ck(ig["false_alarms"] == 0, "a warning that comes true (flagged at 5 m, then 100 m) isn't a false alarm")
+    chat = (t > 10) & (t < 40) & (t % 4 < 2)
+    ig = integrity(t, 0 * t + 5.0, np.where(chat, 20.0, 5.0), 30.0)
+    ck(ig["episodes"] == 1 and ig["false_alarms"] == 1, "a flag chattering on and off is one episode")
+    sig2 = np.where((t > 10) & (t < 20), 20.0, 5.0)
+    ig = integrity(t, 0 * t + 5.0, sig2, 30.0)
+    ck(ig["false_alarms"] == 1 and ig["judged"] == 0, "the flag coming on while the error is 5 m: one false alarm")
+    tt = np.arange(0.0, 100.0)
+    ig = integrity(tt, np.where(tt > 80, 100.0, 1.0), 0 * tt + 1.0, 30.0)
+    ck(ig["judged"] == 0 and len(ig["cases"]) == 1, "a case the flight ends too soon after isn't judged")
+    e2 = np.array([0, 100, 50, 100, 20, 100, 0.0])
+    ig = integrity(np.arange(7.0) * 100, e2, 0 * e2 + 20.0, 30.0)
+    ck(len(ig["cases"]) == 2, "a new case needs the error back under the limit first")
     print("SELFCHECK PASSED" if ok else "SELFCHECK FAILED")
     return ok
 
@@ -545,6 +648,7 @@ def main():
         d = read_run(run)
         m, series = score(d)
         (Path(run) / "metrics.json").write_text(json.dumps(m, indent=1) + "\n")
+        save_series(series, Path(run) / "series.npz")
         if a.no_plot:
             (Path(run) / "report.md").write_text(report_md(m))
         else:
@@ -555,7 +659,8 @@ def main():
               f"report {Path(run) / 'report.md'}")
         ms.append(m)
     if len(ms) > 1:
-        print("\n".join(pooled(ms)))
+        import score_set
+        print(score_set.summary(score_set.pool(score_set.load(a.runs))))
     return True
 
 

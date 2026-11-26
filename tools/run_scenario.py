@@ -5,6 +5,7 @@ GPU (tools/docker_dev.sh run --gpu -- ...).
 
     tools/run_scenario.py config/scenarios/x500_emmental_smoke.yaml
     tools/run_scenario.py config/scenarios/*.yaml                  # one after another
+    tools/run_scenario.py config/scenarios/*.yaml --runs 3         # each three times, then the set scored
     tools/run_scenario.py SCENARIO --out log/scenarios --gui       # with Gazebo and RViz windows
 
 For each scenario (tools/scenario.py: the file format):
@@ -20,6 +21,11 @@ For each scenario (tools/scenario.py: the file format):
      short report (report.md, report.png). While the run flies, eskf_node's CPU and
      memory are sampled once a second into cpu.csv. A score is a measurement, not a
      verdict on the scenario: it doesn't change PASSED or FAILED.
+  7. with more than one run: tools/score_set.py (R2.7b) pools them per scenario and compares
+     them with the accepted baseline (config/baselines/sitl.json), into OUT/set_<UTC time>/.
+     --runs N flies the list N times over (all scenarios, then all again), so a set's runs
+     are spread over the session. The comparison is reported, not part of the exit code
+     (tools/score_set.py's own exit code says WORSE).
 
 result.json in the run directory holds every step's outcome. The exit code is 0 when
 every scenario passed, 1 if any failed, 2 if a scenario file is wrong.
@@ -194,7 +200,7 @@ def run_one(path, out_root, gui):
         (run / "result.json").write_text(json.dumps(res, indent=1) + "\n")
     print(f"run_scenario: {s['name']}: {'PASSED' if res['passed'] else 'FAILED'} in {res['duration_s']:.0f} s "
           f"({run})")
-    return res["passed"]
+    return res["passed"], run
 
 
 def main():
@@ -203,6 +209,7 @@ def main():
     ap.add_argument("scenarios", nargs="+", help="scenario files (config/scenarios/*.yaml)")
     ap.add_argument("--out", default=str(ROOT / "log/scenarios"), help="where run directories go")
     ap.add_argument("--gui", action="store_true", help="Gazebo and RViz windows (default headless)")
+    ap.add_argument("--runs", type=int, default=1, help="fly the list this many times over (default 1)")
     a = ap.parse_args()
     try:
         for f in a.scenarios:
@@ -210,10 +217,22 @@ def main():
     except (scn.ScenarioError, OSError) as e:
         print(f"run_scenario: {e}")
         return 2
-    results = [(f, run_one(f, a.out, a.gui)) for f in a.scenarios]
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+    results = []
+    for k in range(a.runs):
+        for f in a.scenarios:
+            if a.runs > 1:
+                print(f"run_scenario: run {k + 1} of {a.runs}")
+            results.append((f,) + run_one(f, a.out, a.gui))
     if len(results) > 1:
-        print("\nrun_scenario: " + ", ".join(f"{Path(f).stem} {'passed' if ok else 'FAILED'}" for f, ok in results))
-    return 0 if all(ok for _, ok in results) else 1
+        print("\nrun_scenario: " + ", ".join(f"{Path(f).stem} {'passed' if ok else 'FAILED'}" for f, ok, _ in results))
+        scored = [str(r) for _, _, r in results if (r / "series.npz").exists()]
+        if len(scored) > 1:
+            out = Path(a.out) / f"set_{stamp}"
+            ss = subprocess.run([sys.executable, str(ROOT / "tools/score_set.py"), *scored, "--out", str(out)],
+                                capture_output=True, text=True, cwd=ROOT)
+            print(ss.stdout.rstrip() or ss.stderr.rstrip())
+    return 0 if all(ok for _, ok, _ in results) else 1
 
 
 if __name__ == "__main__":

@@ -60,6 +60,13 @@ def read_limits(text):
     m = re.search(r"REQ-ACQ-001 \|[^|]*?up to ([\d.]+) m[^|]*?within ([\d.]+) s", text)
     if m:
         lim["REQ-ACQ-001"] = (float(m.group(1)), float(m.group(2)))
+    m = re.search(r"REQ-INT-002 \|[^|]*?within ([\d.]+) s, in at least ([\d.]+)% of cases", text)
+    if m:
+        lim["REQ-INT-002"] = float(m.group(2))
+        lim["REQ-INT-002_s"] = float(m.group(1))
+    m = re.search(r"REQ-INT-003 \|[^|]*?at most one \"lost\" report per ([\d.]+) hours", text)
+    if m:
+        lim["REQ-INT-003"] = 10.0 / float(m.group(1))       # per 10 hours
     return lim
 
 

@@ -168,6 +168,12 @@ jobs:
       - name: Run scorer self-check (R2.7a)
         run: python3 tools/score_run.py --selfcheck
 
+      # R2.7b: pooling a set of runs per scenario (CEP95 over every sample, the max rule
+      # over flights, integrity rates), the baseline's comparison and its accept (refuses
+      # failed runs and too few), on made-up runs (TEST-043).
+      - name: Set scorer and baseline self-check (R2.7b)
+        run: python3 tools/score_set.py --selfcheck
+
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |
           source env.sh
