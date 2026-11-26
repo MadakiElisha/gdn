@@ -15,7 +15,11 @@ For each scenario (tools/scenario.py: the file format):
      and the run fails);
   4. the recording: the bag (sitl_bag) and GDN's run log (log/gdn_runs/...) written, and
      the run log replays bit for bit (gdn_replay);
-  5. tools/check_scenario.py: the run did what the scenario asked.
+  5. tools/check_scenario.py: the run did what the scenario asked;
+  6. tools/score_run.py (R2.7a): GDN scored against the requirements, metrics.json and a
+     short report (report.md, report.png). While the run flies, eskf_node's CPU and
+     memory are sampled once a second into cpu.csv. A score is a measurement, not a
+     verdict on the scenario: it doesn't change PASSED or FAILED.
 
 result.json in the run directory holds every step's outcome. The exit code is 0 when
 every scenario passed, 1 if any failed, 2 if a scenario file is wrong.
@@ -29,6 +33,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -64,6 +69,32 @@ def stop(pids):
         time.sleep(3)
 
 
+def sample_cpu(path, stop_evt, pattern="lib/gdn_fusion/eskf_node"):
+    """eskf_node's CPU (share of one core) and resident memory, once a second, to cpu.csv."""
+    tick = os.sysconf("SC_CLK_TCK")
+    page_mb = os.sysconf("SC_PAGE_SIZE") / 1e6
+    last = None
+    with open(path, "w") as f:
+        f.write("t,cpu_pct,rss_mb\n")
+        while not stop_evt.wait(1.0):
+            r = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True)
+            pids = [int(x) for x in r.stdout.split()]
+            if not pids:
+                last = None
+                continue
+            try:
+                stat = Path(f"/proc/{pids[0]}/stat").read_text().rsplit(")", 1)[1].split()
+                cpu_s = (int(stat[11]) + int(stat[12])) / tick          # utime + stime
+                rss = int(Path(f"/proc/{pids[0]}/statm").read_text().split()[1]) * page_mb
+            except (OSError, IndexError, ValueError):
+                continue
+            now = time.time()
+            if last is not None and last[0] == pids[0]:
+                f.write(f"{now:.3f},{100.0 * (cpu_s - last[1]) / (now - last[2]):.2f},{rss:.1f}\n")
+                f.flush()
+            last = (pids[0], cpu_s, now)
+
+
 def git_describe():
     r = subprocess.run(["git", "-C", str(ROOT), "describe", "--always", "--dirty"], capture_output=True, text=True)
     return r.stdout.strip() or "unknown"
@@ -89,6 +120,9 @@ def run_one(path, out_root, gui):
               + ", ".join(c for _, c in before))
         stop(before)
     t0 = time.time()
+    stop_cpu = threading.Event()
+    cpu_thread = threading.Thread(target=sample_cpu, args=(run / "cpu.csv", stop_cpu), daemon=True)
+    cpu_thread.start()
     with open(run / "sim_run.log", "w") as log:
         p = subprocess.Popen([str(ROOT / "tools/sim_run.sh")], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
                              start_new_session=True)
@@ -104,6 +138,8 @@ def run_one(path, out_root, gui):
             except subprocess.TimeoutExpired:
                 os.killpg(p.pid, signal.SIGKILL)
                 res["sim_run_exit"] = p.wait()
+    stop_cpu.set()
+    cpu_thread.join(timeout=5)
     res["duration_s"] = round(time.time() - t0, 1)
     time.sleep(2)
     left = left_running()
@@ -140,6 +176,22 @@ def run_one(path, out_root, gui):
     res["passed"] = res["check_passed"]
     (run / "result.json").write_text(json.dumps(res, indent=1) + "\n")
     print(ck.stdout.rstrip())
+    # GDN's score (R2.7a): a measurement, not part of the verdict.
+    if res["run_log_ok"]:
+        sr = subprocess.run([sys.executable, str(ROOT / "tools/score_run.py"), str(run)], capture_output=True, text=True,
+                            cwd=ROOT)
+        (run / "score.txt").write_text(sr.stdout + sr.stderr)
+        if sr.returncode == 0 and (run / "metrics.json").exists():
+            m = json.loads((run / "metrics.json").read_text())
+            w5 = m["windows"]["300"]
+            res["score"] = {"requirement": m["requirement"], "cep95_5min_m": w5["cep95_m"], "max_5min_m": w5["max_m"],
+                            "cep95_ok": w5["cep95_ok"], "max_ok": w5["max_ok"],
+                            "over3sigma_pct": m["consistency"]["over3sigma_pct"], "report": str(run / "report.md")}
+            print(sr.stdout.rstrip())
+        else:
+            res["score"] = {"error": (sr.stderr or sr.stdout).strip().splitlines()[-1:]}
+            print(f"run_scenario: scoring failed (see {run / 'score.txt'})")
+        (run / "result.json").write_text(json.dumps(res, indent=1) + "\n")
     print(f"run_scenario: {s['name']}: {'PASSED' if res['passed'] else 'FAILED'} in {res['duration_s']:.0f} s "
           f"({run})")
     return res["passed"]

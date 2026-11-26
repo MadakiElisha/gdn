@@ -162,6 +162,12 @@ jobs:
           python3 tools/check_scenario.py --selfcheck
           python3 tools/sim_faults.py --selfcheck
 
+      # R2.7a: the run scorer's metrics on made-up data with known answers: CEP50/95 of a
+      # circular Gaussian, NEES and NIS of honest errors, the score windows, time to
+      # acquire (TEST-042; scoring runs needs the simulation's recordings).
+      - name: Run scorer self-check (R2.7a)
+        run: python3 tools/score_run.py --selfcheck
+
       - name: Monte Carlo, Zermatt, 24 seeds (ideal TRN, regression guard)
         run: |
           source env.sh
