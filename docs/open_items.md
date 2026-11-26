@@ -81,6 +81,18 @@ replayed exactly (`gdn_replay`) with one change at a time:
   helps a little on one flight. Not kept.
 - **The fix stays velocity aiding (Phase 3)** plus integrity monitoring (R4.4) to catch
   "confident and wrong".
+
+**TEST-043 (2026-11-26, R2.7b, three runs of each R2.6 scenario).**
+- **Confident and wrong, measured:** by the integrity proxy (flagged while 3 sigma is over
+  the class's max limit), GDN flagged 3 of 12 lost-lock cases on the VTOL and the cessna.
+  At each miss its 3 sigma was 37 to 92 m while the error passed 240 to 300 m.
+- **A wrong lock from a start error:** from the cessna's 150 m start it settles to a
+  3 sigma of 50 to 66 m within 14 to 26 s, still 300 m off.
+- **The x500 is the other way:** it's flagged from the route's start (3 sigma 49 to 65 m
+  against 30 m).
+- **Run to run, the drift varies up to 33 x on the same scenario.** So the SITL
+  baseline can't gate navigation until the drift is bounded. Its navigation metrics are
+  reported, and the Monte Carlo stays the navigation regression guard.
 - **Stage B fixed:** until TEST-032, Stage B (`GPS_OFF_AT`) never actually cut PX4's GPS.
   PX4's failure injection isn't acted on under Gazebo Harmonic. The cut now uses
   `EKF2_GPS_CTRL`, and `tools/check_gps_cut.py` checks it.

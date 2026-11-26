@@ -1,0 +1,164 @@
+{
+ "scenario": "rc_cessna_emmental_faults",
+ "run_dir": "/home/bf-s2/gdn_workspace/log/r27b/batch/rc_cessna_emmental_faults/20261126_131740",
+ "vehicle": "rc_cessna",
+ "class": "fixed-wing",
+ "requirement": "REQ-NAV-003",
+ "world": "ch_emmental",
+ "map_condition": "independent map (scored)",
+ "route_s": 293.400310754776,
+ "start_error_m": 0.0,
+ "gnss": "none",
+ "faults": 4,
+ "windows": {
+  "300": {
+   "window_s": 300.0,
+   "covered_s": 293.400310754776,
+   "complete": false,
+   "n": 2796,
+   "cep50_m": 665.6439169751468,
+   "cep95_m": 2509.548852269407,
+   "max_m": 2715.75060796092,
+   "over3sigma_pct": 79.54220314735336,
+   "cep95_limit_m": 50.0,
+   "max_limit_m": 100.0,
+   "cep95_ok": false,
+   "max_ok": false
+  },
+  "600": {
+   "window_s": 600.0,
+   "covered_s": 293.400310754776,
+   "complete": false,
+   "n": 2796,
+   "cep50_m": 665.6439169751468,
+   "cep95_m": 2509.548852269407,
+   "max_m": 2715.75060796092,
+   "over3sigma_pct": 79.54220314735336,
+   "cep95_limit_m": 75.0,
+   "max_limit_m": 100.0,
+   "cep95_ok": false,
+   "max_ok": false
+  }
+ },
+ "whole_route": {
+  "cep50_m": 665.6439169751468,
+  "cep95_m": 2509.548852269407,
+  "max_m": 2715.75060796092,
+  "final_m": 2715.75060796092,
+  "rms_m": 1224.1014923761252
+ },
+ "replay_scorer_whole_run": {
+  "rms_m": 1352.6,
+  "p95_m": 2743.1,
+  "max_m": 2949.8
+ },
+ "consistency": {
+  "over3sigma_pct": 79.54220314735336,
+  "limit_pct": 1.0,
+  "nees_mean": 2281.523116571107,
+  "nees_median": 1175.485910067382,
+  "nees_over9_pct": 79.54220314735336,
+  "ok": false
+ },
+ "vertical": {
+  "p95_m": 20.562226993543646,
+  "max_m": 20.740200096541017,
+  "limit_m": 5.0,
+  "ok": false
+ },
+ "nis": {
+  "AGL": {
+   "n": 286,
+   "dim": 1,
+   "mean": 0.8948308031479612,
+   "expected": 1.0,
+   "median": 0.19470501599730689,
+   "over_997_pct": 0.0,
+   "expected_pct": 0.3
+  },
+  "baro": {
+   "n": 13674,
+   "dim": 1,
+   "mean": 0.3477016004946248,
+   "expected": 1.0,
+   "median": 0.019911752483072007,
+   "over_997_pct": 1.228609039052216,
+   "expected_pct": 0.3
+  },
+  "mag (3-axis)": {
+   "n": 21942,
+   "dim": 3,
+   "mean": 0.11149281231098156,
+   "expected": 3.0,
+   "median": 0.014253665032471562,
+   "over_997_pct": 0.0,
+   "expected_pct": 0.3
+  },
+  "mag heading": {
+   "n": 3574,
+   "dim": 1,
+   "mean": 0.10336373953231816,
+   "expected": 1.0,
+   "median": 0.10906532826074138,
+   "over_997_pct": 0.0,
+   "expected_pct": 0.3
+  }
+ },
+ "acquisition": {
+  "limit_m": 100.0,
+  "time_to_acquire_s": 0.0803518295288086,
+  "hold_s": 30.0,
+  "judged": false
+ },
+ "integrity": {
+  "limit_m": 100.0,
+  "case_error_m": 300.0,
+  "detect_s": 30.0,
+  "flag_pct": 41.595135908440625,
+  "flag_while_under_pct": 8.333333333333332,
+  "cases": [
+   {
+    "t_s": 102.2404613494873,
+    "error_m": 300.3500648720808,
+    "judged": true,
+    "detected": false,
+    "latency_s": null
+   }
+  ],
+  "judged": 1,
+  "detected": 0,
+  "detection_pct": 0.0,
+  "episodes": 3,
+  "false_alarms": 1,
+  "false_alarm_t_s": [
+   35.723408937454224
+  ],
+  "flight_h": 0.08145151495933532,
+  "proxy": "GDN flags while 3 sigma > the class's 5-minute max limit (R2.7b proxy, until R4.4)",
+  "nominal": false,
+  "req_int_002_pct": 99.0,
+  "req_int_003_per_10h": 1.0
+ },
+ "sim": {
+  "real_time_factor": 0.9362452050614214,
+  "rtf_min_30s": 0.9319336861374821,
+  "timing_reliable": false
+ },
+ "cpu": {
+  "mean_pct": 2.8875426621160414,
+  "p95_pct": 3.99,
+  "max_pct": 4.98,
+  "rss_max_mb": 45.2,
+  "samples": 293
+ },
+ "latency_ms": {
+  "clock_jump_samples": 1686,
+  "processing_p50": 0.01811981201171875,
+  "processing_p95": 0.030517578125,
+  "processing_max": 1.9602775573730469,
+  "sample_to_output_p50": 382.32946395874023,
+  "sample_to_output_p95": 863.6830329895017,
+  "sample_to_output_max": 999.9687671661377,
+  "n": 22779
+ }
+}

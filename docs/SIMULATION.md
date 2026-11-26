@@ -646,7 +646,9 @@ python3 tools/score_set.py log/set --accept --note "why"   # make it the baselin
   scenario file's hash, so runs of a changed scenario aren't compared.
 
 **Fly timed batches on mains power.** On a laptop on battery in power-saver mode,
-Gazebo ran at 0.86 of real time (TEST-042).
+Gazebo ran at 0.86 of real time (TEST-042). Even on mains power with the performance
+profile, 9 of TEST-043's 30 runs ran at 0.93 to 0.955 (cause not known, no visible
+effect on GDN's error). Each run's report states its real-time factor.
 - **The effect:** PX4's clock, which is Gazebo's, kept falling out of sync with the PC's
   ("time jump detected" in `px4.log`). GDN dropped IMU samples, and the timing figures
   measured the drift.

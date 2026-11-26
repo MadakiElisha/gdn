@@ -1,0 +1,172 @@
+{
+ "scenario": "standard_vtol_emmental_faults",
+ "run_dir": "log/r27a/final2/standard_vtol_emmental_faults/20261126_081814",
+ "vehicle": "standard_vtol",
+ "class": "quadplane",
+ "requirement": "REQ-NAV-002",
+ "world": "ch_emmental",
+ "map_condition": "independent map (scored)",
+ "route_s": 276.500586271286,
+ "start_error_m": 0.0,
+ "gnss": "none",
+ "faults": 4,
+ "windows": {
+  "300": {
+   "window_s": 300.0,
+   "covered_s": 276.500586271286,
+   "complete": false,
+   "n": 2672,
+   "cep50_m": 560.3439332147882,
+   "cep95_m": 1557.186847556364,
+   "max_m": 2470.0536899309805,
+   "over3sigma_pct": 59.50598802395209,
+   "cep95_limit_m": 40.0,
+   "max_limit_m": 80.0,
+   "cep95_ok": false,
+   "max_ok": false
+  },
+  "600": {
+   "window_s": 600.0,
+   "covered_s": 276.500586271286,
+   "complete": false,
+   "n": 2672,
+   "cep50_m": 560.3439332147882,
+   "cep95_m": 1557.186847556364,
+   "max_m": 2470.0536899309805,
+   "over3sigma_pct": 59.50598802395209,
+   "cep95_limit_m": 60.0,
+   "max_limit_m": 120.0,
+   "cep95_ok": false,
+   "max_ok": false
+  }
+ },
+ "whole_route": {
+  "cep50_m": 560.3439332147882,
+  "cep95_m": 1557.186847556364,
+  "max_m": 2470.0536899309805,
+  "final_m": 2470.0536899309805,
+  "rms_m": 912.2418638009688
+ },
+ "replay_scorer_whole_run": {
+  "rms_m": 1186.9,
+  "p95_m": 2767.5,
+  "max_m": 4171.6
+ },
+ "consistency": {
+  "over3sigma_pct": 59.50598802395209,
+  "limit_pct": 1.0,
+  "nees_mean": 1180.1233332401125,
+  "nees_median": 120.64071296753181,
+  "nees_over9_pct": 63.061377245508986,
+  "ok": false
+ },
+ "vertical": {
+  "p95_m": 7.859941342631064,
+  "max_m": 15.156505121216668,
+  "limit_m": 5.0,
+  "ok": false
+ },
+ "nis": {
+  "AGL": {
+   "n": 290,
+   "dim": 1,
+   "mean": 0.7870545044055833,
+   "expected": 1.0,
+   "median": 0.16467454282234845,
+   "over_997_pct": 0.0,
+   "expected_pct": 0.3
+  },
+  "baro": {
+   "n": 12759,
+   "dim": 1,
+   "mean": 0.02798646013577378,
+   "expected": 1.0,
+   "median": 0.00798472709995156,
+   "over_997_pct": 0.007837604827964573,
+   "expected_pct": 0.3
+  },
+  "mag (3-axis)": {
+   "n": 25614,
+   "dim": 3,
+   "mean": 0.09619854532365889,
+   "expected": 3.0,
+   "median": 0.001874505293776772,
+   "over_997_pct": 0.0,
+   "expected_pct": 0.3
+  },
+  "mag heading": {
+   "n": 335,
+   "dim": 1,
+   "mean": 3.7672507455352418,
+   "expected": 1.0,
+   "median": 3.626874113511879,
+   "over_997_pct": 2.9850746268656714,
+   "expected_pct": 0.3
+  }
+ },
+ "acquisition": {
+  "limit_m": 80.0,
+  "time_to_acquire_s": 0.08045315742492676,
+  "hold_s": 30.0,
+  "judged": false
+ },
+ "integrity": {
+  "limit_m": 80.0,
+  "case_error_m": 240.0,
+  "detect_s": 30.0,
+  "flag_pct": 68.75,
+  "flag_while_under_pct": 19.199101796407188,
+  "cases": [
+   {
+    "t_s": 102.08092617988586,
+    "error_m": 241.38214918480782,
+    "judged": true,
+    "detected": true,
+    "latency_s": 7.119420528411865
+   },
+   {
+    "t_s": 241.8076069355011,
+    "error_m": 242.54245816318226,
+    "judged": true,
+    "detected": true,
+    "latency_s": 0.0
+   }
+  ],
+  "judged": 2,
+  "detected": 2,
+  "detection_pct": 100.0,
+  "episodes": 5,
+  "false_alarms": 2,
+  "false_alarm_t_s": [
+   18.000381469726562,
+   77.8116066455841
+  ],
+  "flight_h": 0.07675747593243917,
+  "proxy": "GDN flags while 3 sigma > the class's 5-minute max limit (R2.7b proxy, until R4.4)",
+  "nominal": false,
+  "req_int_002_pct": 99.0,
+  "req_int_003_per_10h": 1.0
+ },
+ "sim": {
+  "real_time_factor": 0.9904147045690969,
+  "rtf_min_30s": 0.9531620159772769,
+  "timing_reliable": false
+ },
+ "cpu": {
+  "mean_pct": 4.715797101449275,
+  "p95_pct": 5.98,
+  "max_pct": 12.59,
+  "rss_max_mb": 46.0,
+  "samples": 276
+ },
+ "latency_ms": {
+  "clock_jump_samples": 663,
+  "processing_p50": 0.027418136596679688,
+  "processing_p95": 0.04458427429199219,
+  "processing_max": 0.46253204345703125,
+  "sample_to_output_p50": 67.41595268249512,
+  "sample_to_output_p95": 157.8417420387268,
+  "sample_to_output_max": 983.269453048706,
+  "n": 22817
+ }
+}
