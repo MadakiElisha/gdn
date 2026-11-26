@@ -576,6 +576,43 @@ All three count their times from the route's start (`/gdn/sim/route_start`, from
 - the faults: each one is in GDN's own record of its inputs;
 - the lighting: the world's sun, and the images darker.
 
+### Scoring a run (R2.7a)
+
+`tools/run_scenario.py` scores every run once it's checked: `tools/score_run.py` writes
+`metrics.json`, `report.md` and `report.png` into the run directory. A score is a
+measurement, not part of the scenario's verdict.
+
+```bash
+tools/docker_dev.sh run -- python3 tools/score_run.py log/scenarios/x500_emmental_smoke/<UTC>/   # again, or an older run
+```
+
+- **The clock:** GNSS-free time counts from the route's start, as the scenario's cuts,
+  spoofing and faults do. GDN uses no GNSS in SITL, so the whole flight is GNSS-free
+  to it. The windows are the first 5 and 10 minutes, cut at the landing.
+- **Accuracy:** CEP50, CEP95 and max against the vehicle class's REQ-NAV limits, which
+  are read from `docs/requirements.md`: x500 REQ-NAV-001, VTOL REQ-NAV-002, cessna
+  REQ-NAV-003. Also the altitude p95 (REQ-NAV-010).
+- **Consistency:** the share of samples over GDN's own 3 sigma (REQ-INT-001), the 2-D
+  NEES, and the NIS per aiding sensor from GDN's update records.
+- **Time to acquire:** until the error stays under the 5-minute max limit for 30 s.
+  REQ-ACQ-001 is judged when the scenario asks a start error.
+- **CPU and memory:** `eskf_node`'s, sampled by the runner once a second (`cpu.csv`).
+- **Latency, per IMU sample, from GDN's run log:** its processing time, and the time
+  from PX4's sample to GDN's output.
+- **Cross-check:** the whole-run numbers sit beside the run's own `replay_scorer`.
+
+One run gives one run's CEP95 and max; the requirement pools a set of runs. That's
+R2.7b, with the accepted baseline and integrity rates.
+
+**Fly timed batches on mains power.** On a laptop on battery in power-saver mode,
+Gazebo ran at 0.86 of real time (TEST-042).
+- **The effect:** PX4's clock, which is Gazebo's, kept falling out of sync with the PC's
+  ("time jump detected" in `px4.log`). GDN dropped IMU samples, and the timing figures
+  measured the drift.
+- **Before a batch:** `powerprofilesctl get` should say `performance` (or `balanced`),
+  on the charger.
+- **The check:** each run's `report.md` gives its real-time factor.
+
 ## Current result (read this before judging the red line)
 
 Checked in a headless run without a GPU (the altimeter came from the map at the

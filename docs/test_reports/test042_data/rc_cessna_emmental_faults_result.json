@@ -1,0 +1,37 @@
+{
+ "scenario": "rc_cessna_emmental_faults",
+ "file": "config/scenarios/rc_cessna_emmental_faults.yaml",
+ "run_dir": "/home/bf-s2/gdn_workspace/log/r27a/final2/rc_cessna_emmental_faults/20261126_082439",
+ "gdn_version": "43b78cd-dirty",
+ "started_utc": "20261126_082439",
+ "settings": {
+  "GDN_VEHICLE": "rc_cessna",
+  "GDN_FLY_ARGS": "--legs 2 --leg-len 800 --spacing 250 --clearance 60",
+  "HEADLESS": "1",
+  "GDN_SITE": "ch_emmental",
+  "GDN_FAULTS": "agl:stuck:20:20;baro:noise:50:20:5;mag:dropout:80:20;imu:dropout:110:1"
+ },
+ "timeout_s": 1800,
+ "sim_run_exit": 0,
+ "timed_out": false,
+ "duration_s": 358.1,
+ "teardown_clean": true,
+ "left_running": [],
+ "bag_ok": true,
+ "bag_mb": 1446.9,
+ "run_log": "/home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261126_082512",
+ "run_log_ok": true,
+ "replay": "IDENTICAL",
+ "check_passed": true,
+ "checks_failed": [],
+ "passed": true,
+ "score": {
+  "requirement": "REQ-NAV-003",
+  "cep95_5min_m": 1943.5099118179285,
+  "max_5min_m": 2273.473945746201,
+  "cep95_ok": false,
+  "max_ok": false,
+  "over3sigma_pct": 76.72253258845437,
+  "report": "/home/bf-s2/gdn_workspace/log/r27a/final2/rc_cessna_emmental_faults/20261126_082439/report.md"
+ }
+}

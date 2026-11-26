@@ -196,6 +196,33 @@ Found by TEST-041 (R2.6b): faults on GDN's inputs in SITL, each one in GDN's own
 
   The scenarios to judge it are in `config/scenarios/*_faults.yaml`.
 
+### OI-018: GDN's baro and magnetometer innovations are far smaller than it predicts (open)
+Found by TEST-042 (R2.7a), from GDN's own update records on ten SITL scenarios.
+- **The NIS:** for the applied baro and 3-axis magnetometer updates, the mean NIS
+  ranges from 0.001 to 0.36 of its expected value (1 and 3) over the ten flights:
+  - on the x500, mostly 0.02 to 0.05;
+  - on the planes, about 0.001 for the magnetometer.
+
+  So the predicted innovation spread is about 5 to 7 times the innovations GDN actually
+  sees on the x500, and about 30 times for the planes' magnetometer.
+- **Sensor-specific on the long flights:** on the eight that flew 4 minutes or more,
+  the altimeter's NIS is near its expected value (0.5 to 1.5), while the baro's and the
+  magnetometer's stay at 0.001 to 0.36. The same filter state is behind all three, so
+  that points at the baro and magnetometer noise settings (R).
+- **On the short GNSS-cut flight** (148 s, error inside its 3 sigma: 0% over, NEES
+  median 2.9), every sensor's NIS is low, the altimeter's too (0.02). That points at a
+  large predicted state uncertainty early in the flight, not at the sensors.
+- **What it means:** GDN gives these two sensors far less weight than their real noise
+  deserves. A filter this cautious with its baro is also easy to pull off by a stuck
+  one (OI-017).
+- **Not separated per update yet:** the measurement noise (R, the filter config's baro
+  and mag sigmas) against the predicted state uncertainty (HPH'). Next step: log both
+  parts per update and refit R from in-flight innovations. That's the in-flight
+  noise work of OI-013, and R2.5's agreed "no noise tuning" until then.
+- **Also seen:** the ZUPT's NIS after landing is 23 to 24 times its expected value on
+  flights where GDN had drifted. The stillness update hits a filter that's far off; it's
+  a consequence of OI-012, not a cause.
+
 ## Closed
 
 ### OI-007: Gazebo heightmap visuals broken (closed)

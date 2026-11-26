@@ -1,0 +1,39 @@
+{
+ "scenario": "x500_emmental_spoof",
+ "file": "config/scenarios/x500_emmental_spoof.yaml",
+ "run_dir": "/home/bf-s2/gdn_workspace/log/r27a/final2/x500_emmental_spoof/20261126_080213",
+ "gdn_version": "43b78cd-dirty",
+ "started_utc": "20261126_080213",
+ "settings": {
+  "GDN_VEHICLE": "x500",
+  "GDN_FLY_ARGS": "--legs 2 --leg-len 800 --spacing 250 --clearance 40",
+  "HEADLESS": "1",
+  "GDN_SITE": "ch_emmental",
+  "GDN_SPOOF": "60 0.5 90"
+ },
+ "timeout_s": 1800,
+ "sim_run_exit": 0,
+ "timed_out": false,
+ "duration_s": 450.3,
+ "teardown_clean": true,
+ "left_running": [],
+ "bag_ok": true,
+ "bag_mb": 1869.6,
+ "run_log": "/home/bf-s2/gdn_workspace/log/gdn_runs/gdn_20261126_080246",
+ "run_log_ok": true,
+ "replay": "IDENTICAL",
+ "check_passed": true,
+ "checks_failed": [],
+ "passed": true,
+ "score": {
+  "requirement": "REQ-NAV-001",
+  "cep95_5min_m": 2617.3188594661565,
+  "max_5min_m": 3189.8623284678247,
+  "cep95_ok": false,
+  "max_ok": false,
+  "over3sigma_pct": 83.17836010143702,
+  "report": "/home/bf-s2/gdn_workspace/log/r27a/final2/x500_emmental_spoof/20261126_080213/report.md"
+ },
+ "check_passed_at_run": false,
+ "rechecked": "check_scenario.py times PX4's position by receive time (TEST-042); the run's own check: check_at_run.txt"
+}
